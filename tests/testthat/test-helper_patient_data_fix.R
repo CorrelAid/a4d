@@ -251,3 +251,14 @@ test_that("extract_date_from_measurement works", {
 
     expect_equal(extract_date_from_measurement(test_df, "measurement"), expected_df)
 })
+
+
+test_that("fix_id works", {
+    expect_equal(fix_id("KD_QB004"), "KD_QB004")
+    expect_equal(fix_id("K_QB004"), "Other")
+    expect_equal(fix_id("KD_Q004"), "Other")
+    expect_equal(fix_id("KD_QBX04"), "Other")
+    expect_equal(fix_id("11_EW004"), "Other")
+    expect_equal(fix_id("KD_Q1004"), "Other")
+    expect_equal(fix_id("KD_QB004XY"), "KD_QB004")
+})
