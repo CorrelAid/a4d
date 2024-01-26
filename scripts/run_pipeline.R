@@ -82,6 +82,7 @@ setup_logger(paths$output_root)
 tracker_files <- get_files(paths$tracker_root)
 logInfo("Found ", length(tracker_files), " tracker files.")
 
+tictoc::tic("Processing tracker files")
 all_patient_data <- list()
 all_product_data <- list()
 for (i in seq_along(tracker_files)) {
@@ -175,6 +176,7 @@ for (i in seq_along(tracker_files)) {
     logInfo("Finished processing tracker file ", tracker_file, ".")
     cat("Finished processing ", i, " of ", length(tracker_files), " (", round(i / length(tracker_files) * 100), "%) tracker files.\n")
 }
+tictoc::toc()
 
 logInfo("Start creating table csv files.")
 
