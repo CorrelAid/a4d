@@ -161,7 +161,7 @@ export_data <- function(data, filename, output_root, suffix) {
 #'
 #' @param data Data frame to export as parquet file.
 #' @param filename Output file name.
-#' @param output_root Root output directory.
+#' @param output_folder Output directory.
 #' @param suffix Suffix will be appended to the original file name (e.g. "patient_data").
 #'
 #' @examples
@@ -169,15 +169,15 @@ export_data <- function(data, filename, output_root, suffix) {
 #' export_data(
 #'     data = df_raw_product,
 #'     filename = tracker_name,
-#'     output_root = output_root,
+#'     output_folder = output_folder,
 #'     suffix = "_product_data"
 #' )
 #' }
-export_data_as_parquet <- function(data, filename, output_root, suffix) {
+export_data_as_parquet <- function(data, filename, output_folder, suffix) {
     logDebug("Start export_data. Suffix = ", suffix, ".")
     data %>%
         arrow::write_parquet(
-            sink = file.path(output_root, paste0(filename, suffix, ".parquet")),
+            sink = file.path(output_folder, paste0(filename, suffix, ".parquet")),
         )
     logInfo("Finish export_data. Suffix = ", suffix, ".")
 }

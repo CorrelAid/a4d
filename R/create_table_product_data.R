@@ -6,38 +6,20 @@
 #' If there are any columns that are present in some files but not others,
 #' this function will add those missing columns to the data frames where they are missing and fill them with NA.
 #'
-#' @param input_root A string specifying the path to the directory containing the input .parquet files.
-#' @param output_root A string specifying the path to the directory where the output .parquet file should be written.
+#' @param all_product_data list of data frames with cleaned product data from step 2.
+#' @param output_folder output irectory where the output .parquet file should be written.
 #'
 #' @return This function does not return a value. It writes the merged data to a new CSV file
 #' (with reordered columns according to the list of fields) in the output_root directory.
 #'
 #' @examples
 #' \dontrun{
-#' create_table_product_data("path/to/input/directory", "path/to/output/directory")
+#' create_table_product_data(list(df1, df2, ...), "path/to/output/directory")
 #' }
-create_table_product_data <- function(input_root, output_root) {
-    logInfo("Start creating single file for table product_data.")
-
-    # Get a list of all CSV files in the input_root directory
-    files <- list.files(input_root, pattern = "*.parquet", full.names = TRUE)
-
-    # Read all CSV files and store them in a list
-    data_list <- lapply(files, function(x) arrow::read_parquet(x))
-
-    logInfo(length(data_list), " files will be processed for creating the single file for table product_data.")
-
-    # Get the union of all column names
-    all_names <- unique(unlist(lapply(data_list, colnames)))
-
-    # Add missing columns to each data frame and fill them with NA
-    data_list <- lapply(data_list, function(x) {
-        x[setdiff(all_names, colnames(x))] <- NA
-        x
-    })
-
+create_table_product_data <- function(all_product_data, output_folder) {
     # Merge all data frames
-    merged_data <- do.call(rbind, data_list)
+    merged_data <- all_product_data %>%
+        dplyr::bind_rows()
 
     logDebug("Copying original parient IDs...")
     merged_data$orig_product_released_to <- merged_data$product_released_to
@@ -45,8 +27,8 @@ create_table_product_data <- function(input_root, output_root) {
     logDebug("Trying to fix patient IDs...")
     merged_data$product_released_to <- sapply(merged_data$product_released_to, fix_id)
 
-    logDebug("Extracting product_county and product_hospisal from patients IDs...")
-    merged_data <- id_2_county_hospisal(
+    logDebug("Extracting product_county and product_hospital from patients IDs...")
+    merged_data <- id_2_county_hospital(
         merged_data, "product_released_to",
         "product_country", "product_hospital"
     )
@@ -81,11 +63,9 @@ create_table_product_data <- function(input_root, output_root) {
     export_data_as_parquet(
         data = merged_data,
         filename = "product_data",
-        output_root = output_root,
+        output_folder = output_folder,
         suffix = ""
     )
-
-    logInfo("Finish creating single file for table product_data.")
 }
 
 
@@ -109,8 +89,8 @@ create_table_product_data <- function(input_root, output_root) {
 #'     hospital = NA,
 #'     stringsAsFactors = FALSE
 #' )
-#' df <- id_2_county_hospisal(df, "ID", "country", "hospital")
-id_2_county_hospisal <- function(df, id, country, hospital) {
+#' df <- id_2_county_hospital(df, "ID", "country", "hospital")
+id_2_county_hospital <- function(df, id, country, hospital) {
     # Find rows with id matching the pattern (2 letters + _ + 2 letters + digits)
     matching_rows <- grepl("^[a-zA-Z]{2}_[a-zA-Z]{2}[0-9]+$", df[[id]])
 

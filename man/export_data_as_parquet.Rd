@@ -4,14 +4,14 @@
 \alias{export_data_as_parquet}
 \title{Export data as parquet to a given destination.}
 \usage{
-export_data_as_parquet(data, filename, output_root, suffix)
+export_data_as_parquet(data, filename, output_folder, suffix)
 }
 \arguments{
 \item{data}{Data frame to export as parquet file.}
 
 \item{filename}{Output file name.}
 
-\item{output_root}{Root output directory.}
+\item{output_folder}{Output directory.}
 
 \item{suffix}{Suffix will be appended to the original file name (e.g. "patient_data").}
 }
@@ -23,7 +23,7 @@ Export data as parquet to a given destination.
 export_data(
     data = df_raw_product,
     filename = tracker_name,
-    output_root = output_root,
+    output_folder = output_folder,
     suffix = "_product_data"
 )
 }

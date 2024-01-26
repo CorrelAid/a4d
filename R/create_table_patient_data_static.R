@@ -5,12 +5,9 @@
 #' Group this data by id and take the latest available data (latest year and month).
 #'
 #'
-#' @param patient_data_files list of CSV files with cleaned patient data from step 2.
-#' @param input_root root directory of the input CSV files.
-#' @param output_root root directory of the output folder.
-create_table_patient_data_static <- function(patient_data_files, input_root, output_root) {
-    logInfo("Start creating single csv for table patient_data_static.")
-
+#' @param all_patient_data list of data frames with cleaned patient data from step 2.
+#' @param output_folder output directory.
+create_table_patient_data_static <- function(all_patient_data, output_folder) {
     # THERE MIGHT BE STATIC COLUMNS MISSING - PLEASE ADD THEM
     static_patient_columns <-
         c(
@@ -37,8 +34,8 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
             "tracker_year"
         )
 
-
-    static_patient_data <- read_cleaned_patient_data(input_root, patient_data_files) %>%
+    static_patient_data <- all_patient_data %>%
+        dplyr::bind_rows() %>%
         dplyr::select(tidyselect::all_of(static_patient_columns))
 
     # get latest static patient data overall
@@ -54,10 +51,8 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
 
     export_data_as_parquet(
         data = static_patient_data,
-        filename = "patient_data",
-        output_root = output_root,
-        suffix = "_static"
+        filename = "patient_data_static",
+        output_folder = output_folder,
+        suffix = ""
     )
-
-    logInfo("Finish creating single csv for table patient_data_static.")
 }

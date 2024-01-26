@@ -4,20 +4,12 @@
 \alias{create_table_longitudinal_data}
 \title{Create CSV with longitudinal patient data for a single variable.}
 \usage{
-create_table_longitudinal_data(
-  patient_data_files,
-  input_root,
-  output_root,
-  variable,
-  name
-)
+create_table_longitudinal_data(all_patient_data, output_folder, variable, name)
 }
 \arguments{
-\item{patient_data_files}{list of CSV files with cleaned patient data from step 2.}
+\item{all_patient_data}{list of data frames with cleaned patient data from step 2.}
 
-\item{input_root}{root directory of the input CSV files.}
-
-\item{output_root}{root directory of the output folder.}
+\item{output_folder}{root directory of the output folder.}
 
 \item{variable}{name of the column that should be exported.}
 

@@ -4,14 +4,12 @@
 \alias{create_table_patient_data_monthly}
 \title{Create CSV with monthly patient data}
 \usage{
-create_table_patient_data_monthly(patient_data_files, input_root, output_root)
+create_table_patient_data_monthly(all_patient_data, output_folder)
 }
 \arguments{
-\item{patient_data_files}{list of CSV files with cleaned patient data from step 2.}
+\item{all_patient_data}{list of data frames with cleaned patient data from step 2.}
 
-\item{input_root}{root directory of the input CSV files.}
-
-\item{output_root}{root directory of the output folder.}
+\item{output_folder}{output directory.}
 }
 \description{
 Read in all cleaned patient data CSV and create a single data.frame.

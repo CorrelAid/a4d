@@ -1,99 +1,83 @@
-options(readxl.show_progress = FALSE)
-
 ERROR_VAL_NUMERIC <<- 999999
 ERROR_VAL_CHARACTER <<- "Undefined"
 ERROR_VAL_DATE <<- "9999-09-09"
 
-main <- function() {
-    paths <- init_paths(c("patient_data_cleaned", "product_data_cleaned"), delete = TRUE)
-    setup_logger(paths$output_root, "script2")
-    patient_data_files <- get_files(paths$tracker_root, pattern = "patient_raw.parquet$")
-    product_data_files <- get_files(paths$tracker_root, pattern = "product_raw.parquet$")
-    logInfo(
-        "Found ",
-        length(patient_data_files),
-        " patient csv files under ",
-        paths$tracker_root,
-        "."
-    )
-    logInfo(
-        "Found ",
-        length(product_data_files),
-        " product csv files under ",
-        paths$tracker_root,
-        "."
-    )
+# --- META SCHEMA ---
+# meta schema has all final columns for the database
+# along with their corresponding data types
+# short type string for read_csv:
+# iiinDccDcnnDnncnlnlDncDccDDDccccDccccciDciiiDn
+schema <- tibble::tibble(
+    # clinic_visit = logical(),
+    # complication_screening = character(),
+    # complication_screening_date = lubridate::as_date(1),
+    # complication_screening_results = character(),
+    # dm_complication_comment = character(), # TODO
+    # dm_complication_eye = character(), # TODO
+    # dm_complication_kidney = character(), # TODO
+    # dm_complication_other = character(), # TODO
+    # est_strips_pmonth = integer(),
+    # family_support_scale = character(), # TODO
+    # inactive_reason = character(),
+    # insulin_dosage = character(),
+    # meter_received_date = lubridate::as_date(1), # TODO
+    # remarks = character(),
+    # remote_followup = logical(),
+    # additional_support = character(),
+    age = integer(),
+    blood_pressure_dias_mmhg = integer(),
+    blood_pressure_sys_mmhg = integer(),
+    bmi = numeric(),
+    bmi_date = lubridate::as_date(1),
+    clinic_code = character(),
+    country_code = character(),
+    dob = lubridate::as_date(1),
+    edu_occ = character(),
+    fbg_baseline_mg = numeric(),
+    fbg_baseline_mmol = numeric(),
+    fbg_updated_date = lubridate::as_date(1),
+    fbg_updated_mg = numeric(),
+    fbg_updated_mmol = numeric(),
+    file_name = character(),
+    hba1c_baseline = numeric(),
+    hba1c_baseline_exceeds = logical(),
+    hba1c_updated = numeric(),
+    hba1c_updated_exceeds = logical(),
+    hba1c_updated_date = lubridate::as_date(1),
+    height = numeric(),
+    hospitalisation_cause = character(),
+    hospitalisation_date = lubridate::as_date(1),
+    id = character(),
+    insulin_regimen = character(),
+    last_clinic_visit_date = lubridate::as_date(1),
+    last_remote_followup_date = lubridate::as_date(1),
+    lost_date = lubridate::as_date(1),
+    name = character(),
+    observations = character(),
+    observations_category = character(),
+    province = character(),
+    recruitment_date = lubridate::as_date(1),
+    sex = character(),
+    sheet_name = character(),
+    status = character(),
+    status_out = character(),
+    support_from_a4d = character(),
+    t1d_diagnosis_age = integer(),
+    t1d_diagnosis_date = lubridate::as_date(1),
+    t1d_diagnosis_with_dka = character(),
+    testing_frequency = integer(),
+    tracker_date = lubridate::as_date(1),
+    tracker_month = integer(),
+    tracker_year = integer(),
+    updated_2022_date = lubridate::as_date(1),
+    weight = numeric()
+)
 
-    logInfo("Start processing patient csv files.")
-
-    for (i in seq_along(patient_data_files)) {
-        patient_file <- patient_data_files[i]
-        patient_file_name <- tools::file_path_sans_ext(basename(patient_file))
-        logfile <- paste0(patient_file_name)
-        with_file_logger(logfile,
-            {
-                tryCatch(
-                    process_patient_file(paths, patient_file, patient_file_name, paths$patient_data_cleaned),
-                    error = function(e) {
-                        logError("Could not process raw patient data. Error = ", e$message, ".")
-                    },
-                    warning = function(w) {
-                        logWarn("Could not process raw patient data. Warning = ", w$message, ".")
-                    }
-                )
-            },
-            output_root = paths$output_root
-        )
-        cat(paste("Processed ", i, " of ", length(patient_data_files), " (", round(i / length(patient_data_files) * 100, 0), "%) patient files.\n"))
-    }
-
-    logInfo("Finish processing all patient csv files.")
-
-    logDebug("Start processing product csv files.")
-    synonyms <- get_synonyms()
-    synonyms_product <- synonyms$product
-
-    for (i in seq_along(product_data_files)) {
-        product_file <- product_data_files[i]
-        product_file_name <- tools::file_path_sans_ext(basename(product_file))
-        logfile <- paste0(product_file_name)
-
-        with_file_logger(logfile,
-            {
-                tryCatch(
-                    process_product_file(paths, product_file, product_file_name, synonyms_product, paths$product_data_cleaned),
-                    error = function(e) {
-                        logError("Could not process raw product data. Error = ", e$message, ".")
-                    },
-                    warning = function(w) {
-                        logWarn("Could not process raw product data. Warning = ", w$message, ".")
-                    }
-                )
-            },
-            output_root = paths$output_root
-        )
-        cat(paste("Processed ", i, " of ", length(product_data_files), " (", round(i / length(product_data_files) * 100, 0), "%) product files.\n"))
-    }
-
-    logInfo("Finish processing all csv files.")
-}
-
-
-process_patient_file <- function(paths, patient_file, patient_file_name, output_root) {
-    patient_file_path <-
-        file.path(paths$tracker_root, patient_file)
-    logDebug("Start process_patient_file.")
-    logInfo(
-        "Current file: ",
-        patient_file_name
-    )
-
+process_patient_data <- function(raw_patient_data, tracker_name, output_folder, export = FALSE) {
     allowed_provinces <- get_allowed_provinces()
 
-    df_patient_raw <- arrow::read_parquet(patient_file_path)
-
     # filter all rows with no patient id or patient name
-    df_patient_raw <- df_patient_raw %>%
+    df_patient_raw <- raw_patient_data %>%
         dplyr::filter(!(is.na(id) & is.na(name))) %>%
         dplyr::filter(!(id == "0" & name == "0"))
 
@@ -137,78 +121,6 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
             hba1c_baseline_exceeds = ifelse(grepl(">|<", hba1c_baseline), TRUE, FALSE),
             hba1c_updated_exceeds = ifelse(grepl(">|<", hba1c_updated), TRUE, FALSE)
         )
-
-    # --- META SCHEMA ---
-    # meta schema has all final columns for the database
-    # along with their corresponding data types
-    logInfo("Creating meta schema.")
-    # short type string for read_csv:
-    # iiinDccDcnnDnncnlnlDncDccDDDccccDccccciDciiiDn
-    schema <- tibble::tibble(
-        # clinic_visit = logical(),
-        # complication_screening = character(),
-        # complication_screening_date = lubridate::as_date(1),
-        # complication_screening_results = character(),
-        # dm_complication_comment = character(), # TODO
-        # dm_complication_eye = character(), # TODO
-        # dm_complication_kidney = character(), # TODO
-        # dm_complication_other = character(), # TODO
-        # est_strips_pmonth = integer(),
-        # family_support_scale = character(), # TODO
-        # inactive_reason = character(),
-        # insulin_dosage = character(),
-        # meter_received_date = lubridate::as_date(1), # TODO
-        # remarks = character(),
-        # remote_followup = logical(),
-        # additional_support = character(),
-        age = integer(),
-        blood_pressure_dias_mmhg = integer(),
-        blood_pressure_sys_mmhg = integer(),
-        bmi = numeric(),
-        bmi_date = lubridate::as_date(1),
-        clinic_code = character(),
-        country_code = character(),
-        dob = lubridate::as_date(1),
-        edu_occ = character(),
-        fbg_baseline_mg = numeric(),
-        fbg_baseline_mmol = numeric(),
-        fbg_updated_date = lubridate::as_date(1),
-        fbg_updated_mg = numeric(),
-        fbg_updated_mmol = numeric(),
-        file_name = character(),
-        hba1c_baseline = numeric(),
-        hba1c_baseline_exceeds = logical(),
-        hba1c_updated = numeric(),
-        hba1c_updated_exceeds = logical(),
-        hba1c_updated_date = lubridate::as_date(1),
-        height = numeric(),
-        hospitalisation_cause = character(),
-        hospitalisation_date = lubridate::as_date(1),
-        id = character(),
-        insulin_regimen = character(),
-        last_clinic_visit_date = lubridate::as_date(1),
-        last_remote_followup_date = lubridate::as_date(1),
-        lost_date = lubridate::as_date(1),
-        name = character(),
-        observations = character(),
-        observations_category = character(),
-        province = character(),
-        recruitment_date = lubridate::as_date(1),
-        sex = character(),
-        sheet_name = character(),
-        status = character(),
-        status_out = character(),
-        support_from_a4d = character(),
-        t1d_diagnosis_age = integer(),
-        t1d_diagnosis_date = lubridate::as_date(1),
-        t1d_diagnosis_with_dka = character(),
-        testing_frequency = integer(),
-        tracker_date = lubridate::as_date(1),
-        tracker_month = integer(),
-        tracker_year = integer(),
-        updated_2022_date = lubridate::as_date(1),
-        weight = numeric()
-    )
 
     cols_extra <- colnames(df_patient_raw)[!colnames(df_patient_raw) %in% colnames(schema)]
     logWarn("Extra columns in patient data: ", paste(cols_extra, collapse = ", "))
@@ -326,46 +238,39 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
         "."
     )
 
-    export_data_as_parquet(
-        data = df_patient,
-        filename = stringr::str_replace(patient_file_name, "_patient_raw", ""),
-        output_root = output_root,
-        suffix = "_patient_cleaned"
-    )
+    if (export) {
+        export_data_as_parquet(
+            data = df_patient,
+            filename = tracker_name,
+            output_folder = output_folder,
+            suffix = "_patient_cleaned"
+        )
+    }
 
-    logInfo("Finish process_patient_file.")
+    df_patient
 }
 
 
-process_product_file <- function(paths, product_file, product_file_name, synonyms_product, output_root) {
-    product_file_path <-
-        file.path(paths$tracker_root, product_file)
-    logDebug("Start process_product_file.")
-    logInfo(
-        "Current file: ",
-        product_file_name
-    )
+process_product_data <- function(raw_product_data, tracker_name, output_folder, export = FALSE) {
+    synonyms <- get_synonyms()
+    synonyms_product <- synonyms$product
 
-    df_product_raw <- arrow::read_parquet(product_file_path)
-
-    df_product_raw <- reading_product_data_step2(df_product_raw, synonyms_product)
+    df_product <- reading_product_data_step2(raw_product_data, synonyms_product)
 
     logDebug(
         "df_product_raw dim: ",
-        dim(df_product_raw) %>% as.data.frame(),
+        dim(df_product) %>% as.data.frame(),
         "."
     )
 
-    export_data_as_parquet(
-        data = df_product_raw,
-        filename = stringr::str_replace(product_file_name, "_product_raw", ""),
-        output_root = output_root,
-        suffix = "_product_cleaned"
-    )
+    if (export) {
+        export_data_as_parquet(
+            data = df_product,
+            filename = tracker_name,
+            output_folder = output_folder,
+            suffix = "_product_cleaned"
+        )
+    }
 
-    logInfo("Finish process_product_file.")
+    df_product
 }
-
-main()
-
-clearLoggers()

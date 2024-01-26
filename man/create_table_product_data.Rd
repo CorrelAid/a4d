@@ -4,12 +4,12 @@
 \alias{create_table_product_data}
 \title{Create a Single CSV for Table Product Data}
 \usage{
-create_table_product_data(input_root, output_root)
+create_table_product_data(all_product_data, output_folder)
 }
 \arguments{
-\item{input_root}{A string specifying the path to the directory containing the input .parquet files.}
+\item{all_product_data}{list of data frames with cleaned product data from step 2.}
 
-\item{output_root}{A string specifying the path to the directory where the output .parquet file should be written.}
+\item{output_folder}{output irectory where the output .parquet file should be written.}
 }
 \value{
 This function does not return a value. It writes the merged data to a new CSV file
@@ -23,6 +23,6 @@ this function will add those missing columns to the data frames where they are m
 }
 \examples{
 \dontrun{
-create_table_product_data("path/to/input/directory", "path/to/output/directory")
+create_table_product_data(list(df1, df2, ...), "path/to/output/directory")
 }
 }
