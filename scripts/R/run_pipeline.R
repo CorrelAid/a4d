@@ -109,7 +109,7 @@ ingest_data(
 )
 ingest_data(
     project_id = PROJECT_ID,
-    cluster_fields = "clinic_code",
+    cluster_fields = "clinic_id",
     dataset = DATASET,
     table = "clinic_data_static",
     source = file.path(table_dir, "clinic_data_static.parquet")
