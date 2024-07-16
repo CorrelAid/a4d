@@ -200,10 +200,14 @@ reading_product_data_step1 <-
             check_entry_dates(product_df, curr_sheet)
 
             # Remove leading spaces from the 'product_released_to' column
-            product_df$product_released_to <- trimws(product_df$product_released_to, which = "left")
+            if ("product_released_to" %in% colnames(product_df)) {
+                product_df$product_released_to <- trimws(product_df$product_released_to, which = "left")
+            }
 
             # Replace Extra "Total" Values with NA
-            product_df <- replace_extra_total_values_with_NA(product_df, "product_units_released")
+            if ("product_units_released" %in% colnames(product_df)) {
+                product_df <- replace_extra_total_values_with_NA(product_df, "product_units_released")
+            }
 
             # combine all months
             if (!exists("df_final")) {
