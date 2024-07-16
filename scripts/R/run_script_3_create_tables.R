@@ -178,12 +178,12 @@ main <- function() {
         output_root = paths$output_root
     )
 
-    logfile <- "clinic_data_static"
+    logfile <- "table_clinic_data_static"
     with_file_logger(logfile,
         {
             tryCatch(
                 {
-                    export_data_as_parquet(data = read.csv("reference_data/clinic_data_static.csv"), filename = "clinic_data_static", output_root = paths$tables, suffix = "")
+                    create_table_clinic_static_data(paths$tables)
                 },
                 error = function(e) {
                     logError(
@@ -193,7 +193,7 @@ main <- function() {
                             script = "script3",
                             file = "run_script_3_create_tables.R",
                             errorCode = "critical_abort",
-                            functionName = "export_data_as_parquet"
+                            functionName = "create_table_clinic_static_data"
                         )
                     )
                 },
@@ -205,7 +205,7 @@ main <- function() {
                             script = "script3",
                             file = "run_script_3_create_tables.R",
                             warningCode = "critical_abort",
-                            functionName = "export_data_as_parquet"
+                            functionName = "create_table_clinic_static_data"
                         )
                     )
                 }
@@ -215,7 +215,6 @@ main <- function() {
     )
 
     logfile <- "link_product_patient_data"
-
     with_file_logger(logfile,
         {
             tryCatch(
