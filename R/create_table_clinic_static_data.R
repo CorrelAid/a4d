@@ -1,4 +1,3 @@
-
 #' @title Create clinic static data table
 #'
 #' @description
@@ -9,7 +8,7 @@
 create_table_clinic_static_data <- function(output_root) {
     clinic_data <- readxl::read_excel(here::here("reference_data", "clinic_data.xlsx"))
     clinic_data <- clinic_data %>%
-        tidyr::fill(tidyr::all_of(names(clinic_data)), .direction="down")
+        tidyr::fill(tidyr::all_of(names(clinic_data)), .direction = "down")
 
     logInfo(
         log_to_json(
@@ -27,5 +26,4 @@ create_table_clinic_static_data <- function(output_root) {
         output_root = output_root,
         suffix = ""
     )
-
 }
