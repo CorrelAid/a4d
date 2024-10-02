@@ -33,12 +33,14 @@ create_table_longitudinal_data <-
                 "height",
                 "hospitalisation_cause",
                 "hospitalisation_date",
-                "id",
                 "insulin_regimen",
+                "insulin_type",
+                "insulin_subtype",
                 "last_clinic_visit_date",
                 "last_remote_followup_date",
                 "observations",
                 "observations_category",
+                "patient_id",
                 "sheet_name",
                 "status",
                 "support_from_a4d",
@@ -58,7 +60,7 @@ create_table_longitudinal_data <-
         longitudinal_data <- patient_data %>%
             tidyr::drop_na(!!variable) %>%
             dplyr::filter(get(variable) != ERROR_VAL_NUMERIC) %>%
-            dplyr::group_by(id) %>%
+            dplyr::group_by(patient_id) %>%
             dplyr::arrange(tracker_year, tracker_month) %>%
             dplyr::filter(
                 get(variable) != tidyr::replace_na(
@@ -67,7 +69,7 @@ create_table_longitudinal_data <-
                 )
             ) %>%
             dplyr::ungroup() %>%
-            dplyr::arrange(id, tracker_year, tracker_month)
+            dplyr::arrange(patient_id, tracker_year, tracker_month)
 
         logInfo(
             log_to_json(

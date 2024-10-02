@@ -39,7 +39,7 @@ reading_patient_data <-
             )
         )
 
-        testit::assert(year %in% c(2017, 2018, 2019, 2020, 2021, 2022, 2023))
+        testit::assert(year >= 2017 & year <= 2024)
 
         tidy_tracker_list <- NULL
 
@@ -49,7 +49,7 @@ reading_patient_data <-
 
             df_patient <-
                 harmonize_patient_data_columns(df_patient, columns_synonyms)
-            testit::assert("id" %in% colnames(df_patient))
+            testit::assert("patient_id" %in% colnames(df_patient))
 
             # -- if we have duplicate columns, merge them
             if (anyDuplicated(colnames(df_patient)) > 0) {
@@ -85,8 +85,8 @@ reading_patient_data <-
 
         # filter all rows with no patient id or patient name
         df_raw <- df_raw %>%
-            dplyr::filter(!(is.na(id) & is.na(name))) %>%
-            dplyr::filter(!(id == "0" & name == "0"))
+            dplyr::filter(!(is.na(patient_id) & is.na(name))) %>%
+            dplyr::filter(!(patient_id == "0" & name == "0"))
 
 
         if ("Patient List" %in% sheet_list) {
@@ -109,7 +109,7 @@ reading_patient_data <-
                         "hba1c_baseline",
                         "name"
                     ))),
-                by = "id",
+                by = "patient_id",
                 relationship = "many-to-one"
             )
         }

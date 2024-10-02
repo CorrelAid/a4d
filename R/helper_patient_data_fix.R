@@ -280,7 +280,7 @@ parse_step <- function(column_name, step) {
 parse_allowed_value_check <- function(column_name, check_details) {
     args <- rlang::exprs(
         valid_values = !!check_details$allowed_values,
-        id = id,
+        id = patient_id,
         replace_invalid = !!check_details$replace_invalid,
         col = !!column_name
     )

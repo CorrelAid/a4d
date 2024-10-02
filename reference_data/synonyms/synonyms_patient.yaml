@@ -18,6 +18,7 @@ bmi_date:
   - date of bmi date
   - date of bmi ddmmmyy
   - Date of BMI (dd-mmm-yy)
+  - Date of BMI (dd-mmm-yyyy)
 clinic_id: []
 clinic_visit:
   - clinic visit current month
@@ -116,6 +117,7 @@ fbg_updated_date:
   - Updated FBG Date
   - Updated FBG or CBG Date
   - updated fbg fbg date
+  - Updated FBG	(dd-mmm-yyyy)
 file_name: []
 sex:
   - Gender
@@ -128,6 +130,7 @@ hba1c_updated:
   - Updated HbA1c (%)
   - Updated HbA1c %
   - updated hba1c hba1c
+  - Updated HbA1c (dd-mmm-yyyy)
 hba1c_updated_date:
   - Updated HbA1c Date
   - updated hba1c hba1c date
@@ -150,7 +153,20 @@ hospitalisation_date:
   - Current Month Hospitalisation due to diabetes emergency or glucose control Date
   - hospitalisation due to diabetes emergency or glucose control date
   - hospitalisation due to diabetes emergency date
-id:
+  - Current Month Hospitalisation (DKA, Hyper, Hypo, Other) (dd-mmm-yyyy)
+insulin_type: []
+insulin_subtype: []
+human_insulin_pre_mixed:
+    - Pre-mixed Select
+human_insulin_short_acting:
+    - Short-acting Select
+human_insulin_intermediate_acting:
+    - Intermediate-acting Select
+analog_insulin_rapid_acting:
+    - Rapid-acting Select
+analog_insulin_long_acting:
+    - Long-acting Select
+patient_id:
   - ID
   - Patient ID
   - Patient ID*
@@ -174,19 +190,27 @@ insulin_required_product_name:
 insulin_required_year:
   - estimated insulin required per year
   - estimated insulin required per year vialbox
+insulin_total_units:
+  - TOTAL Insulin Units per day
+insulin_injections:
+  - Number of insulin injections per day
 last_clinic_visit_date:
   - Last Clinic Visit
   - Last Clinic Visit (dd-mmm-yy)
+  - Last Clinic Visit (dd-mmm-yyyy)
   - last clinic visit date
 last_remote_followup_date:
   - last remote follow update date
   - Last Remote Follow Up Date
+  - Last Remote Follow Up Date (dd-mmm-yyyy)
+  - Last Remote Follow Up (dd-mmm-yyyy)
 latest_complication_screenning:
   - Complication Screening (starting from Q2 2021)
   - Latest Complication Screening (select from list)
   - Latest Complication Screening (dd-mmm-yy)
 lost_date:
   - Lost Patients Summary Lost Date
+  - Lost Patients Summary Lost Date (dd-mmm-yyyy)
 meter_received_date:
   - meter received date
   - isens meter received date
@@ -234,6 +258,7 @@ recruitment_date:
   - date of recruitment mmmyy
   - Date of Recruitment into A4D
   - date of recruitment mmyyyy
+  - Date of Recruitment (mmm-yyyy)
 remote_followup:
   - remote follow up current month
   - remote follow up

@@ -27,6 +27,7 @@ hospitalisation_cause:
     - allowed_values:
         - DKA
         - HYPO
+        - HYPER
         - OTHER
       replace_invalid: true
       type: allowed_values
@@ -71,8 +72,11 @@ status:
     - allowed_values:
         - Active
         - Active - Remote
+        - Active Remote
+        - Active Monitoring
         - Query
         - Inactive
+        - Transferred
         - Lost Follow Up
         - Deceased
         - Discontinued
@@ -83,6 +87,8 @@ support_from_a4d:
     - allowed_values:
         - Standard
         - Partial
+        - Partial - A
+        - Partial - B
         - Semi-Partial
         - SAC
         - Monitoring

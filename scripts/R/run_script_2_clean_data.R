@@ -189,6 +189,34 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
             hba1c_updated_exceeds = ifelse(grepl(">|<", hba1c_updated), TRUE, FALSE)
         )
 
+    # The tracker has three columns for human insulin and two columns for analog insulin
+    # The three columns for human insulin are human_insulin_pre_mixed, human_insulin_short_acting, human_insulin_intermediate_acting
+    # The two columns for analog insulin are analog_insulin_rapid_acting, analog_insulin_long_acting
+    # One patient can have multiple insulin regimens at the same time, but only the human insulin type or the analog insulin type
+    # Whenever the patient has a "Y" in one of the human insulin columns, the insulin type is set to "human insulin", otherwise to "analog insulin"
+    # Whenever there is a "Y" in one of the columns, the name of that column is added as value to the insulin_subtype column
+    if ("human_insulin_pre_mixed" %in% colnames(df_patient_raw)) {
+        df_patient_raw <- df_patient_raw %>%
+            dplyr::mutate(
+                insulin_type = ifelse(
+                    human_insulin_pre_mixed == "Y" |
+                        human_insulin_short_acting == "Y" |
+                        human_insulin_intermediate_acting == "Y",
+                    "human insulin",
+                    "analog insulin"
+                ),
+                insulin_subtype =
+                    ifelse(human_insulin_pre_mixed == "Y", "pre-mixed", "") %>%
+                        paste(ifelse(human_insulin_short_acting == "Y", "short-acting", ""), sep = ",") %>%
+                        paste(ifelse(human_insulin_intermediate_acting == "Y", "intermediate-acting", ""), sep = ",") %>%
+                        paste(ifelse(analog_insulin_rapid_acting == "Y", "rapic-acting", ""), sep = ",") %>%
+                        paste(ifelse(analog_insulin_long_acting == "Y", "long-acting", ""), sep = ",") %>%
+                        stringr::str_split(",") %>%
+                        purrr::map(~ .x[.x != ""]) %>%
+                        purrr::map_chr(~ paste(.x, collapse = ","))
+            )
+    }
+
     # --- META SCHEMA ---
     # meta schema has all final columns for the database
     # along with their corresponding data types
@@ -234,8 +262,11 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
         height = numeric(),
         hospitalisation_cause = character(),
         hospitalisation_date = lubridate::as_date(1),
-        id = character(),
+        insulin_injections = numeric(),
         insulin_regimen = character(),
+        insulin_total_units = numeric(),
+        insulin_type = character(),
+        insulin_subtype = character(),
         last_clinic_visit_date = lubridate::as_date(1),
         last_remote_followup_date = lubridate::as_date(1),
         lost_date = lubridate::as_date(1),
@@ -243,6 +274,7 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
         observations = character(),
         observations_category = character(),
         patient_consent = character(),
+        patient_id = character(),
         province = character(),
         recruitment_date = lubridate::as_date(1),
         sex = character(),
@@ -298,32 +330,32 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
         dplyr::rowwise() %>%
         # 1. handle known problems before converting to target type
         dplyr::mutate(
-            t1d_diagnosis_age = fix_t1d_diagnosis_age(t1d_diagnosis_age, id),
+            t1d_diagnosis_age = fix_t1d_diagnosis_age(t1d_diagnosis_age, patient_id),
             hba1c_baseline = stringr::str_replace(hba1c_baseline, "<|>", ""),
             hba1c_updated = stringr::str_replace(hba1c_updated, "<|>", ""),
             fbg_baseline_mg = fix_fbg(fbg_baseline_mg),
             fbg_baseline_mmol = fix_fbg(fbg_baseline_mmol),
             fbg_updated_mg = fix_fbg(fbg_updated_mg),
             fbg_updated_mmol = fix_fbg(fbg_updated_mmol),
-            testing_frequency = fix_testing_frequency(testing_frequency, id)
+            testing_frequency = fix_testing_frequency(testing_frequency, patient_id)
         ) %>%
         # 2. convert the refined character columns into the target data type
         dplyr::mutate(
             dplyr::across(
                 schema %>% dplyr::select(tidyselect::where(is.numeric)) %>% names(),
-                \(x) convert_to(correct_decimal_sign(x), as.numeric, ERROR_VAL_NUMERIC, dplyr::cur_column(), id = id)
+                \(x) convert_to(correct_decimal_sign(x), as.numeric, ERROR_VAL_NUMERIC, dplyr::cur_column(), id = patient_id)
             ),
             dplyr::across(
                 schema %>% dplyr::select(tidyselect::where(is.logical)) %>% names(),
-                \(x) convert_to(x, as.logical, FALSE, dplyr::cur_column(), id = id)
+                \(x) convert_to(x, as.logical, FALSE, dplyr::cur_column(), id = patient_id)
             ),
             dplyr::across(
                 schema %>% dplyr::select(tidyselect::where(lubridate::is.Date)) %>% names(),
-                \(x) convert_to(fix_digit_date(x), parse_dates, as.Date(ERROR_VAL_DATE), dplyr::cur_column(), id = id)
+                \(x) convert_to(fix_digit_date(x), parse_dates, as.Date(ERROR_VAL_DATE), dplyr::cur_column(), id = patient_id)
             ),
             dplyr::across(
                 schema %>% dplyr::select(tidyselect::where(is.integer)) %>% names(),
-                \(x) convert_to(x, function(x) as.integer(round(as.double(x))), ERROR_VAL_NUMERIC, dplyr::cur_column(), id = id)
+                \(x) convert_to(x, function(x) as.integer(round(as.double(x))), ERROR_VAL_NUMERIC, dplyr::cur_column(), id = patient_id)
             )
         ) %>%
         # 3. fix remaining problems in the target data type
@@ -332,11 +364,11 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
             height = transform_cm_to_m(height) %>%
                 cut_numeric_value(min = 0, max = 2.3, col_name = "height"),
             weight = cut_numeric_value(weight, min = 0, max = 200, col_name = "weight"),
-            bmi = fix_bmi(weight, height, id) %>%
+            bmi = fix_bmi(weight, height, patient_id) %>%
                 cut_numeric_value(min = 4, max = 60, "bmi"),
-            age = fix_age(age, dob, tracker_year, tracker_month, id) %>%
+            age = fix_age(age, dob, tracker_year, tracker_month, patient_id) %>%
                 cut_numeric_value(min = 0, max = 25, "age"),
-            sex = fix_sex(sex, id),
+            sex = fix_sex(sex, patient_id),
             hba1c_baseline = cut_numeric_value(hba1c_baseline, min = 4, max = 18, "hba1c_baseline"),
             # https://www.cleveland19.com/story/1425584/ohio-man-holds-world-record-of-highest-blood-sugar/
             fbg_baseline_mmol = cut_numeric_value(fbg_baseline_mmol, min = 0, max = 136.5, "fbg_baseline_mmol"),
@@ -347,7 +379,7 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
             tracker_date = lubridate::ym(paste(tracker_year, tracker_month, sep = "-")),
             !!!parse_character_cleaning_config(a4d:::config$cleaning),
             # should be fixed last as other fix functions use id to log invalid rows!
-            id = fix_id(id)
+            patient_id = fix_id(patient_id)
         ) %>%
         dplyr::ungroup()
 
@@ -381,7 +413,7 @@ process_patient_file <- function(paths, patient_file, patient_file_name, output_
 
     # sort by year and month like it is in the tracker files
     df_patient <- df_patient %>%
-        dplyr::arrange(tracker_date, id)
+        dplyr::arrange(tracker_date, patient_id)
 
     logInfo(
         log_to_json(
