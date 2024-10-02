@@ -20,10 +20,11 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
             "fbg_baseline_mmol",
             "hba1c_baseline",
             "hba1c_baseline_exceeds",
-            "id",
             "last_clinic_visit_date",
             "lost_date",
             "name",
+            "patient_consent",
+            "patient_id",
             "province",
             "recruitment_date",
             "sex",
@@ -42,14 +43,14 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
 
     # get latest static patient data overall
     static_patient_data <- static_patient_data %>%
-        dplyr::group_by(id) %>%
+        dplyr::group_by(patient_id) %>%
         dplyr::slice_max(tracker_year, n = 1) %>%
         dplyr::slice_max(tracker_month, n = 1) %>%
         dplyr::slice_head(n = 1) %>%
         dplyr::ungroup() %>%
-        dplyr::arrange(tracker_year, tracker_month, id)
+        dplyr::arrange(tracker_year, tracker_month, patient_id)
 
-    testit::assert(sum(duplicated(static_patient_data$id)) == 0)
+    testit::assert(sum(duplicated(static_patient_data$patient_id)) == 0)
 
     logInfo(
         log_to_json(

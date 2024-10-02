@@ -20,7 +20,7 @@ link_product_patient <- function(product_file, patient_file) {
     # Merge the data frames by file_name and patients ids
     merged_data <- merge(product_data, patient_data,
         by.x = c("file_name", "product_released_to"),
-        by.y = c("file_name", "id"),
+        by.y = c("file_name", "patient_id"),
         all.x = TRUE
     )
 

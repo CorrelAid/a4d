@@ -44,7 +44,7 @@ test_that("data cleaning config for insulin_regimen yields valid R", {
 })
 
 test_that("data cleaning config for t1d_diagnosis_with_dka yields valid R", {
-    env <- list(t1d_diagnosis_with_dka = "N", ERROR_VAL_CHARACTER = NA_character_, id = 1)
+    env <- list(t1d_diagnosis_with_dka = "N", ERROR_VAL_CHARACTER = NA_character_, patient_id = 1)
 
     expect_equal(
         eval(
@@ -74,7 +74,7 @@ test_that("data cleaning config for hospitalization_cause yields valid R", {
 })
 
 test_that("data cleaning config for province yields valid R", {
-    env <- list(province = "Not a valid province", id = 1)
+    env <- list(province = "Not a valid province", patient_id = 1)
 
     expect_equal(
         eval(
