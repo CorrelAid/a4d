@@ -12,8 +12,6 @@ create_table_patient_data_monthly <- function(patient_data_files, input_root, ou
     # THERE MIGHT BE MONTHLY COLUMNS MISSING - PLEASE ADD THEM
     dynamic_patient_columns <-
         c(
-            "blood_pressure_dias_mmhg",
-            "blood_pressure_sys_mmhg",
             "bmi",
             "bmi_date",
             "clinic_id",
@@ -27,8 +25,8 @@ create_table_patient_data_monthly <- function(patient_data_files, input_root, ou
             "height",
             "hospitalisation_cause",
             "hospitalisation_date",
-            "insulin_regimen",
             "insulin_injections",
+            "insulin_regimen",
             "insulin_total_units",
             "insulin_type",
             "insulin_subtype",
@@ -39,12 +37,11 @@ create_table_patient_data_monthly <- function(patient_data_files, input_root, ou
             "patient_id",
             "sheet_name",
             "status",
-            "support_from_a4d",
+            "support_level",
             "testing_frequency",
             "tracker_date",
             "tracker_month",
             "tracker_year",
-            "updated_2022_date",
             "weight"
         )
 

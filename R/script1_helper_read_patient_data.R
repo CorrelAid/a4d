@@ -64,7 +64,7 @@ extract_patient_data <- function(tracker_data_file, sheet, year) {
 
     # trackers from 2022 and newer have an empty first row
     # and openxlsx always skips empty rows at the start of the file
-    if (year >= 2022 && sheet != "Patient List") {
+    if ((year == 2022 && sheet != "Patient List") || year > 2022) {
         row_min <- row_min + 1
         row_max <- row_max + 1
     }
@@ -118,6 +118,10 @@ extract_patient_data <- function(tracker_data_file, sheet, year) {
     # remove empty rows with only NA
     df_patient <-
         df_patient[rowSums(is.na(df_patient)) != ncol(df_patient), ]
+
+    if ("NA" %in% names(df_patient)) {
+        df_patient <- df_patient %>% dplyr::select(-`NA`)
+    }
 
     df_patient
 }

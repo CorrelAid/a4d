@@ -1,34 +1,88 @@
-complication_screening:
+analog_insulin_long_acting:
   steps:
     - allowed_values:
-        - 'JAN'
-        - 'FEB'
-        - 'MAR'
-        - 'APR'
-        - 'MAY'
-        - 'JUN'
-        - 'JUL'
-        - 'AUG'
-        - 'SEP'
-        - 'OCT'
-        - 'NOV'
-        - 'DEC'
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values
-complication_screening_results:
+analog_insulin_rapid_acting:
   steps:
     - allowed_values:
-        - 'Normal'
-        - 'Abnormal'
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+
+clinic_visit:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+complication_screening_eye_exam_value:
+  steps:
+    - allowed_values:
+        - "Normal"
+        - "Abnormal"
+      replace_invalid: true
+      type: allowed_values
+complication_screening_foot_exam_value:
+  steps:
+    - allowed_values:
+        - "Normal"
+        - "Abnormal"
+      replace_invalid: true
+      type: allowed_values
+dm_complication_eye:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+dm_complication_kidney:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+dm_complication_others:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values
 hospitalisation_cause:
   steps:
     - allowed_values:
-        - DKA
-        - HYPO
-        - HYPER
-        - OTHER
+        - "DKA"
+        - "HYPO"
+        - "HYPER"
+        - "OTHER"
+      replace_invalid: true
+      type: allowed_values
+human_insulin_intermediate_acting:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+human_insulin_pre_mixed:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
+      replace_invalid: true
+      type: allowed_values
+human_insulin_short_acting:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values
 insulin_regimen:
@@ -36,33 +90,60 @@ insulin_regimen:
     - function_name: extract_regimen
       type: basic_function
     - allowed_values:
-        - Basal-bolus (MDI)
-        - Premixed 30/70 DB
-        - Self-mixed BD
-        - Modified conventional TID
+        - "Basal-bolus (MDI)"
+        - "Premixed 30/70 DB"
+        - "Self-mixed BD"
+        - "Modified conventional TID"
       replace_invalid: false
       type: allowed_values
-insulin_regimen_subcategory:
+insulin_type:
   steps:
-    - function_name: extract_first_raw_regimen
-      type: basic_function
     - allowed_values:
-        - Basal-bolus MDI (AN)
-        - Basal-bolus MDI (HI)
+        - "Human Insulin"
+        - "Analog Insulin"
       replace_invalid: true
+      type: allowed_values
+insulin_subtype:
+  steps:
+    - allowed_values:
+        - "Pre-mixed"
+        - "Short-acting"
+        - "Intermediate-acting"
+        - "Rapid-acting"
+        - "Long-acting"
+      replace_invalid: true
+      type: allowed_values
+observations_category:
+  steps:
+    - allowed_values:
+        - "Status IN"
+        - "Status OUT"
+        - "Clinic Follow Up"
+        - "Hospitalisation"
+        - "Support"
+        - "DM Complication"
+        - "Insulin Regimen"
+        - "Other"
+      replace_invalid: false
       type: allowed_values
 patient_consent:
   steps:
     - allowed_values:
-        - 'N'
-        - 'Y'
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values
-
 province:
   steps:
     - allowed_values:
-        - PLACEHOLDER
+        - "PLACEHOLDER"
+      replace_invalid: true
+      type: allowed_values
+remote_followup:
+  steps:
+    - allowed_values:
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values
 status:
@@ -70,34 +151,34 @@ status:
     - function_name: stringr::str_to_lower
       type: basic_function
     - allowed_values:
-        - Active
-        - Active - Remote
-        - Active Remote
-        - Active Monitoring
-        - Query
-        - Inactive
-        - Transferred
-        - Lost Follow Up
-        - Deceased
-        - Discontinued
+        - "Active"
+        - "Active - Remote"
+        - "Active Remote"
+        - "Active Monitoring"
+        - "Query"
+        - "Inactive"
+        - "Transferred"
+        - "Lost Follow Up"
+        - "Deceased"
+        - "Discontinued"
       replace_invalid: true
       type: allowed_values
-support_from_a4d:
+support_level:
   steps:
     - allowed_values:
-        - Standard
-        - Partial
-        - Partial - A
-        - Partial - B
-        - Semi-Partial
-        - SAC
-        - Monitoring
+        - "Standard"
+        - "Partial"
+        - "Partial - A"
+        - "Partial - B"
+        - "Semi-Partial"
+        - "SAC"
+        - "Monitoring"
       replace_invalid: true
       type: allowed_values
 t1d_diagnosis_with_dka:
   steps:
     - allowed_values:
-        - 'N'
-        - 'Y'
+        - "N"
+        - "Y"
       replace_invalid: true
       type: allowed_values

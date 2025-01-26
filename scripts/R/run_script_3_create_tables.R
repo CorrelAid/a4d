@@ -142,6 +142,42 @@ main <- function() {
         output_root = paths$output_root
     )
 
+    logfile <- "table_patient_data_annual"
+    with_file_logger(logfile,
+        {
+            tryCatch(
+                {
+                    create_table_patient_data_annual(patient_data_files, file.path(paths$output_root, "patient_data_cleaned"), paths$tables)
+                },
+                error = function(e) {
+                    logError(
+                        log_to_json(
+                            "Could not create table for annual patient data. Error = {values['e']}.",
+                            values = list(e = e$message),
+                            script = "script3",
+                            file = "run_script_3_create_tables.R",
+                            errorCode = "critical_abort",
+                            functionName = "create_table_patient_data_annual"
+                        )
+                    )
+                },
+                warning = function(w) {
+                    logWarn(
+                        log_to_json(
+                            "Could not create table for annual patient data. Warning = {values['w']}.",
+                            values = list(w = w$message),
+                            script = "script3",
+                            file = "run_script_3_create_tables.R",
+                            warningCode = "critical_abort",
+                            functionName = "create_table_patient_data_annual"
+                        )
+                    )
+                }
+            )
+        },
+        output_root = paths$output_root
+    )
+
     logfile <- "table_product_data"
     with_file_logger(logfile,
         {
