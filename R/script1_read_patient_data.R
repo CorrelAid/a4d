@@ -1,3 +1,15 @@
+#' @title Reading patient data from the tracker data file
+#'
+#' @description
+#' This function reads the patient data from the tracker data file,
+#' harmonizes the columns, and returns the data as a data frame.
+#'
+#' @param tracker_data_file The path to the tracker data file.
+#' @param columns_synonyms A named list of column synonyms.
+#'
+#' @return A data frame with the patient data.
+#'
+#' @export
 reading_patient_data <-
     function(tracker_data_file, columns_synonyms) {
         sheet_list <- readxl::excel_sheets(tracker_data_file)
@@ -8,7 +20,7 @@ reading_patient_data <-
                 message = "Found {values['len']} sheets: {values['sheets']}.",
                 values = list(len = length(sheet_list), sheets = sheet_list),
                 script = "script1",
-                file = "read_patient_data.R",
+                file = "script1_read_patient_data.R",
                 functionName = "reading_patient_data"
             )
         )
@@ -22,7 +34,7 @@ reading_patient_data <-
                 message = "Found {values['len']} month sheets: {values['months']}.",
                 values = list(len = length(month_list), months = month_list),
                 script = "script1",
-                file = "read_patient_data.R",
+                file = "script1_read_patient_data.R",
                 functionName = "reading_patient_data"
             )
         )
@@ -34,7 +46,7 @@ reading_patient_data <-
                 message = "Tracker year = {values['year']}.",
                 values = list(year = year),
                 script = "script1",
-                file = "read_patient_data.R",
+                file = "script1_read_patient_data.R",
                 functionName = "reading_patient_data"
             )
         )
@@ -88,29 +100,62 @@ reading_patient_data <-
             dplyr::filter(!(is.na(patient_id) & is.na(name))) %>%
             dplyr::filter(!(patient_id == "0" & name == "0"))
 
-
         if ("Patient List" %in% sheet_list) {
             patient_list <- extract_patient_data(
                 tracker_data_file,
                 "Patient List",
                 year
             )
+            testit::assert(nrow(patient_list) > 0)
             patient_list <- harmonize_patient_data_columns(
                 patient_list,
                 columns_synonyms
             )
+            testit::assert("patient_id" %in% colnames(patient_list))
+
+            patient_list <- patient_list %>%
+                dplyr::filter(!(is.na(patient_id) & is.na(name))) %>%
+                dplyr::filter(!(patient_id == "0" & name == "0"))
 
             df_raw <- dplyr::left_join(
-                df_raw,
+                df_raw %>% dplyr::select(-any_of(c("hba1c_baseline"))),
                 patient_list %>%
                     dplyr::select(-any_of(c(
-                        "fbg_baseline_mg",
-                        "fbg_baseline_mmol",
-                        "hba1c_baseline",
                         "name"
                     ))),
                 by = "patient_id",
-                relationship = "many-to-one"
+                relationship = "many-to-one",
+                suffix = c(".monthly", ".static")
+            )
+        }
+
+        if ("Annual" %in% sheet_list) {
+            annual_data <- extract_patient_data(
+                tracker_data_file,
+                "Annual",
+                year
+            )
+            testit::assert(nrow(annual_data) > 0)
+            annual_data <- harmonize_patient_data_columns(
+                annual_data,
+                columns_synonyms
+            )
+            testit::assert("patient_id" %in% colnames(annual_data))
+
+            annual_data <- annual_data %>%
+                dplyr::filter(!(is.na(patient_id) & is.na(name))) %>%
+                dplyr::filter(!(patient_id == "0" & name == "0"))
+
+            df_raw <- dplyr::left_join(
+                df_raw,
+                annual_data %>%
+                    dplyr::select(-any_of(c(
+                        "status",
+                        "name"
+                    ))),
+                by = "patient_id",
+                relationship = "many-to-one",
+                suffix = c(".monthly", ".annual")
             )
         }
 

@@ -15,12 +15,11 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
             "age",
             "clinic_id",
             "dob",
-            "edu_occ",
+            "edu_occ", # since 2024 in Annual
             "fbg_baseline_mg",
             "fbg_baseline_mmol",
             "hba1c_baseline",
             "hba1c_baseline_exceeds",
-            "last_clinic_visit_date",
             "lost_date",
             "name",
             "patient_consent",
@@ -46,7 +45,6 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
         dplyr::group_by(patient_id) %>%
         dplyr::slice_max(tracker_year, n = 1) %>%
         dplyr::slice_max(tracker_month, n = 1) %>%
-        dplyr::slice_head(n = 1) %>%
         dplyr::ungroup() %>%
         dplyr::arrange(tracker_year, tracker_month, patient_id)
 
