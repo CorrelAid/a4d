@@ -118,7 +118,7 @@ ingest_data(
 )
 ingest_data(
     project_id = PROJECT_ID,
-    cluster_fields = "script,functionName,errorCode,warningCode,fileName",
+    cluster_fields = "functionName,errorCode,warningCode,fileName",
     dataset = DATASET,
     table = "logs",
     source = file.path(table_dir, "table_logs.parquet")
