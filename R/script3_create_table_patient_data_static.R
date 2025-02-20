@@ -18,6 +18,7 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
             "edu_occ", # since 2024 in Annual
             "fbg_baseline_mg",
             "fbg_baseline_mmol",
+            "file_name",
             "hba1c_baseline",
             "hba1c_baseline_exceeds",
             "lost_date",
@@ -48,7 +49,10 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
         dplyr::ungroup() %>%
         dplyr::arrange(tracker_year, tracker_month, patient_id)
 
-    testit::assert(sum(duplicated(static_patient_data$patient_id)) == 0)
+    # this assertion holds no longer true because we added clinic_id to the static columns
+    # and patients can switch the clinic (from pediatric to adult clinic for example)
+    # which means for this patient there is the same static data from both clinics in the data
+    # testit::assert(sum(duplicated(static_patient_data$patient_id)) == 0)
 
     logInfo(
         log_to_json(
