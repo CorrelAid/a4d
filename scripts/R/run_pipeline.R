@@ -83,21 +83,21 @@ source("scripts/R/run_script_4_ingest_logs.R")
 upload_data(bucket = BUCKET_UPLOAD, data_dir = output_dir)
 ingest_data(
     project_id = PROJECT_ID,
-    cluster_fields = "clinic_id,id,tracker_date",
+    cluster_fields = "clinic_id,patient_id,tracker_date",
     dataset = DATASET,
     table = "patient_data_monthly",
     source = file.path(table_dir, "patient_data_monthly.parquet")
 )
 ingest_data(
     project_id = PROJECT_ID,
-    cluster_fields = "clinic_id,id,tracker_date",
+    cluster_fields = "clinic_id,patient_id,tracker_date",
     dataset = DATASET,
     table = "patient_data_static",
     source = file.path(table_dir, "patient_data_static.parquet")
 )
 ingest_data(
     project_id = PROJECT_ID,
-    cluster_fields = "clinic_id,id,tracker_date",
+    cluster_fields = "clinic_id,patient_id,tracker_date",
     dataset = DATASET,
     table = "patient_data_hba1c",
     source = file.path(table_dir, "longitudinal_data_hba1c.parquet")
