@@ -108,13 +108,22 @@ extract_patient_data <- function(tracker_data_file, sheet, year) {
         header_cols[empty_colnames] <- header_cols_2[empty_colnames]
     }
 
-    colnames(df_patient) <- header_cols
+    # make.names is necessary to avoid duplicate column names
+    # special chars are all removed by harmonize column names later
+    colnames(df_patient) <- make.names(header_cols, unique = T)
 
     # delete columns without a header (=NA)
     df_patient <- df_patient[, !is.na(colnames(df_patient))]
 
     # removes duplicate columns that appear due to merged cells (e.g. insulin regimen)
-    # df_patient <- df_patient %>% distinct()
+    # there is a really strange case when unmerging cells can lead to two insulin regime columns
+    # but with different data! For now just remove the second (hidden) column
+    insulin_regimen_cols = grep("Insulin", colnames(df_patient))
+    if (length(insulin_regimen_cols) > 1) {
+        # take all columns except the indices from grep beginning at second pos
+        df_patient <- df_patient[, -insulin_regimen_cols[-1]]
+    }
+    #df_patient <- df_patient %>% distinct()
     # remove empty rows with only NA
     df_patient <-
         df_patient[rowSums(is.na(df_patient)) != ncol(df_patient), ]
