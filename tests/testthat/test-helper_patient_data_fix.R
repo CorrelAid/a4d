@@ -20,17 +20,24 @@ test_that("fix_bmi works", {
         id = c("1", "2", "3", "4", "5", "6")
     )
     expected_bmi <- c(1, 10 / 4, NA, NA, NA, 999999)
-    expect_equal(test_df %>% rowwise() %>% mutate(bmi = fix_bmi(weight, height, id)) %>% select(bmi) %>% pull(), expected_bmi)
+    expect_equal(
+        test_df %>%
+            dplyr::rowwise() %>%
+            dplyr::mutate(bmi = fix_bmi(weight, height, id)) %>%
+            dplyr::select(bmi) %>%
+            dplyr::pull(),
+        expected_bmi
+    )
 })
 
 
 test_that("split_bp_in_sys_and_dias works", {
     test_df <- data.frame(blood_pressure_mmhg = c("96/55", "101/57", NA))
-    expected_df <- tibble(blood_pressure_sys_mmhg = c("96", "101", NA), blood_pressure_dias_mmhg = c("55", "57", NA))
+    expected_df <- dplyr::tibble(blood_pressure_sys_mmhg = c("96", "101", NA), blood_pressure_dias_mmhg = c("55", "57", NA))
     expect_equal(split_bp_in_sys_and_dias(test_df), expected_df)
 
     test_df <- data.frame(blood_pressure_mmhg = c("96", "1,6"))
-    expected_df <- tibble(
+    expected_df <- dplyr::tibble(
         blood_pressure_sys_mmhg = c(as.character(ERROR_VAL_NUMERIC), as.character(ERROR_VAL_NUMERIC)),
         blood_pressure_dias_mmhg = c(as.character(ERROR_VAL_NUMERIC), as.character(ERROR_VAL_NUMERIC))
     )
@@ -188,23 +195,24 @@ test_that("check_allowed_values works", {
         "SAC",
         "Monitoring"
     )
-    expect_equal(check_allowed_values("partial", valid_support_values, ERROR_VAL_CHARACTER, "1"), "partial")
-    expect_equal(check_allowed_values("Standard", valid_support_values, ERROR_VAL_CHARACTER, "1"), "Standard")
-    expect_equal(check_allowed_values("SAc", valid_support_values, ERROR_VAL_CHARACTER, "1"), "SAc")
-    expect_true(is.na(check_allowed_values("", valid_support_values, ERROR_VAL_CHARACTER, "1")))
-    expect_true(is.na(check_allowed_values(NA, valid_support_values, ERROR_VAL_CHARACTER, "1")))
-    expect_equal(check_allowed_values("abc", valid_support_values, ERROR_VAL_CHARACTER, "1"), ERROR_VAL_CHARACTER)
-    expect_equal(check_allowed_values("abc", valid_support_values, NA, "1"), "abc")
+    expect_equal(check_allowed_values("partial", valid_support_values, 1), "Partial")
+    expect_equal(check_allowed_values("Standard", valid_support_values, 1), "Standard")
+    expect_equal(check_allowed_values("SAc", valid_support_values, 1, ), "SAC")
+    expect_true(is.na(check_allowed_values("", valid_support_values, 1)))
+    expect_true(is.na(check_allowed_values(NA, valid_support_values, 1)))
+    expect_equal(check_allowed_values("abc", valid_support_values, 1, error_val = ERROR_VAL_CHARACTER), ERROR_VAL_CHARACTER)
+    expect_equal(check_allowed_values("abc", valid_support_values, 1, replace_invalid = FALSE), "abc")
 })
 
 
 test_that("fix_testing_frequency works", {
-    expect_equal(fix_testing_frequency("2"), "2")
-    expect_equal(fix_testing_frequency("1.5"), "1.5")
-    expect_equal(fix_testing_frequency("0-2"), "1")
-    expect_equal(fix_testing_frequency("2-3"), "2.5")
-    expect_true(is.na(fix_testing_frequency("")))
-    expect_true(is.na(fix_testing_frequency(NA)))
+    patient_id <- "XX_YY001"
+    expect_equal(fix_testing_frequency("2", patient_id), "2")
+    expect_equal(fix_testing_frequency("1.5", patient_id), "1.5")
+    expect_equal(fix_testing_frequency("0-2", patient_id), "1")
+    expect_equal(fix_testing_frequency("2-3", patient_id), "2.5")
+    expect_true(is.na(fix_testing_frequency("", patient_id)))
+    expect_true(is.na(fix_testing_frequency(NA, patient_id)))
 })
 
 
@@ -223,7 +231,7 @@ test_that("extract_date_from_measurement works", {
             "3"
         )
     )
-    expected_df <- as_tibble(data.frame(
+    expected_df <- dplyr::as_tibble(data.frame(
         measurement = c(
             "8.53 ",
             "10,75 ",

@@ -4,7 +4,6 @@
 # function based on parts from run_a4d_product_data.R and helper functions
 reading_product_data_step1 <-
     function(tracker_data_file, columns_synonyms) {
-        logDebug("Start reading_product_data_step1.")
         # rename column names to match
         colnames(columns_synonyms) <- c("name_clean", "name_to_be_matched")
 
@@ -13,40 +12,107 @@ reading_product_data_step1 <-
         month_list <- sheet_list[na.omit(pmatch(month.abb, sheet_list))]
         year <- get_tracker_year(tracker_data_file, month_list)
 
-        logDebug("Found ", length(sheet_list), " sheets: ", cat(sheet_list, sep=", "), ".")
-        logDebug("Found ", length(month_list), " month sheets: ", cat(month_list, sep=", "), ".")
-
+        logInfo(
+            log_to_json(
+                message = "Found {values['len']} sheets: {values['sheets']}.",
+                values = list(len = length(sheet_list), sheets = sheet_list),
+                script = "script1",
+                file = "read_product_data.R",
+                functionName = "reading_product_data_step1"
+            )
+        )
+        logInfo(
+            log_to_json(
+                message = "Found {values['len']} month sheets: {values['months']}.",
+                values = list(len = length(month_list), months = month_list),
+                script = "script1",
+                file = "read_product_data.R",
+                functionName = "reading_product_data_step1"
+            )
+        )
 
         # loop through all months
         for (curr_sheet in month_list) {
-            logDebug("Start processing the following sheet: ", curr_sheet)
-
             # open tracker data
-            tracker_data <- data.frame(readxl::read_xlsx(tracker_data_file, curr_sheet,
-                .name_repair = "unique_quiet"
-            ))
+            tracker_data <- data.frame(
+                readxl::read_xlsx(
+                    path = tracker_data_file,
+                    sheet = curr_sheet,
+                    col_types = c("text"),
+                    .name_repair = "unique_quiet"
+                )
+            )
 
             # Jump to next tab sheet if there are no product data
             if (
                 !any((grepl("Product", tracker_data[, ]) |
-                      grepl("Description of Support", tracker_data[, ])))
+                    grepl("Description of Support", tracker_data[, ])))
             ) {
                 # go to next month
-                logInfo("Could not find product data in tracker data. Skipping ", curr_sheet, ".")
+                logWarn(
+                    log_to_json(
+                        message = "Sheet {values['sheet']}: Could not find product data in tracker data. Skipping.",
+                        values = list(sheet = curr_sheet),
+                        script = "script1",
+                        file = "read_product_data.R",
+                        functionName = "read_product_data_step1",
+                        warningCode = "invalid_tracker"
+                    )
+                )
+
                 next
             }
 
             # Extract relevant data and renamn columns
             product_df <- extract_product_data(tracker_data)
 
+            if (check_wide_format_columns(product_df)) {
+                logWarn(
+                    log_to_json(
+                        message = "Sheet {values['sheet']} has Mandalay Children's Hospital data (2019-2021) wide-format columns. The wide-format area should be changed to long-format!",
+                        values = list(sheet = curr_sheet),
+                        script = "script1",
+                        file = "read_product_data.R",
+                        functionName = "read_product_data_step1",
+                        warningCode = "invalid_tracker"
+                    )
+                )
+                product_df <- create_new_rows(product_df)
+            }
+
+            if (any(grepl("2017_Mandalay|2018_Mandalay|2019_Mandalay", basename(tracker_data_file))) &
+                (check_patterns_in_column(product_df, (find_string_cols(product_df, "Released To"))))) {
+                logWarn(
+                    log_to_json(
+                        message = "Sheet {values['sheet']} Tracker data file contains Mandalay Children's Hospital data (2017-2019), may contain wide-format cells. The wide-format cells should be changed to standart long-format!",
+                        values = list(sheet = curr_sheet),
+                        script = "script1",
+                        file = "read_product_data.R",
+                        functionName = "read_product_data_step1",
+                        warningCode = "invalid_tracker"
+                    )
+                )
+                product_df <- wide_cells_2_rows(product_df)
+            }
+
             # If after extraction, dataframe is empty, this iteration is also skipped.
             if (all(is.na(product_df))) {
-                logInfo("Product data is empty. Skipping ", curr_sheet, ".")
+                logWarn(
+                    log_to_json(
+                        message = "Sheet {values['sheet']}: Product data is empty. Skipping.",
+                        values = list(sheet = curr_sheet),
+                        script = "script1",
+                        file = "read_product_data.R",
+                        functionName = "read_product_data_step1",
+                        warningCode = "invalid_tracker"
+                    )
+                )
+
                 next
             }
 
             # harmonize to names
-            product_df <- product_df %>% harmonize_input_data_columns(columns_synonyms)
+            product_df <- product_df %>% harmonize_input_data_columns(columns_synonyms, curr_sheet)
 
             # Remove meaningless rows with no information
             del_rows <- apply(product_df, MARGIN = 1, function(x) sum(!is.na(x))) # count per row how many cols are not NA. If only 0, there is not enough information and row is dropped.
@@ -54,7 +120,7 @@ reading_product_data_step1 <-
 
             product_df <- product_df %>%
                 dplyr::slice(., -del_rows) %>%
-                filter_all(any_vars(complete.cases(.))) %>% # Remove empty rows
+                dplyr::filter_all(dplyr::any_vars(complete.cases(.))) %>% # Remove empty rows
                 dplyr::filter((product != "Product" | is.na(product)) & (product != "PATIENT DATA SUMMARY" | is.na(product))) # remove new headers from data 2022 onwards
 
             # Checking if the patient's name is missing next to the released units
@@ -64,11 +130,29 @@ reading_product_data_step1 <-
             tryCatch(
                 {
                     if (num_na_rows > 0) {
-                        logInfo(curr_sheet, " the number of rows where the patient's name is missing: ", col_released, " is not NA and ", col_released_to, " (patient's name) is NA = ", num_na_rows)
+                        logWarn(
+                            log_to_json(
+                                message = "Sheet {values['sheet']} has {values['num_na_rows']} rows where the patient's name is missing next to the released units.",
+                                values = list(sheet = curr_sheet, num_na_rows = num_na_rows),
+                                script = "script1",
+                                file = "read_product_data.R",
+                                functionName = "read_product_data_step1",
+                                warningCode = "invalid_tracker"
+                            )
+                        )
                     }
                 },
                 error = function(e) {
-                    logError(curr_sheet, " trying with num_na_rows for products. Error: ", e$message)
+                    logError(
+                        log_to_json(
+                            message = "Sheet {values['sheet']}: Error when testing num_na_rows > 0: {values['e']}",
+                            values = list(sheet = curr_sheet, e = e$message),
+                            script = "script1",
+                            file = "read_product_data.R",
+                            functionName = "read_product_data_step1",
+                            errorCode = "tryCatch"
+                        )
+                    )
                 }
             )
 
@@ -79,21 +163,34 @@ reading_product_data_step1 <-
                 {
                     if (nrow(non_processed_dates) > 0) {
                         logWarn(
-                            curr_sheet,
-                            " the number of rows with non-processed dates in product_entry_date is ",
-                            nrow(non_processed_dates), ": ",
-                            paste(non_processed_dates$product_entry_date, collapse = ", ")
+                            log_to_json(
+                                message = "Sheet {values['sheet']}: The number of rows with non-processed dates in product_entry_date is {values['num_rows']}: {values['dates']}.",
+                                values = list(sheet = curr_sheet, num_rows = nrow(non_processed_dates), dates = non_processed_dates$product_entry_date),
+                                script = "script1",
+                                file = "read_product_data.R",
+                                functionName = "read_product_data_step1",
+                                warningCode = "invalid_value"
+                            )
                         )
                     }
                 },
                 error = function(e) {
-                    logError(curr_sheet, " trying with non_processed_dates in product_entry_date. Error: ", e$message)
+                    logError(
+                        log_to_json(
+                            message = "Sheet {values['sheet']}: Error when testing nrow(non_processed_dates) > 0: {values['e']}",
+                            values = list(sheet = curr_sheet, e = e$message),
+                            script = "script1",
+                            file = "read_product_data.R",
+                            functionName = "read_product_data_step1",
+                            errorCode = "tryCatch"
+                        )
+                    )
                 }
             )
 
             # Add country, hospital, month, year, tabname
             product_df <- product_df %>%
-                mutate(
+                dplyr::mutate(
                     product_table_month = extract_month(curr_sheet),
                     product_table_year = year,
                     product_sheet_name = curr_sheet
@@ -102,13 +199,21 @@ reading_product_data_step1 <-
             # Check if the entry dates for the balance match the month/year on the sheet
             check_entry_dates(product_df, curr_sheet)
 
-            logDebug("Finish processing sheet: ", curr_sheet)
+            # Remove leading spaces from the 'product_released_to' column
+            if ("product_released_to" %in% colnames(product_df)) {
+                product_df$product_released_to <- trimws(product_df$product_released_to, which = "left")
+            }
+
+            # Replace Extra "Total" Values with NA
+            if ("product_units_released" %in% colnames(product_df)) {
+                product_df <- replace_extra_total_values_with_NA(product_df, "product_units_released")
+            }
 
             # combine all months
             if (!exists("df_final")) {
                 df_final <- product_df
             } else {
-                df_final <- bind_rows(df_final, product_df)
+                df_final <- dplyr::bind_rows(df_final, product_df)
             }
         }
         if (exists("df_final")) {
@@ -116,9 +221,7 @@ reading_product_data_step1 <-
         } else {
             return(NULL)
         }
-        logDebug("Finish reading_product_data_step1.")
     }
-
 
 #' @title Count rows with missing patient's name next to the released units
 #'
@@ -146,7 +249,6 @@ count_na_rows <- function(df, units_released_col, released_to_col) {
 #'
 #' @return This function does not return a value. It logs a warning message if there are any dates in 'product_entry_date' that don't match the month/year on the sheet.
 check_entry_dates <- function(df, Sheet) {
-    logDebug("Start check_entry_dates.")
     # Check if the entry dates for the balance match the month/year on the sheet
     entry_dates_df <- df %>% dplyr::filter(grepl("^[0-9]+$", product_entry_date))
 
@@ -163,13 +265,16 @@ check_entry_dates <- function(df, Sheet) {
         entry_dates_df$ed_year != entry_dates_df$product_table_year, ]
     if (nrow(not_same) > 0) {
         logWarn(
-            Sheet,
-            " the number of dates in product_entry_date that don't match the month/year on the sheet is ",
-            nrow(not_same), ": ",
-            paste(not_same$ed_date, collapse = ", ")
+            log_to_json(
+                message = "Sheet {values['sheet']}: There are {values['nrow']} dates in product_entry_date that don't match extracted month and year.",
+                values = list(sheet = Sheet, nrow = nrow(not_same), dates = not_same$ed_date),
+                script = "script1",
+                file = "read_product_data.R",
+                functionName = "check_entry_dates",
+                warningCode = "invalid_value"
+            )
         )
     }
-    logDebug("Finish check_entry_dates.")
 }
 
 #' @title Remove Rows with NA Values in Specified Columns.
@@ -187,7 +292,13 @@ remove_rows_with_na_columns <-
         na_rows <- apply(df[column_names], 1, function(x) all(is.na(x)))
 
         # log message
-        logInfo(paste(length(na_rows[na_rows == T]), " rows deleted out of ", nrow(df), " rows (reason: rows not containing additional info).", sep = ""))
+        logInfo(
+            log_to_json(
+                message = "{values['na_rows']} out of {values['nrows']} rows with NA values in specified columns were removed.",
+                values = list(na_rows = length(na_rows[na_rows == T]), nrows = nrow(df)),
+                script = "script1"
+            )
+        )
 
         # Return the data frame without the NA rows
         return(df[!na_rows, ])
@@ -211,10 +322,14 @@ check_negative_balance <- function(df, Sheet) {
     if (nrow(negative_df) > 0) {
         # Log a warning message with the number of negative values and their corresponding product_balance values
         logWarn(
-            Sheet,
-            " number of negative values in product_balance on the sheet is ",
-            nrow(negative_df), ": ",
-            paste(negative_df$product_balance, collapse = ", ")
+            log_to_json(
+                message = "Sheet {values['sheet']}: There are {values['nrow']} negative values in product_balance: {values['values']}.",
+                values = list(sheet = Sheet, nrow = nrow(negative_df), values = negative_df$product_balance),
+                script = "script1",
+                file = "read_product_data.R",
+                functionName = "check_negative_balance",
+                warningCode = "invalid_value"
+            )
         )
     }
 }
@@ -231,17 +346,23 @@ check_negative_balance <- function(df, Sheet) {
 #' @return Dataframe with columns switched (renamed)
 switch_columns_stock <-
     function(df) {
-        if (sum(str_detect(df$product_units_received[!is.na(df$product_units_received)], "Remaining Stock")) > 0) {
+        if (sum(stringr::str_detect(df$product_units_received[!is.na(df$product_units_received)], "Remaining Stock")) > 0) {
             df <- df %>%
-                rename(
+                dplyr::rename(
                     "product_units_received" = "product_received_from",
                     "product_received_from" = "product_units_received"
                 )
-            logDebug("Columns product_units_received and product_received_from were switched")
-            return(df)
-        } else {
-            return(df)
+            logDebug(
+                log_to_json(
+                    message = "Columns product_units_received and product_received_from were switched",
+                    script = "script1",
+                    file = "read_product_data.R",
+                    functionName = "switch_columns_stock"
+                )
+            )
         }
+
+        return(df)
     }
 
 #' @title Compare two lists and return unmatched strings
@@ -256,6 +377,7 @@ switch_columns_stock <-
 compare_lists <- function(list1, list2) {
     # Use the setdiff function to find strings in list1 that are not in list2
     unmatched_strings <- setdiff(list1, list2)
+
     return(unmatched_strings)
 }
 
@@ -286,13 +408,15 @@ report_unknown_products <- function(df, Sheet, stock_list_df) {
     if (length(unmatched_products) > 0) {
         # Log a warning message with the number of unknown products names
         logWarn(
-            Sheet,
-            " the number of unknown product names on the sheet is ",
-            length(unmatched_products), ": ",
-            paste(unmatched_products, collapse = ", ")
+            log_to_json(
+                message = "Sheet {values['sheet']} has {values['len_products']} unknown product names: {values['unknown_products']}.",
+                values = list(sheet = Sheet, len_products = length(unmatched_products), unknown_products = unmatched_products),
+                script = "script1",
+                file = "read_product_data.R",
+                functionName = "report_unknown_products",
+                warningCode = "invalid_value"
+            )
         )
-    } else {
-        logInfo(Sheet, " no unknown product names on the sheet")
     }
 }
 
@@ -302,30 +426,109 @@ report_unknown_products <- function(df, Sheet, stock_list_df) {
 #' @description
 #' This function loads the product list from 'Stock_Summary' sheet in an Excel file.
 #'
-#' @param stock_summary_xlsx A string that represents the path to the Excel file. Defaults to "master_tracker_variables.xlsx".
+#' @param stock_summary_xlsx A string that represents the path to the Excel file. Defaults to "reference_data/master_tracker_variables.xlsx".
 #'
 #' @return A data frame that contains the product names. If there is an error during the process, it logs the error message.
 #'
 #' @examples
-#' \dontrun {
-#' product_list <- load_stock_products()
-#' product_list <- load_stock_products("your_file.xlsx")
+#' \dontrun{
+#' product_list <- load_product_reference_data()
+#' product_list <- load_product_reference_data("your_file.xlsx")
 #' }
-load_stock_products <- function(stock_summary_xlsx = "master_tracker_variables.xlsx") {
-    logDebug("Trying to load the product list from the Stock Summary, ", stock_summary_xlsx, "...")
+load_product_reference_data <- function(stock_summary_xlsx = "reference_data/master_tracker_variables.xlsx") {
     tryCatch(
         {
             product_names_df <- readxl::read_excel(stock_summary_xlsx, "Stock_Summary")
             colnames(product_names_df) <- tolower(colnames(product_names_df))
-            logDebug(nrow(product_names_df), " product names were loaded from the Stock Summary.")
+            logDebug(
+                log_to_json(
+                    message = "{values['nrow']} product names were loaded from the Stock Summary.",
+                    values = list(nrow = nrow(product_names_df)),
+                    script = "script2",
+                    file = "read_product_data.R",
+                    functionName = "load_product_reference_data"
+                )
+            )
+
             return(product_names_df)
         },
         error = function(e) {
-            logError("Error in loading stock product list: ", e)
+            logError(
+                log_to_json(
+                    "Could not load stock product list. Error = {values['e']}.",
+                    values = list(e = e$message),
+                    script = "script2",
+                    file = "read_product_data.R",
+                    errorCode = "tryCatch",
+                    functionName = "load_product_reference_data"
+                )
+            )
         }
     )
 }
 
+#' Inserts product categories if contained in a provided mapping
+#'
+#' @description Product categories are added in the sense of a left join,
+#' meaning missing categories will result in NA values while products are never
+#' dropped.
+#'
+#' @param inventory_data A product inventory dataframe containing a "product" column
+#' @param product_category_mapping A dataframe mapping "product" to "category"
+#'
+#' @return A dataframe containing the inventory data with an additional product
+#' category column.
+add_product_categories <- function(inventory_data, product_category_mapping) {
+    inventory_data %>%
+        dplyr::left_join(
+            dplyr::rename(product_category_mapping, product_category = "category"),
+            c("product")
+        )
+}
+
+#' @title Extract Unit Capacity from a Specified Column
+#'
+#' @description
+#' This function extracts the unit capacity from a specified column in a dataframe.
+#' It assumes that the unit capacity is represented by numbers immediately before 's or s within parentheses.
+#' All strings which contain the word 'singles' extracted as 1.
+#' Non-numeric characters are removed and the extracted values are converted to numeric.
+#' NA values are replaced with 1.
+#'
+#' @param df A dataframe that contains the column to extract unit capacity from.
+#' @param column_name The name of the column to extract unit capacity from.
+#'
+#' @return A dataframe with an additional column 'product_unit_capacity' that contains the extracted unit capacity.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' df <- data.frame(product = c("Product A (2s)", "Product B (3's)", "Product C"))
+#' df <- extract_unit_capacity(df, "product")
+#' }
+extract_unit_capacity <- function(df, column_name) {
+    # Extract all symbols between parentheses
+    df$product_unit_capacity <- stringr::str_extract(df[[column_name]], "\\(([^)]+)\\)")
+
+    # Recode all strings which contain the word 'singles' into '1s'
+    df$product_unit_capacity <- ifelse(grepl("singles", df$product_unit_capacity, ignore.case = TRUE),
+        "1s", df$product_unit_capacity
+    )
+
+    # Extract numbers that are immediately before 's or s
+    df$product_unit_capacity <- stringr::str_extract(df$product_unit_capacity, "\\d+(?=s|'s)")
+
+    # Remove non-numeric characters
+    df$product_unit_capacity <- gsub("[^0-9]", "", df$product_unit_capacity)
+
+    # Convert the new field to numeric
+    df$product_unit_capacity <- as.numeric(df$product_unit_capacity)
+
+    # Add 1 to NA values
+    df$product_unit_capacity[is.na(df$product_unit_capacity)] <- 1
+
+    return(df)
+}
 
 #' @title Process product data in script 2.
 #'
@@ -339,8 +542,6 @@ load_stock_products <- function(stock_summary_xlsx = "master_tracker_variables.x
 #' @return Cleaned product data for one specified tracker.
 reading_product_data_step2 <-
     function(df, columns_synonyms) {
-        logDebug("Start reading_product_data_step2.")
-
         # rename column names to match
         colnames(columns_synonyms) <- c("name_clean", "name_to_be_matched")
 
@@ -348,12 +549,12 @@ reading_product_data_step2 <-
         df_final <- c()
 
         # get product list from Stock_Summary
-        stock_product_names_df <- load_stock_products()
+        product_reference_data <- load_product_reference_data()
+        known_products <- product_reference_data %>% dplyr::select(product)
+        product_category_mapping <- product_reference_data %>% dplyr::select(product, category)
 
         # loop through all months
         for (sheet_month in unique(df$product_sheet_name)) {
-            logDebug(paste("Start processing the following sheet:", sheet_month))
-
             # filter on month sheet
             product_df <- df %>%
                 dplyr::filter(product_sheet_name == sheet_month)
@@ -363,8 +564,8 @@ reading_product_data_step2 <-
 
             # Add columns that should be in final dataframe but are still missing
             columns_missing <- columns_synonyms %>%
-                group_by(name_clean) %>%
-                distinct(., name_clean) %>%
+                dplyr::group_by(name_clean) %>%
+                dplyr::distinct(., name_clean) %>%
                 unlist() %>%
                 as.character()
 
@@ -380,7 +581,17 @@ reading_product_data_step2 <-
             product_df <- remove_rows_with_na_columns(product_df, column_names_check)
             # jump to next sheet if dataframe empty from here
             if (nrow(product_df) == 0) {
-                logDebug(paste(sheet_month, " sheet is empty after filtering and skipped", sep = ""))
+                logWarn(
+                    log_to_json(
+                        message = "Sheet {values['sheet']} is empty after filtering. Skipping",
+                        values = list(sheet = sheet_month),
+                        script = "script2",
+                        file = "read_product_data.R",
+                        functionName = "reading_product_data_step2",
+                        warningCode = "invalid_tracker"
+                    )
+                )
+
                 next
             }
 
@@ -393,17 +604,17 @@ reading_product_data_step2 <-
             # Extend product name and sort by product
             # Keep first row and last row and order the rest by date
             product_df <- product_df %>%
-                ungroup() %>%
+                dplyr::ungroup() %>%
                 tidyr::fill(c(product), .direction = "down") %>%
-                group_by(product) %>%
-                mutate(rank = ifelse(row_number() == 1, 1,
-                    if_else(row_number() == n(), n() + 2,
-                        if_else(is.na(product_entry_date), row_number(), dense_rank(product_entry_date) + 1)
+                dplyr::group_by(product) %>%
+                dplyr::mutate(rank = ifelse(dplyr::row_number() == 1, 1,
+                    dplyr::if_else(dplyr::row_number() == dplyr::n(), dplyr::n() + 2,
+                        dplyr::if_else(is.na(product_entry_date), dplyr::row_number(), dplyr::dense_rank(product_entry_date) + 1)
                     )
                 )) %>%
-                arrange(product, rank) %>%
-                ungroup() %>%
-                select(-rank)
+                dplyr::arrange(product, rank) %>%
+                dplyr::ungroup() %>%
+                dplyr::select(-rank)
 
             # extract start/end balance when they are in the sheet (e.g. 2019_PKH and 2020_STH examples)
             product_df <- update_receivedfrom(product_df)
@@ -439,22 +650,33 @@ reading_product_data_step2 <-
             check_negative_balance(product_df, sheet_month)
 
             # Report unknown product names
-            if (exists("stock_product_names_df") && !is.null(stock_product_names_df) && nrow(stock_product_names_df) > 0) {
-                report_unknown_products(product_df, sheet_month, stock_product_names_df)
+            if (exists("known_products") && !is.null(known_products) && nrow(known_products) > 0) {
+                report_unknown_products(product_df, sheet_month, known_products)
             }
+
+            product_df <- product_df %>% add_product_categories(product_category_mapping)
+
+            # extract Unit Capacity from product column
+            product_df <- extract_unit_capacity(product_df, "product")
 
             #### hospital and country information missing here!!
 
             # finish and combine
             df_final <- df_final %>%
                 rbind(product_df)
-
-            logDebug(paste("Finished processing the following sheet:", sheet_month))
         }
 
         if (nrow(df_final) > 0) {
             return(df_final)
         } else {
-            logDebug(paste("No product data extracted for the following tracker:", df$file_name[1]))
+            logWarning(
+                log_to_json(
+                    message = "No product data extracted for the following tracker: {values['name']}.",
+                    values = list(name = df$file_name[1]),
+                    file = "read_product_data.R",
+                    functionName = "reading_product_data_step2",
+                    warningCode = "script2_warning_product_data"
+                )
+            )
         }
     }

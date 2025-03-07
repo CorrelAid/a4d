@@ -2,7 +2,10 @@
 
 `%notin%` <- Negate(`%in%`)
 
-# @Description: Clean df where first row is empty
+#' @title set_second_row_as_headers_and_remove_first_row
+#'
+#' @description
+#' Clean df where first row is empty
 set_second_row_as_headers_and_remove_first_row <- function(df) {
     colnames(df) <- df[1, ]
     df <- df[-1, ]
@@ -16,12 +19,17 @@ set_second_row_as_headers_and_remove_first_row <- function(df) {
 # and if word searches need to be done for years separately
 # Conditions to cut of at start msd data
 helper_is_msd_start_row <- function(df, i) {
-    condition <- case_when(
+    condition <- dplyr::case_when(
 
         # 2021
         # any(grepl("MEDICAL", df[i, ])) &
         # any(grepl("Product", df[i + 1, ])) &
         # any(grepl("Entry Date", df[i + 1, ])) ~ TRUE,
+
+        # 2024
+        any(grepl("Product", df[i, ])) &
+            any(grepl("Date", df[i, ])) &
+            any(grepl("Received", df[i, ])) ~ TRUE,
 
         # 2019 & 2020 & 2021
         any(grepl("Product", df[i, ])) &
@@ -42,7 +50,7 @@ helper_is_msd_end_row <- function(df, i) {
     includes_patient_recruitment <- any(grepl("patient recruitment", tolower(df[i, ])) |
         grepl("patient data summary", tolower(df[i - 1, ]))) # second check for 2022 data onwards
 
-    condition <- case_when(
+    condition <- dplyr::case_when(
         !includes_patient_name ~ FALSE,
         !includes_patient_recruitment ~ FALSE,
         !(any(grepl("patient id", tolower(df[i + 1, ]))) | any(grepl("ID", df[i + 1, ]))) ~ FALSE,
@@ -81,9 +89,11 @@ get_patient_end <- function(df, j) {
     }
 }
 
-# @Description: Reads product data from a monthly file based on extraction logic
+#' @title extract_product_data
+#'
+#' @description
+#' Reads product data from a monthly file based on extraction logic
 extract_product_data <- function(monthly_tracker_df) {
-    logDebug("Starting extract_product_data.")
     start_df_msd <- NULL
     end_df_msd <- NULL
 
@@ -91,54 +101,63 @@ extract_product_data <- function(monthly_tracker_df) {
         start <- get_msd_start(monthly_tracker_df, i)
         end <- get_msd_end(monthly_tracker_df, i)
 
-        if (!is_empty(start) & is_empty(start_df_msd)) {
+        if (!purrr::is_empty(start) & purrr::is_empty(start_df_msd)) {
             start_df_msd <- start - 1
         }
-        if (!is_empty(end) & is_empty(end_df_msd)) {
+        if (!purrr::is_empty(end) & purrr::is_empty(end_df_msd)) {
             end_df_msd <- end
         }
     }
+
+    if (is.null(start_df_msd)) {
+        logWarn(
+            log_to_json(
+                message = "Cannot find the initial row for the product data.",
+                script = "script1",
+                file = "helper_product_data.R",
+                functionName = "extract_product_data",
+                warningCode = "invalid_tracker"
+            )
+        )
+    }
+
+    if (is.null(end_df_msd)) {
+        logWarn(
+            log_to_json(
+                message = "Cannot find the final row for the product data.",
+                script = "script1",
+                file = "helper_product_data.R",
+                functionName = "extract_product_data",
+                warningCode = "invalid_tracker"
+            )
+        )
+    }
+
     product_data_df <- monthly_tracker_df[start_df_msd:end_df_msd, ]
 
     # Clean empty remaining first row
     product_data_df <- set_second_row_as_headers_and_remove_first_row(product_data_df)
 
-    logDebug("Finish extract_product_data.")
-
     return(product_data_df)
 }
-
-# @Description: Reads patient summary (? -> to be checked)
-# extract_patient_data_in_products <- function(monthly_tracker_df){
-# print("Extract patient summary data - Start")
-#
-# for(i in 1:nrow(monthly_tracker_df)){
-# start_df_patient <- get_patient_start(monthly_tracker_df, i)
-# end_df_patient <- get_patient_end(monthly_tracker_df, i)
-# }
-# patient_df <- monthly_tracker_df[start_df_patient:end_df_patient, ]
-#
-# # Clean empty  first row
-# patient_df <- set_second_row_as_headers_and_remove_first_row(patient_df)
-#
-#
-# print("Extract patient summary data - End")
-#
-# return(patient_df)
-# }
 
 #### 2. Match Product data columns ####
 # ==============================================================================
 
-# @Description: Imports the product df, cleans it and matches it against
+#' @title harmonize_input_data_columns
+#'
+#' @description
+#' Imports the product df, cleans it and matches it against
 # column synonyms to unify column names
-# @columns_synonyms: Long format output of read_column_synonyms to match columns
-harmonize_input_data_columns <- function(product_df, columns_synonyms) {
-    logDebug("Start harmonize_input_data_columns.")
+#
+#' @param product_df: The product data to be cleaned and matched against column synonyms
+#' @param columns_synonyms: Long format output of read_column_synonyms to match columns
+#' @param sheet: The current sheet name of the tracker file
+harmonize_input_data_columns <- function(product_df, columns_synonyms, sheet) {
     # In case that there is additional data in strange columns, keep only relevant columns
     # keep.cols <- names(product_df) %in% c("")
 
-    product_df <- product_df %>% discard(~ all(is.na(.) | . == ""))
+    product_df <- product_df %>% purrr::discard(~ all(is.na(.) | . == ""))
     product_df <- product_df[!is.na(names(product_df))]
 
     colnames(product_df) <- sanitize_column_name(colnames(product_df))
@@ -147,50 +166,60 @@ harmonize_input_data_columns <- function(product_df, columns_synonyms) {
     ## report all column names which have not been found
     unknown_column_names <- colnames(product_df)[!colnames(product_df) %in% synonym_headers]
     if (length(unknown_column_names) > 0) {
-        logWarn("Unknown column names in sheet: ", paste(unknown_column_names, collapse = ", "))
+        logWarn(
+            log_to_json(
+                message = "Sheet {values['sheet']}: Unknown column names: {values['col_names']}.",
+                values = list(sheet = sheet, col_names = unknown_column_names),
+                script = "script1",
+                file = "helper_product_data.R",
+                functionName = "harmonize_input_data_columns",
+                warningCode = "invalid_tracker"
+            )
+        )
     }
 
     # replacing var codes
     colnames_found <- match(colnames(product_df), synonym_headers, nomatch = 0)
     colnames(product_df)[colnames(product_df) %in% synonym_headers] <- columns_synonyms$name_clean[colnames_found]
 
-    logDebug("Finish harmonize_input_data_columns.")
     if (sum(colnames_found == 0) != 0) {
-        "Non-matching column names found (see 0)"
         # SK: remove non matching column names
         relcols <- which(colnames(product_df) %in% columns_synonyms$name_clean)
         product_df <- product_df[, relcols]
-        return(product_df)
-    } else {
-        return(product_df)
     }
+
+    return(product_df)
 }
-# @Description: Imports the codebook, cleans, removes duplicates and transforms it
-# into long df format
+
+#' @title read_column_synonyms_product
+#'
+#' @description
+#' Imports the codebook, cleans, removes duplicates and transforms it
+#' into long df format
 read_column_synonyms_product <- function(codebook_data_file) {
     columns_synonyms <- codebook_data_file %>%
         readxl::read_xlsx(sheet = "synonyms_ProductData") %>%
-        as_tibble() %>%
-        pivot_longer(
-            cols = everything(),
+        dplyr::as_tibble() %>%
+        tidyr::pivot_longer(
+            cols = dplyr::everything(),
             names_to = "name_clean",
             values_to = "name_to_be_matched"
         ) %>%
         # subset(!is.na(name_to_be_matched)) %>% # commented out by SK, as this should also include final column names
         # lapply(sanitize_column_name) %>%
-        as_tibble() %>%
-        group_by(name_to_be_matched) %>%
-        slice(1) %>%
-        ungroup()
-    # view(columns_synonyms)
+        dplyr::as_tibble() %>%
+        dplyr::group_by(name_to_be_matched) %>%
+        dplyr::slice(1) %>%
+        dplyr::ungroup()
+
     return(columns_synonyms)
 }
 
 sanitize_column_name <- function(column_name) {
     column_name <- column_name %>%
-        str_to_lower() %>%
-        str_replace_all(fixed(" "), "") %>%
-        str_replace_all("[^[:alnum:]]", "")
+        stringr::str_to_lower() %>%
+        stringr::str_replace_all(stringr::fixed(" "), "") %>%
+        stringr::str_replace_all("[^[:alnum:]]", "")
 
     column_name_clean <- column_name
 
@@ -201,30 +230,45 @@ sanitize_column_name <- function(column_name) {
 #### 3. Change Product data Date format and standardize columns ####
 
 # ==============================================================================
-# @Description: Reformates dates entered into excel in wrong format (e.g., 44042) to final date format (yyyy-mm-dd)
+#' @title format_date_excelnum
+#'
+#' @description
+#' Reformates dates entered into excel in wrong format (e.g., 44042) to final date format (yyyy-mm-dd)
 format_date_excelnum <- function(product_df) {
     rel_rows <- which(!grepl("-", product_df$product_entry_date) & !grepl("\\.", product_df$product_entry_date))
     product_df[rel_rows, "product_entry_date"] <- suppressWarnings(as.character(openxlsx::convertToDate(as.numeric(unlist(product_df[rel_rows, "product_entry_date"])))))
+
     return(product_df)
 }
 
-# @Description: Reformates dates entered into excel in wrong format (e.g., dd-mm-yyyy) to final date format (yyyy-mm-dd)
+#' @title format_date_exceldate
+#'
+#' @description
+#' Reformates dates entered into excel in wrong format (e.g., dd-mm-yyyy) to final date format (yyyy-mm-dd)
 format_date_exceldate <- function(product_df) {
     rel_rows <- which(grepl("-", product_df$product_entry_date) | grepl("\\.", product_df$product_entry_date))
-    product_df[rel_rows, "product_entry_date"] <- suppressWarnings(as.character(dmy(unlist(product_df[rel_rows, "product_entry_date"]))))
+    product_df[rel_rows, "product_entry_date"] <- suppressWarnings(as.character(lubridate::dmy(unlist(product_df[rel_rows, "product_entry_date"]))))
+
     return(product_df)
 }
 
-# @Description: Combines all date reformatting functions into one overall function
+#' @title format_date
+#'
+#' @description
+#' Combines all date reformatting functions into one overall function
 format_date <- function(product_df) {
     product_df <- format_date_exceldate(product_df)
     product_df <- format_date_excelnum(product_df)
+
     return(product_df)
 }
 
-# @Description: Extract month as digit (e.g., 12 for december) based on excel tab name
+#' @title extract_month
+#'
+#' @description
+#' Extract month as digit (e.g., 12 for december) based on excel tab name
 extract_month <- function(sheetname) {
-    output <- case_when(
+    output <- dplyr::case_when(
         grepl("Jan", sheetname) ~ "01",
         grepl("Feb", sheetname) ~ "02",
         grepl("Mar", sheetname) ~ "03",
@@ -238,17 +282,25 @@ extract_month <- function(sheetname) {
         grepl("Nov", sheetname) ~ "11",
         grepl("Dec", sheetname) ~ "12"
     )
+
     return(output)
 }
 
-# @Description: Recode NAs to 0 in all "unit columns"
+#' @title recode_unitcolumnstozero
+#'
+#' @description
+#' Recode NAs to 0 in all "unit columns"
 recode_unitcolumnstozero <- function(product_df) {
     product_df <- product_df %>%
-        mutate_at(vars(c("product_units_received", "product_units_released", "product_units_returned")), ~ replace(., is.na(.), 0))
+        dplyr::mutate_at(dplyr::vars(c("product_units_received", "product_units_released", "product_units_returned")), ~ replace(., is.na(.), 0))
+
     return(product_df)
 }
 
-# @Description: Clean column "product_units_received" from character values and rows with values but no further information
+#' @title clean_unitsreceived
+#'
+#' @description
+#' Clean column "product_units_received" from character values and rows with values but no further information
 clean_unitsreceived <- function(product_df) {
     # Clean column "product_units_received from" from character values
     drop_rows <- product_df %>%
@@ -257,7 +309,7 @@ clean_unitsreceived <- function(product_df) {
         unlist() %>%
         as.numeric()
     product_df <- product_df %>%
-        mutate(product_units_received = ifelse(index %in% drop_rows,
+        dplyr::mutate(product_units_received = ifelse(index %in% drop_rows,
             0,
             suppressWarnings(as.numeric(product_units_received))
         ))
@@ -277,23 +329,35 @@ clean_unitsreceived <- function(product_df) {
 update_receivedfrom <- function(product_df) {
     if (any(grepl("Balance", product_df[["product_units_received"]], ignore.case = TRUE)) & any(is.na(product_df$product_received_from))) {
         product_df <- product_df %>%
-            dplyr::mutate(product_received_from = case_when(
+            dplyr::mutate(product_received_from = dplyr::case_when(
                 grepl("Balance", product_units_received, ignore.case = TRUE) & !is.na(product_units_released) ~ product_units_released,
                 grepl("Balance", product_units_received, ignore.case = TRUE) & !is.na(product_received_from) ~ product_received_from
             )) %>%
             dplyr::mutate(product_units_released = ifelse(!is.na(product_received_from), NA, product_units_released))
-        logInfo("The rule for the case was applied successfully- Released (product_units_released) column also includes values for Start/End Balance")
+
+        logInfo(
+            log_to_json(
+                message = "The rule for the case was applied successfully- Released (product_units_released) column also includes values for Start/End Balance",
+                script = "script1",
+                file = "helper_product_data.R",
+                functionName = "update_receivedfrom"
+            )
+        )
     }
+
     return(product_df)
 }
 
-# @Description: Clean column "product_received_from" from character values
+#' @title clean_receivedfrom
+#'
+#' @description
+#' Clean column "product_received_from" from character values
 clean_receivedfrom <- function(product_df) {
     # If there is notion of a balance trackkeeping in received column, which would align with a "START" statement in product_received column:
     if (any(grepl("START", product_df[["product_units_received"]], ignore.case = TRUE))) {
         # Copy balance start values from this column to product_balance column. Balance end values are not kept since these seem to represent final accounting values.
         product_df <- product_df %>%
-            dplyr::mutate(product_balance = case_when(
+            dplyr::mutate(product_balance = dplyr::case_when(
                 grepl("START", product_units_received, ignore.case = TRUE) ~ product_received_from
             ))
     }
@@ -305,15 +369,20 @@ clean_receivedfrom <- function(product_df) {
         unlist() %>%
         as.numeric()
     product_df <- product_df %>%
-        mutate(product_received_from = ifelse(index %in% drop_rows,
+        dplyr::mutate(product_received_from = ifelse(index %in% drop_rows,
             NA,
             product_received_from
         ))
+
     return(product_df)
 }
 
-# @Description: Preparation function for compute_balance and compute_balance_status.
-# Remove rows without any meaningful information regarding units (release, return, received) or entry status
+#' @title compute_balance_cleanrows
+#'
+#' @description
+#' Preparation function for compute_balance and compute_balance_status.
+#'
+#' Remove rows without any meaningful information regarding units (release, return, received) or entry status
 compute_balance_cleanrows <- function(product_df) {
     delete_rows <- as.vector(0)
     for (i in 1:nrow(product_df)) {
@@ -326,30 +395,34 @@ compute_balance_cleanrows <- function(product_df) {
     if (delete_rows > 0) {
         product_df <- product_df[-delete_rows, ]
     }
+
     return(product_df)
 }
 
-# @Description: Computate balance status (start vs. change vs. end) per product
+#' @title compute_balance_status
+#'
+#' @description
+#' Computate balance status (start vs. change vs. end) per product
 compute_balance_status <- function(product_df) {
     # Define change as default
     indices_start <- product_df %>%
         dplyr::group_by(product) %>%
-        slice_head(n = 1) %>%
-        as_tibble() %>%
-        select(index) %>%
+        dplyr::slice_head(n = 1) %>%
+        dplyr::as_tibble() %>%
+        dplyr::select(index) %>%
         unlist() %>%
         as.numeric()
 
     indices_end <- product_df %>%
         dplyr::group_by(product) %>%
-        slice_tail(n = 1) %>%
-        as_tibble() %>%
-        select(index) %>%
+        dplyr::slice_tail(n = 1) %>%
+        dplyr::as_tibble() %>%
+        dplyr::select(index) %>%
         unlist() %>%
         as.numeric()
 
     product_df <- product_df %>%
-        mutate(product_balance_status = case_when(
+        dplyr::mutate(product_balance_status = dplyr::case_when(
             index %in% indices_start ~ "start",
             index %in% indices_end ~ "end",
             TRUE ~ "change"
@@ -358,7 +431,10 @@ compute_balance_status <- function(product_df) {
     return(product_df)
 }
 
-# @Description: Computes balance based on start balance value, units released, units returned, units received.-
+#' @title compute_balance
+#'
+#' @description
+#' Computes balance based on start balance value, units released, units returned, units received.-
 compute_balance <- function(product_df, year) {
     # Change variable type
     product_df["product_balance"] <- as.numeric(unlist(product_df["product_balance"]))
@@ -368,15 +444,15 @@ compute_balance <- function(product_df, year) {
     # Need to put units received and released to 0 since here only summarising end of month
     if (year >= 2021) {
         product_df <- product_df %>%
-            mutate(product_units_received = if_else(product_balance_status == "end", 0, product_units_received)) %>%
-            mutate(product_units_released = if_else(product_balance_status == "end", 0, product_units_released))
+            dplyr::mutate(product_units_received = dplyr::if_else(product_balance_status == "end", 0, product_units_received)) %>%
+            dplyr::mutate(product_units_released = dplyr::if_else(product_balance_status == "end", 0, product_units_released))
     }
 
     # Calculate start balance: take units_received value if there is no balance value present
     product_df <- product_df %>%
         dplyr::group_by(product) %>%
         dplyr::mutate(
-            product_balance = case_when(
+            product_balance = dplyr::case_when(
                 (product_balance_status == "start") & (is.na(product_balance) == TRUE) ~ (product_units_received - product_units_released),
                 TRUE ~ as.numeric(product_balance)
             )
@@ -401,10 +477,16 @@ compute_balance <- function(product_df, year) {
         }
     }
 
-    return(product_df)
+    # ToDo LOW (KW): Ungroup statement can possibly be moved a further up limiting
+    # the group scope for clarity. I added the ungroup as it was missing from the
+    # function, but did not look for the best position so far.
+    return(product_df %>% dplyr::ungroup())
 }
 
-# @Description: Adjust classes of dataframe names
+#' @title adjust_column_classes
+#'
+#' @description
+#' Adjust classes of dataframe names
 adjust_column_classes <- function(product_df) {
     list_date <- c("product_entry_date")
     list_character <- c(
@@ -417,14 +499,17 @@ adjust_column_classes <- function(product_df) {
     )
 
     product_df <- product_df %>%
-        mutate_at(list_date, as.Date) %>%
-        mutate_at(list_character, as.character) %>%
-        mutate_at(list_numeric, as.numeric)
+        dplyr::mutate_at(list_date, as.Date) %>%
+        dplyr::mutate_at(list_character, as.character) %>%
+        dplyr::mutate_at(list_numeric, as.numeric)
 
     return(product_df)
 }
 
-# @Description: Wait for x seconds in script
+#' @title testit
+#'
+#' @description
+#' Wait for x seconds in script
 testit <- function(x) {
     p1 <- proc.time()
     Sys.sleep(x)
@@ -434,8 +519,10 @@ testit <- function(x) {
 
 #### 4. Extract concatenated product name information ####
 
-# @Description: Splits product name cells with multiple values into separate rows. Uses numeric product content in cell for columns units_received or units_released
-
+#' @title extract_product_multiple
+#'
+#' @description
+#' Splits product name cells with multiple values into separate rows. Uses numeric product content in cell for columns units_received or units_released
 extract_product_multiple <- function(product_df) {
     # Split multiple-product cell into several rows
     df_product_test_x <- product_df %>%
@@ -458,10 +545,10 @@ extract_product_multiple <- function(product_df) {
 
     # Create column "notes", containing input from brackets if word "box" or "unit" is present
     df_product_test_x <- df_product_test_x %>%
-        rowwise() %>%
+        dplyr::rowwise() %>%
         dplyr::mutate(
-            product_units_notes = case_when( # e.g., "1 box" or "1 unit". Other units (e.g., 2ml x5) are not extracted.
-                (grepl("\\(", product) & grepl("\\)", product) & (grepl("box", product) | grepl("unit", product))) ~ as.character(substring(str_extract_all(product, "\\([^()]+\\)")[[1]], 2, nchar(str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1))[1],
+            product_units_notes = dplyr::case_when( # e.g., "1 box" or "1 unit". Other units (e.g., 2ml x5) are not extracted.
+                (grepl("\\(", product) & grepl("\\)", product) & (grepl("box", product) | grepl("unit", product))) ~ as.character(substring(stringr::str_extract_all(product, "\\([^()]+\\)")[[1]], 2, nchar(stringr::str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1))[1],
                 TRUE ~ product_units_notes
             )
         )
@@ -482,18 +569,34 @@ extract_product_multiple <- function(product_df) {
 
         # recode product_units_received
         if ((grepl("\\(", product) & grepl("\\)", product) & (grepl("box", product) | grepl("unit", product)) & is.na(product_received_from) == FALSE) & (!grepl("\\/", product))) {
-            df_product_test_x[row, "product_units_received"] <- as.character(as.numeric(stringi::stri_extract_all_regex(substring(str_extract_all(product, "\\([^()]+\\)")[[1]], 2, nchar(str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1), "[1-9]+")[[1]][1]))
+            df_product_test_x[row, "product_units_received"] <- as.character(
+                as.numeric(
+                    stringi::stri_extract_all_regex(
+                        substring(
+                            stringr::str_extract_all(product, "\\([^()]+\\)")[[1]],
+                            2,
+                            nchar(stringr::str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1
+                        ),
+                        "[1-9]+"
+                    )[[1]][1]
+                )
+            )
         }
 
         # recode product_units_released
         if ((grepl("\\(", product) & grepl("\\)", product) & (grepl("box", product) | grepl("unit", product)) & is.na(product_released_to) == FALSE) & (!grepl("\\/", product))) {
-            df_product_test_x[row, "product_units_released"] <- as.numeric(stringi::stri_extract_all_regex(substring(str_extract_all(product, "\\([^()]+\\)")[[1]], 2, nchar(str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1), "[1-9]+")[[1]][1])
+            df_product_test_x[row, "product_units_released"] <- as.numeric(
+                stringi::stri_extract_all_regex(
+                    substring(
+                        stringr::str_extract_all(product, "\\([^()]+\\)")[[1]],
+                        2,
+                        nchar(stringr::str_extract_all(product, "\\([^()]+\\)")[[1]]) - 1
+                    ),
+                    "[1-9]+"
+                )[[1]][1]
+            )
         }
     }
 
-
-
     return(df_product_test_x)
 }
-
-#
