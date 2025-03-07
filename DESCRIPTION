@@ -7,9 +7,8 @@ Description: Functionality to process, clean and ingest tracker data (excel file
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.2
 Depends: 
-    tidyverse,
     ParallelLogger
 Imports: 
     data.table,
@@ -17,16 +16,18 @@ Imports:
     dplyr,
     here,
     lubridate,
-    openxlsx,
     readr,
     readxl,
+    stringr,
     styler,
     testit,
     tidyr,
     yaml,
-    zoo
+    zoo,
+    arrow,
+    openxlsx,
+    glue,
+    jsonlite
 Suggests: 
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-Remotes: 
-    EvgenyPetrovsky/scrambler

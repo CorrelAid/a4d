@@ -1,0 +1,44 @@
+clinic_id: []
+product:
+  - Product
+  - Description of Support
+  - Product\r\n(select from drop down list)
+  - productselectfromdropdownlist
+product_balance: Balance
+product_balance_status: []
+product_entry_date:
+  - Date
+  - Entry Date
+product_received_from:
+  - Received From
+  - Received From
+product_released_to:
+  - Released To
+  - Released To (select from drop down list)
+  - Released To \r\n(Drop Down List)
+  - releasedtodropdownlist
+  - releasedtoselectfromdropdownlist
+  - Released To (Drop Down)
+  - Released to\r\n(select from drop down list)
+product_returned_by: Returned By
+product_sheet_name: []
+product_table_month: []
+product_table_year: []
+product_units_received:
+  - Units Received  (bottle/box)
+  - Units Received
+  - Units Received \r\n(bottle/box)
+  - Units Received \r\n(box)
+  - Units Received (box)
+  - Received
+product_units_released:
+  - Units Released (box)
+  - Units Released
+  - Units Released\r\n(box)
+  - Released
+  - Units Released per person
+product_units_returned:
+  - Units Returned
+  - Extra Unis Kept in Clinic
+product_remarks:
+  - REMARKS

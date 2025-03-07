@@ -1,3 +1,36 @@
+#' Selects path to A4D data and sets it as an environment variable.
+#'
+#' @export
+#'
+#' @param reset A boolean. If set to TRUE, the directory containing the tracker.
+#' data is changed.
+#'
+#' @return Returns a character representing the path to the tracker data.
+#'
+select_A4D_directory <- function(reset = FALSE) {
+    a4d_data_root <- Sys.getenv("A4D_DATA_ROOT")
+    if (reset || a4d_data_root == "") {
+        a4d_data_root <- set_a4d_data_root()
+    }
+    return(a4d_data_root)
+}
+
+
+#' Helper function that sets the env variable to the A4D tracker files.
+#'
+#' @return Returns a character representing the path to the tracker data.
+#' @export
+#'
+set_a4d_data_root <- function() {
+    cat("Select the directory containing the tracker files")
+    a4d_data_root <- rstudioapi::selectDirectory()
+    Sys.setenv(A4D_DATA_ROOT = a4d_data_root)
+
+    cat("\n\nA4D data folder set to:", a4d_data_root, "\n")
+    return(a4d_data_root)
+}
+
+
 #' @title initialize all necessary paths
 #'
 #' @description
@@ -60,7 +93,7 @@ init_paths <- function(names, output_dir_name = "output", delete = FALSE) {
 get_files <- function(tracker_root, pattern = "\\.xlsx$") {
     tracker_files <- list.files(path = tracker_root, recursive = T, pattern = pattern)
     tracker_files <-
-        tracker_files[str_detect(tracker_files, "~", negate = T)]
+        tracker_files[stringr::str_detect(tracker_files, "~", negate = T)]
 }
 
 
@@ -89,6 +122,8 @@ get_synonyms <- function() {
 #' and generates a tibble containing unique column names and their synonyms.
 #'
 #' @param synonym_file A YAML file containing the synonyms
+#' @param path_prefixes Path prefixes for searching for the yaml file. Usually
+#' this does not need to be set unless for testing purpouses.
 #'
 #' @return A tibble containing unique column names and their synonyms.
 #' @export
@@ -98,27 +133,28 @@ get_synonyms <- function() {
 #' read_column_synonyms(synonym_file = "synonyms_patient.yaml")
 #' read_column_synonyms(synonym_file = "synonyms_product.yaml")
 #' }
-read_column_synonyms <- function(synonym_file) {
+read_column_synonyms <- function(synonym_file, path_prefixes = c("reference_data", "synonyms")) {
+    path <- do.call(file.path, as.list(c(path_prefixes, synonym_file)))
     columns_synonyms <-
-        yaml::read_yaml(file.path("synonyms/", synonym_file)) %>%
+        yaml::read_yaml(path) %>%
         unlist() %>%
         as.data.frame() %>%
-        rownames_to_column() %>%
+        tibble::rownames_to_column() %>%
         # remove digits that were created when converting to data frame
-        mutate(
-            rowname = str_replace(rowname, pattern = "[:digit:]$", "")
+        dplyr::mutate(
+            rowname = stringr::str_replace(rowname, pattern = "[:digit:]+$", "")
         ) %>%
-        rename(
+        dplyr::rename(
             "variable_name" = "rowname",
             "tracker_name" = "."
         ) %>%
-        as_tibble()
+        dplyr::as_tibble()
 }
 
 
-#' @title Export data as CSV to a given destination.
+#' @title Export data as parquet to a given destination.
 #'
-#' @param data Data frame to export as CSV.
+#' @param data Data frame to export as parquet file.
 #' @param filename Output file name.
 #' @param output_root Root output directory.
 #' @param suffix Suffix will be appended to the original file name (e.g. "patient_data").
@@ -132,50 +168,13 @@ read_column_synonyms <- function(synonym_file) {
 #'     suffix = "_product_data"
 #' )
 #' }
-export_data <- function(data, filename, output_root, suffix) {
-    logDebug("Start export_data. Suffix = ", suffix, ".")
+export_data_as_parquet <- function(data, filename, output_root, suffix) {
     data %>%
-        write.csv(
-            file =
-                file.path(
-                    output_root,
-                    paste0(
-                        filename,
-                        suffix,
-                        ".csv"
-                    )
-                ),
-            row.names = F,
-            na = "",
-            fileEncoding = "UTF-16LE",
-            quote = T
+        arrow::write_parquet(
+            sink = file.path(output_root, paste0(filename, suffix, ".parquet")),
         )
-    logInfo("Finish export_data. Suffix = ", suffix, ".")
 }
 
-
-
-#' @title Read in patient data from CSV.
-#'
-#' @param patient_file_path Path to the CSV file.
-#'
-#' @return tibble with patient data
-read_raw_csv <- function(file) {
-    logDebug("Start reading data with read_csv.")
-    df_patient_raw <- readr::read_csv(
-        file,
-        name_repair = "check_unique",
-        progress = FALSE,
-        show_col_types = FALSE,
-        col_types = readr::cols(.default = "c"),
-        locale = readr::locale(encoding = "UTF-16LE")
-    )
-    logDebug("Finished loading data with read_csv.")
-    logInfo("Dim: ", dim(df_patient_raw))
-    logInfo("Columns: ", spec(df_patient_raw))
-
-    df_patient_raw
-}
 
 
 #' @title Read allowed provinces from a YAML file.
@@ -186,6 +185,6 @@ read_raw_csv <- function(file) {
 #' @return A named character vector with all allowed provinces.
 get_allowed_provinces <- function() {
     ## Should new countries and provinces be added, update the YAML file
-    provinces <- yaml::read_yaml("provinces/allowed_provinces.yaml") %>% unlist()
+    provinces <- yaml::read_yaml("reference_data/provinces/allowed_provinces.yaml") %>% unlist()
     return(provinces)
 }
