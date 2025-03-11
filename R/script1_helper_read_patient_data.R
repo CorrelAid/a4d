@@ -118,12 +118,12 @@ extract_patient_data <- function(tracker_data_file, sheet, year) {
     # removes duplicate columns that appear due to merged cells (e.g. insulin regimen)
     # there is a really strange case when unmerging cells can lead to two insulin regime columns
     # but with different data! For now just remove the second (hidden) column
-    insulin_regimen_cols = grep("Insulin", colnames(df_patient))
+    insulin_regimen_cols <- grep("Insulin", colnames(df_patient))
     if (length(insulin_regimen_cols) > 1) {
         # take all columns except the indices from grep beginning at second pos
         df_patient <- df_patient[, -insulin_regimen_cols[-1]]
     }
-    #df_patient <- df_patient %>% distinct()
+    # df_patient <- df_patient %>% distinct()
     # remove empty rows with only NA
     df_patient <-
         df_patient[rowSums(is.na(df_patient)) != ncol(df_patient), ]

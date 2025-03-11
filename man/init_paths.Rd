@@ -4,14 +4,12 @@
 \alias{init_paths}
 \title{initialize all necessary paths}
 \usage{
-init_paths(names, output_dir_name = "output", delete = FALSE)
+init_paths(names, delete = FALSE)
 }
 \arguments{
 \item{names}{Folder names that will be created under the output folder.}
 
 \item{delete}{If TRUE, delete all files under output.}
-
-\item{output_root_name}{The name of the main output folder created in the data folder.}
 }
 \value{
 A list with tracker_root_path and output_root path

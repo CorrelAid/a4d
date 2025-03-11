@@ -1,0 +1,10 @@
+default:
+    download_bucket: "a4dphase2_upload"
+    upload_bucket: "a4dphase2_output"
+    data_root: "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload"
+    output_dir: "output"
+    project_id: "a4dphase2"
+    dataset: "tracker"
+
+production:
+    data_root: "/home/rstudio/data"

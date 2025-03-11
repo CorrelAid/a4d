@@ -2,7 +2,6 @@
 
 Below is a description of the folders and the files we find in these
 
-- **data**: Files containing dummy data to start setting up the scripts
 - **R**: Contains the scripts to extract, and preprocess the patient and the product data.
     - *patient_tracker_extract_helper* : Helper functions to extract the data for the patients (needed to run the *patient_tracker_extract* script)
     - *helper_product_data*: Helper functions to extract the data for the products
@@ -14,16 +13,20 @@ Below is a description of the folders and the files we find in these
 
 We use the [renv](https://rstudio.github.io/renv/index.html) package to manage dependencies.
 
-This project was setup with `renv` and uses a local `.Rprofile` file that activates `renv`. The first time you open this project in RStudio, this will check if `renv` is already installed, and, if that is not the case, install it.
+This project was setup with `renv` and uses a local `.Rprofile` file that activates `renv`.
+The first time you open this project in RStudio, this will check if `renv` is already installed, and, if that is not the case, install it.
 
-You are then informed about the difference between your local R environment and the packages used for this project. Check your console in RStudio after opening. You should see something like:
+You are then informed about the difference between your local R environment and the packages used for this project.
+Check your console in RStudio after opening.
+You should see something like:
 
 ```R
 * One or more packages recorded in the lockfile are not installed.
 * Use `renv::status()` for more details.
 ```
 
-You can use `renv::status()` to see which packages will be installed. Once you are ready, run
+You can use `renv::status()` to see which packages will be installed.
+Once you are ready, run
 
 ```R
 renv::restore()
@@ -35,7 +38,9 @@ and `renv` will install all packages with the version as stated in the `renv.loc
 
 See [collaborating](https://rstudio.github.io/renv/articles/collaborating.html) for the full details.
 
-While working on a project, you or your collaborators may need to update or install new packages in your project. When this occurs, you’ll also want to ensure your collaborators are then using the same newly-installed packages. In general, the process looks like this:
+While working on a project, you or your collaborators may need to update or install new packages in your project.
+When this occurs, you’ll also want to ensure your collaborators are then using the same newly-installed packages.
+In general, the process looks like this:
 
 - A user installs, or updates, one or more packages in their local project library;
 - That user calls `renv::snapshot()` to update the `renv.lock` lockfile;
@@ -44,13 +49,16 @@ While working on a project, you or your collaborators may need to update or inst
 
 If you want to add another package to this project, install the package with `renv::install()` instead of `package.install()`.
 
-**Note**: Not all packages are locked by `renv`. For example, if you want to preview this Readme with RStudio, RStudio will likely ask to install or update additional packages like `markdown`. That is ok and intended because these additional packages are not used by the project code so it is up to you to install them or not.
+**Note**: Not all packages are locked by `renv`.
+For example, if you want to preview this Readme with RStudio, RStudio will likely ask to install or update additional packages like `markdown`.
+That is ok and intended because these additional packages are not used by the project code so it is up to you to install them or not.
 
 ### Loading the code
 
 Once you have installed the dependencies with `renv::restore()` you can go on and load our "package".
 
-However, you need one more dependency, and that is [devtools](https://devtools.r-lib.org/). This is because `renv` does only lock required packages that are needed to run the code, not packages to develop the code (like `devtools`).
+However, you need one more dependency, and that is [devtools](https://devtools.r-lib.org/).
+This is because `renv` does only lock required packages that are needed to run the code, not packages to develop the code (like `devtools`).
 
 So make sure to run
 
@@ -94,7 +102,8 @@ To account for the different file paths for every user and to speed the selectio
     - Replace `"your_path"` with the path to your A4D tracker files
         - E.g. `A4D_DATA_ROOT = "D:/A4D"`
 - Save the `.Renviron` file
-- You are good to go and will not need to re-select the folder containing the tracker files when running `select_A4D_directory()`.  This function will now get the correct path from the `.Renviron` file.
+- You are good to go and will not need to re-select the folder containing the tracker files when running `select_A4D_directory()`.
+   This function will now get the correct path from the `.Renviron` file.
 
 ## Development workflow
 

@@ -1,36 +1,3 @@
-#' Selects path to A4D data and sets it as an environment variable.
-#'
-#' @export
-#'
-#' @param reset A boolean. If set to TRUE, the directory containing the tracker.
-#' data is changed.
-#'
-#' @return Returns a character representing the path to the tracker data.
-#'
-select_A4D_directory <- function(reset = FALSE) {
-    a4d_data_root <- Sys.getenv("A4D_DATA_ROOT")
-    if (reset || a4d_data_root == "") {
-        a4d_data_root <- set_a4d_data_root()
-    }
-    return(a4d_data_root)
-}
-
-
-#' Helper function that sets the env variable to the A4D tracker files.
-#'
-#' @return Returns a character representing the path to the tracker data.
-#' @export
-#'
-set_a4d_data_root <- function() {
-    cat("Select the directory containing the tracker files")
-    a4d_data_root <- rstudioapi::selectDirectory()
-    Sys.setenv(A4D_DATA_ROOT = a4d_data_root)
-
-    cat("\n\nA4D data folder set to:", a4d_data_root, "\n")
-    return(a4d_data_root)
-}
-
-
 #' @title initialize all necessary paths
 #'
 #' @description
@@ -41,26 +8,22 @@ set_a4d_data_root <- function() {
 #' selecting a folder or reading from the A4D_DATA_ROOT env var.
 #'
 #' @param names Folder names that will be created under the output folder.
-#' @param output_root_name The name of the main output folder created in the data folder.
 #' @param delete If TRUE, delete all files under output.
 #'
 #' @return A list with tracker_root_path and output_root path
-init_paths <- function(names, output_dir_name = "output", delete = FALSE) {
+init_paths <- function(names, delete = FALSE) {
+    config <- config::get()
     paths <- list()
-    tracker_root_path <- select_A4D_directory()
-    paths$tracker_root <- tracker_root_path
+    data_dir <- config$data_root
+    output_dir <- config$output_dir
 
-    output_root <- file.path(
-        tracker_root_path,
-        output_dir_name
-    )
-
-    paths$output_root <- output_root
+    paths$tracker_root <- data_dir
+    paths$output_root <- file.path(data_dir, output_dir)
 
     for (name in names) {
         subdir <- file.path(
-            tracker_root_path,
-            output_dir_name,
+            data_dir,
+            output_dir,
             name
         )
 
