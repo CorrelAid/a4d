@@ -80,6 +80,13 @@ ingest_data(
     project_id = config$project_id,
     cluster_fields = "clinic_id,patient_id,tracker_date",
     dataset = config$dataset,
+    table = "patient_data_annual",
+    source = file.path(table_dir, "patient_data_annual.parquet")
+)
+ingest_data(
+    project_id = config$project_id,
+    cluster_fields = "clinic_id,patient_id,tracker_date",
+    dataset = config$dataset,
     table = "patient_data_static",
     source = file.path(table_dir, "patient_data_static.parquet")
 )
