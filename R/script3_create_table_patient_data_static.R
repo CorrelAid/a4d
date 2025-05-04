@@ -45,7 +45,7 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
     static_patient_data <- static_patient_data %>%
         dplyr::group_by(patient_id) %>%
         dplyr::slice_max(tracker_year, n = 1) %>%
-        dplyr::slice_max(tracker_month, n = 1) %>%
+        dplyr::slice_max(tracker_month, n = 1, with_ties = FALSE) %>%
         dplyr::ungroup() %>%
         dplyr::arrange(tracker_year, tracker_month, patient_id)
 
