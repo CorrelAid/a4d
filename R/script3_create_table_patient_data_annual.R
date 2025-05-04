@@ -56,7 +56,7 @@ create_table_patient_data_annual <- function(patient_data_files, input_root, out
     annual_patient_data <- annual_patient_data %>%
         dplyr::filter(tracker_year >= 2024) %>%
         dplyr::group_by(patient_id, tracker_year) %>%
-        dplyr::slice_max(tracker_month, n = 1) %>% # Get the last month for each year
+        dplyr::slice_max(tracker_month, n = 1, with_ties = FALSE) %>% # Get the last month for each year
         dplyr::ungroup() %>%
         dplyr::arrange(tracker_year, tracker_month, patient_id)
 
