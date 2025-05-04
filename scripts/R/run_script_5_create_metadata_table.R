@@ -43,7 +43,7 @@ main <- function() {
 
     all_data <- all_data %>%
         dplyr::mutate(
-            complete = dplyr::if_all(subdirs, identity),
+            complete = dplyr::if_all(dplyr::all_of(subdirs), identity),
             timestamp = current_timestamp
         )
 
