@@ -12,6 +12,7 @@ create_table_patient_data_monthly <- function(patient_data_files, input_root, ou
     # THERE MIGHT BE MONTHLY COLUMNS MISSING - PLEASE ADD THEM
     dynamic_patient_columns <-
         c(
+            "age",
             "bmi",
             "bmi_date",
             "clinic_id",

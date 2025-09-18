@@ -12,10 +12,8 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
     # THERE MIGHT BE STATIC COLUMNS MISSING - PLEASE ADD THEM
     static_patient_columns <-
         c(
-            "age",
             "clinic_id",
             "dob",
-            "edu_occ", # since 2024 in Annual
             "fbg_baseline_mg",
             "fbg_baseline_mmol",
             "file_name",
