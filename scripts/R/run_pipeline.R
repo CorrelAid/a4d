@@ -9,6 +9,17 @@ download_data <- function(bucket, data_dir) {
     print("Finished downloading data from GCP Storage")
 }
 
+download_google_sheet <- function(sheet_id, name) {
+    json_key <- here::here("secrets", "a4d-gcp-sa.json")
+
+    # Authenticate both packages with the same service account
+    googlesheets4::gs4_auth(path = json_key)
+    googledrive::drive_auth(path = json_key)
+
+    file <- googledrive::drive_get(googledrive::as_id(sheet_id))
+    googledrive::drive_download(file, here::here("reference_data", name), type = "xlsx", overwrite = TRUE)
+}
+
 upload_data <- function(bucket, data_dir) {
     print("Start uploading data to GCP Storage")
     command <- paste("gsutil -m cp -r", data_dir, paste0("gs://", bucket))
@@ -63,6 +74,7 @@ unlink(output_dir, recursive = T, force = T)
 table_dir <- file.path(output_dir, "tables")
 
 download_data(bucket = config$download_bucket, data_dir = data_dir)
+download_google_sheet("1HOxi0o9fTAoHySjW_M3F-09TRBnUITOzzxGx2HwRMAw", "clinic_data.xlsx")
 source("scripts/R/run_script_1_extract_raw_data.R") # creates CSV files in subfolders patient_data_raw and product_data_raw
 source("scripts/R/run_script_2_clean_data.R") # creates CSV files in subfolders patient_data_cleaned and product_data_cleaned
 source("scripts/R/run_script_3_create_tables.R") # creates final CSV files in subfolder tables
