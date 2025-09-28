@@ -51,7 +51,7 @@ reading_patient_data <-
             )
         )
 
-        testit::assert(year >= 2017 & year <= 2024)
+        testit::assert(year >= 2017 & year <= 2026)
 
         tidy_tracker_list <- NULL
 
