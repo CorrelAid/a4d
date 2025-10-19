@@ -15,7 +15,7 @@ parse_invalid_dates <- function(df, colname) {
 }
 
 
-numbers_only <- function(x) !grepl("\\D", x)
+numbers_only <- function(x) !grepl("[^0-9.]", x)
 
 
 parse_date_string <- function(text) {

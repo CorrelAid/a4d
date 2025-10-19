@@ -172,34 +172,21 @@ fix_digit_date <-
 #'
 #' @return Either a correctly parsed date or NA.
 parse_dates <- function(date) {
-    if (is.na(date)) {
-        return(lubridate::NA_Date_)
-    }
+    if (is.na(date)) return(lubridate::NA_Date_)
 
     parsed_date <- suppressWarnings(lubridate::as_date(date))
-
     if (is.na(parsed_date)) {
-        orders <- c("dmy", "dmY", "dbY", "by", "bY", "mY", "my", "y")
-        logWarn(
-            log_to_json(
-                message = "Could not parse date value {values['date']}. Trying to parse with lubridate::parse_date_time and orders = {values['orders']}.",
-                values = list(date = date, orders = orders),
-                script = "script2",
-                file = "script2_helper_patient_data_fix.R",
-                functionName = "parse_dates",
-                warningCode = "invalid_value"
-            )
-        )
-
-        if (grepl("[[:alpha:]]{4}", date)) {
-            date <- sub("([[:alpha:]]{3})[[:alpha:]]", "\\1", date)
-        }
-        parsed_date <- lubridate::parse_date_time(date, orders)
-        parsed_date <- as.Date(parsed_date)
+        logWarn(log_to_json(message = "Could not parse date value {values['date']}. Falling back to alternate parsers.",
+                            values = list(date = date), script = "script2",
+                            file = "script2_helper_patient_data_fix.R", functionName = "parse_dates",
+                            warningCode = "invalid_value"))
+        parsed_date <- parse_date_string(as.character(date))
+        if (!is.na(parsed_date) && parsed_date == as.Date("9999-01-01")) parsed_date <- lubridate::NA_Date_
     }
 
     parsed_date
 }
+
 
 
 #' @title Check value against list of allowed values.
