@@ -1,0 +1,78 @@
+[project]
+name = "a4d"
+version = "2.0.0"
+description = "A4D Medical Tracker Data Processing Pipeline (Python)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Michael Aydinbas", email = "michael.aydinbas@gmail.com"}
+]
+license = {text = "MIT"}
+
+dependencies = [
+    "polars>=0.20.0",
+    "duckdb>=0.10.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pandera[polars]>=0.18.0",
+    "loguru>=0.7.0",
+    "openpyxl>=3.1.0",
+    "google-cloud-bigquery>=3.17.0",
+    "google-cloud-storage>=2.14.0",
+    "pyyaml>=6.0",
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
+a4d-pipeline = "a4d.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "PT",  # flake8-pytest-style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Start lenient, can tighten later
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/a4d",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
