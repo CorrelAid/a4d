@@ -20,14 +20,14 @@ class ColumnMapper:
 
     Example YAML structure:
         age:
-          - Age
-          - Age*
-          - age on reporting
-          - Age (Years)
+            - Age
+            - Age*
+            - age on reporting
+            - Age (Years)
         patient_id:
-          - ID
-          - Patient ID
-          - Patient ID*
+            - ID
+            - Patient ID
+            - Patient ID*
 
     Attributes:
         yaml_path: Path to the synonym YAML file
@@ -100,7 +100,7 @@ class ColumnMapper:
         Args:
             df: Input DataFrame with potentially non-standard column names
             strict: If True, raise error if unmapped columns exist
-                   If False, keep unmapped columns as-is
+                If False, keep unmapped columns as-is
 
         Returns:
             DataFrame with standardized column names
@@ -126,20 +126,14 @@ class ColumnMapper:
         if unmapped_columns:
             if strict:
                 raise ValueError(
-                    f"Unmapped columns found: {unmapped_columns}. "
-                    "These columns do not appear in the synonym file."
+                    f"Unmapped columns found: {unmapped_columns}. These columns do not appear in the synonym file."
                 )
             else:
-                logger.debug(
-                    f"Keeping {len(unmapped_columns)} unmapped columns as-is: "
-                    f"{unmapped_columns}"
-                )
+                logger.debug(f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}")
 
         # Log successful mappings
         if rename_map:
-            logger.debug(
-                f"Renaming {len(rename_map)} columns: {list(rename_map.items())}"
-            )
+            logger.debug(f"Renaming {len(rename_map)} columns: {list(rename_map.items())}")
 
         return df.rename(rename_map) if rename_map else df
 
@@ -180,9 +174,7 @@ class ColumnMapper:
         """
         missing = set(required) - set(df.columns)
         if missing:
-            raise ValueError(
-                f"Required columns missing after renaming: {missing}"
-            )
+            raise ValueError(f"Required columns missing after renaming: {missing}")
 
 
 def load_patient_mapper() -> ColumnMapper:
@@ -211,3 +203,19 @@ def load_product_mapper() -> ColumnMapper:
     """
     path = get_reference_data_path("synonyms", "synonyms_product.yaml")
     return ColumnMapper(path)
+
+
+if __name__ == "__main__":
+    # Example usage
+    patient_mapper = load_patient_mapper()
+    product_mapper = load_product_mapper()
+
+    # Example DataFrame
+    df = pl.DataFrame({
+        "Age": [25, 30],
+        "Patient ID": [1, 2],
+        "Product Name": ["A", "B"],
+    })
+
+    renamed_df = patient_mapper.rename_columns(df)
+    print(renamed_df)

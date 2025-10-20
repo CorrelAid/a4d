@@ -36,13 +36,10 @@ def load_allowed_provinces() -> list[str]:
 
     # Flatten all provinces into single list and lowercase for matching
     all_provinces = []
-    for country, provinces in provinces_by_country.items():
+    for _, provinces in provinces_by_country.items():
         all_provinces.extend(p.lower() for p in provinces)
 
-    logger.info(
-        f"Loaded {len(all_provinces)} provinces from "
-        f"{len(provinces_by_country)} countries"
-    )
+    logger.info(f"Loaded {len(all_provinces)} provinces from {len(provinces_by_country)} countries")
 
     return all_provinces
 
@@ -66,13 +63,10 @@ def load_provinces_by_country() -> dict[str, list[str]]:
 
     # Lowercase all province names for case-insensitive matching
     provinces_by_country = {
-        country: [p.lower() for p in provinces]
-        for country, provinces in provinces_by_country_raw.items()
+        country: [p.lower() for p in provinces] for country, provinces in provinces_by_country_raw.items()
     }
 
-    logger.info(
-        f"Loaded provinces for {len(provinces_by_country)} countries"
-    )
+    logger.info(f"Loaded provinces for {len(provinces_by_country)} countries")
 
     return provinces_by_country
 
@@ -130,3 +124,8 @@ def get_country_for_province(province: str) -> str | None:
             return country
 
     return None
+
+
+if __name__ == "__main__":
+    for c, p in load_provinces_by_country().items():
+        print(f"{c}: {p}")
