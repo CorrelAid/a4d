@@ -7,8 +7,9 @@ to standardized column names used throughout the pipeline.
 from pathlib import Path
 
 import polars as pl
-import yaml
 from loguru import logger
+
+from a4d.utils import get_reference_data_path, load_yaml
 
 
 class ColumnMapper:
@@ -45,12 +46,7 @@ class ColumnMapper:
             yaml.YAMLError: If the YAML file is malformed
         """
         self.yaml_path = yaml_path
-
-        if not yaml_path.exists():
-            raise FileNotFoundError(f"Synonym file not found: {yaml_path}")
-
-        with open(yaml_path) as f:
-            self.synonyms: dict[str, list[str]] = yaml.safe_load(f)
+        self.synonyms: dict[str, list[str]] = load_yaml(yaml_path)
 
         # Build reverse lookup: synonym -> standard_name
         self._lookup: dict[str, str] = self._build_lookup()
@@ -189,38 +185,8 @@ class ColumnMapper:
             )
 
 
-def _find_reference_data_dir() -> Path:
-    """Find reference_data directory relative to this file.
-
-    The reference_data directory is at the repository root, shared between
-    R and Python pipelines. From src/a4d/synonyms/mapper.py we navigate up
-    to the repo root.
-
-    Returns:
-        Path to reference_data directory
-
-    Raises:
-        FileNotFoundError: If reference_data directory not found
-    """
-    # Navigate from src/a4d/synonyms/mapper.py to repo root
-    # mapper.py -> synonyms -> a4d -> src -> a4d-python -> repo root
-    repo_root = Path(__file__).parents[4]
-    reference_data_dir = repo_root / "reference_data"
-
-    if not reference_data_dir.exists():
-        raise FileNotFoundError(
-            f"reference_data directory not found at {reference_data_dir}"
-        )
-
-    return reference_data_dir
-
-
-def load_patient_mapper(reference_data_dir: Path | None = None) -> ColumnMapper:
+def load_patient_mapper() -> ColumnMapper:
     """Load the patient data column mapper.
-
-    Args:
-        reference_data_dir: Optional path to reference_data directory.
-                           If None, auto-detect from package location.
 
     Returns:
         ColumnMapper for patient data
@@ -229,19 +195,12 @@ def load_patient_mapper(reference_data_dir: Path | None = None) -> ColumnMapper:
         >>> mapper = load_patient_mapper()
         >>> df = mapper.rename_columns(raw_df)
     """
-    if reference_data_dir is None:
-        reference_data_dir = _find_reference_data_dir()
-
-    path = reference_data_dir / "synonyms" / "synonyms_patient.yaml"
+    path = get_reference_data_path("synonyms", "synonyms_patient.yaml")
     return ColumnMapper(path)
 
 
-def load_product_mapper(reference_data_dir: Path | None = None) -> ColumnMapper:
+def load_product_mapper() -> ColumnMapper:
     """Load the product data column mapper.
-
-    Args:
-        reference_data_dir: Optional path to reference_data directory.
-                           If None, auto-detect from package location.
 
     Returns:
         ColumnMapper for product data
@@ -250,8 +209,5 @@ def load_product_mapper(reference_data_dir: Path | None = None) -> ColumnMapper:
         >>> mapper = load_product_mapper()
         >>> df = mapper.rename_columns(raw_df)
     """
-    if reference_data_dir is None:
-        reference_data_dir = _find_reference_data_dir()
-
-    path = reference_data_dir / "synonyms" / "synonyms_product.yaml"
+    path = get_reference_data_path("synonyms", "synonyms_product.yaml")
     return ColumnMapper(path)
