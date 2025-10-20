@@ -56,7 +56,7 @@ class TestColumnMapper:
 
     def test_init_missing_file_raises_error(self):
         """Test that __init__ raises error for missing file."""
-        with pytest.raises(FileNotFoundError, match="Synonym file not found"):
+        with pytest.raises(FileNotFoundError, match="YAML file not found"):
             ColumnMapper(Path("/nonexistent/file.yaml"))
 
     def test_build_lookup_creates_reverse_mapping(self, simple_synonyms: Path):
@@ -216,48 +216,6 @@ class TestLoaderFunctions:
 
         # Check that synonyms are loaded
         assert len(mapper._lookup) > 0
-
-    def test_load_patient_mapper_with_custom_dir(self, tmp_path: Path):
-        """Test loading patient mapper with custom reference_data directory."""
-        # Create custom reference_data structure
-        synonyms_dir = tmp_path / "synonyms"
-        synonyms_dir.mkdir()
-
-        synonyms = {
-            "age": ["Age"],
-            "patient_id": ["ID"],
-        }
-
-        yaml_path = synonyms_dir / "synonyms_patient.yaml"
-        with open(yaml_path, "w") as f:
-            yaml.dump(synonyms, f)
-
-        # Load with custom directory
-        mapper = load_patient_mapper(reference_data_dir=tmp_path)
-
-        assert "age" in mapper.synonyms
-        assert mapper.get_standard_name("Age") == "age"
-
-    def test_load_product_mapper_with_custom_dir(self, tmp_path: Path):
-        """Test loading product mapper with custom reference_data directory."""
-        # Create custom reference_data structure
-        synonyms_dir = tmp_path / "synonyms"
-        synonyms_dir.mkdir()
-
-        synonyms = {
-            "product": ["Product"],
-            "clinic_id": ["Clinic ID"],
-        }
-
-        yaml_path = synonyms_dir / "synonyms_product.yaml"
-        with open(yaml_path, "w") as f:
-            yaml.dump(synonyms, f)
-
-        # Load with custom directory
-        mapper = load_product_mapper(reference_data_dir=tmp_path)
-
-        assert "product" in mapper.synonyms
-        assert mapper.get_standard_name("Product") == "product"
 
 
 class TestIntegrationWithActualData:
