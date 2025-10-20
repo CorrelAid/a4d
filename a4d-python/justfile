@@ -1,0 +1,86 @@
+# a4d Python Pipeline - Development Commands
+
+# Default recipe (show available commands)
+default:
+    @just --list
+
+# Install dependencies and sync environment
+sync:
+    uv sync --all-extras
+
+# Run tests with coverage
+test:
+    uv run pytest --cov --cov-report=term --cov-report=html
+
+# Run tests without coverage (faster)
+test-fast:
+    uv run pytest -x
+
+# Run type checking with ty
+check:
+    uv run ty check src/
+
+# Run ruff linting
+lint:
+    uv run ruff check .
+
+# Format code with ruff
+format:
+    uv run ruff format .
+
+# Auto-fix linting issues
+fix:
+    uv run ruff check --fix .
+
+# Check code formatting without modifying files
+format-check:
+    uv run ruff format --check .
+
+# Run all CI checks (format, lint, type, test)
+ci: format-check lint check test
+
+# Clean cache and build artifacts
+clean:
+    rm -rf .ruff_cache
+    rm -rf .pytest_cache
+    rm -rf htmlcov
+    rm -rf .coverage
+    rm -rf dist
+    rm -rf build
+    rm -rf src/*.egg-info
+    find . -type d -name __pycache__ -exec rm -rf {} +
+    find . -type f -name "*.pyc" -delete
+
+# Run the pipeline locally (development mode)
+run *ARGS:
+    uv run python scripts/run_pipeline.py {{ARGS}}
+
+# Build Docker image
+docker-build:
+    docker build -t a4d-python:latest .
+
+# Run Docker container locally
+docker-run:
+    docker run --rm \
+        --env-file .env \
+        -v $(pwd)/output:/app/output \
+        a4d-python:latest
+
+# Install pre-commit hooks
+hooks:
+    uv run pre-commit install
+
+# Run pre-commit on all files
+hooks-run:
+    uv run pre-commit run --all-files
+
+# Update dependencies
+update:
+    uv lock --upgrade
+
+# Show project info
+info:
+    @echo "Python version:"
+    @uv run python --version
+    @echo "\nInstalled packages:"
+    @uv pip list
