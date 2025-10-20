@@ -8,7 +8,7 @@ from functools import lru_cache
 
 from loguru import logger
 
-from a4d.utils import get_reference_data_path, load_yaml
+from a4d.reference.loaders import get_reference_data_path, load_yaml
 
 
 @lru_cache
