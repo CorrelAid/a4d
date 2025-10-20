@@ -7,8 +7,7 @@ import polars as pl
 import pytest
 import yaml
 
-from a4d.synonyms import ColumnMapper
-from a4d.synonyms.mapper import load_patient_mapper, load_product_mapper
+from a4d.reference import ColumnMapper, load_patient_mapper, load_product_mapper
 
 
 class TestColumnMapper:

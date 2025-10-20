@@ -2,7 +2,7 @@
 
 import pytest
 
-from a4d.schemas.provinces import (
+from a4d.reference import (
     get_country_for_province,
     is_valid_province,
     load_allowed_provinces,
