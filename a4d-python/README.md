@@ -24,11 +24,13 @@ See [Migration Documentation](../MIGRATION_OVERVIEW.md) for details.
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install dependencies
-uv sync
+# Install just (optional, for convenient commands)
+# macOS: brew install just
+# Other: https://github.com/casey/just
 
-# Install development dependencies
-uv sync --group dev
+# Install dependencies
+just sync
+# or: uv sync --all-extras
 ```
 
 ### Configuration
@@ -48,12 +50,13 @@ A4D_UPLOAD_BUCKET=a4dphase2_output
 
 ```bash
 # Full pipeline
-uv run python scripts/run_pipeline.py
+just run
+# or: uv run python scripts/run_pipeline.py
 
 # With options
-uv run python scripts/run_pipeline.py --max-workers 8
-uv run python scripts/run_pipeline.py --force  # Reprocess all files
-uv run python scripts/run_pipeline.py --skip-upload  # Local testing
+just run --max-workers 8
+just run --force  # Reprocess all files
+just run --skip-upload  # Local testing
 ```
 
 ## Architecture
@@ -87,14 +90,47 @@ a4d-python/
 
 ## Development
 
+### Common Commands
+
+```bash
+# Show all available commands
+just
+
+# Run all CI checks (format, lint, type, test)
+just ci
+
+# Run tests with coverage
+just test
+
+# Run tests without coverage (faster)
+just test-fast
+
+# Format code
+just format
+
+# Lint code
+just lint
+
+# Auto-fix linting issues
+just fix
+
+# Type checking with ty
+just check
+
+# Clean build artifacts
+just clean
+```
+
 ### Running Tests
 
 ```bash
-# All tests
-uv run pytest
+# All tests with coverage
+just test
+# or: uv run pytest --cov
 
-# With coverage
-uv run pytest --cov
+# Fast tests (no coverage)
+just test-fast
+# or: uv run pytest -x
 
 # Specific test file
 uv run pytest tests/test_extract/test_patient.py
@@ -103,36 +139,71 @@ uv run pytest tests/test_extract/test_patient.py
 ### Code Quality
 
 ```bash
-# Linting
-uv run ruff check .
+# Run all checks (what CI runs)
+just ci
 
-# Formatting
-uv run ruff format .
-
-# Type checking
-uv run mypy src/
+# Individual checks
+just lint          # Linting
+just format        # Format code
+just format-check  # Check formatting without changes
+just check         # Type checking with ty
+just fix           # Auto-fix linting issues
 ```
 
 ### Pre-commit Hooks
 
 ```bash
 # Install hooks
-uv run pre-commit install
+just hooks
+# or: uv run pre-commit install
 
-# Run manually
-uv run pre-commit run --all-files
+# Run manually on all files
+just hooks-run
+# or: uv run pre-commit run --all-files
+```
+
+### Docker
+
+```bash
+# Build Docker image
+just docker-build
+
+# Run container locally
+just docker-run
+
+# Or manually:
+docker build -t a4d-python:latest .
+docker run --rm --env-file .env -v $(pwd)/output:/app/output a4d-python:latest
+```
+
+### Other Commands
+
+```bash
+# Update dependencies
+just update
+
+# Show project info
+just info
 ```
 
 ## Technology Stack
 
-- **Polars** - Fast dataframe operations
+### Astral Toolchain
+- **uv** - Fast dependency management
+- **ruff** - Linting and formatting
+- **ty** - Type checking
+
+### Data Processing
+- **Polars** - Fast dataframe operations (10-100x faster than pandas)
 - **DuckDB** - Complex SQL aggregations
 - **Pydantic** - Type-safe configuration
 - **Pandera** - DataFrame validation
+
+### Infrastructure
 - **loguru** - Structured JSON logging
-- **Google Cloud SDK** - BigQuery & GCS
+- **Google Cloud SDK** - BigQuery & GCS integration
 - **pytest** - Testing framework
-- **uv** - Dependency management
+- **just** - Command runner for development
 
 ## Migration from R
 
