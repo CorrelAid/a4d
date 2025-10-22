@@ -88,21 +88,21 @@ def test_find_month_sheets_2024():
 # Note: expected_cols is the actual number after filtering out None header columns
 TRACKER_TEST_CASES = [
     # 2024 tracker - optimized single-pass extraction
-    (TRACKER_2024, "Jan24", 2024, 4, 31, "Single-pass read-only"),
+    (TRACKER_2024, "Jan24", 2024, 4, calculate_expected_columns("B", "AG") - 1, "Single-pass read-only"),
 
     # 2019 tracker - format changes across months! Optimized extraction
-    (TRACKER_2019, "Jan19", 2019, 10, 25, "Single-pass read-only"),
-    (TRACKER_2019, "Feb19", 2019, 10, 28, "Single-pass read-only"),
-    (TRACKER_2019, "Mar19", 2019, 10, 27, "Single-pass read-only"),
-    (TRACKER_2019, "Oct19", 2019, 11, 27, "Single-pass read-only"),
+    (TRACKER_2019, "Jan19", 2019, 10, calculate_expected_columns("B", "Z"), "Single-pass read-only"),
+    (TRACKER_2019, "Feb19", 2019, 10, calculate_expected_columns("B", "AC"), "Single-pass read-only"),
+    (TRACKER_2019, "Mar19", 2019, 10, calculate_expected_columns("B", "AB"), "Single-pass read-only"),
+    (TRACKER_2019, "Oct19", 2019, 11, calculate_expected_columns("B", "AB"), "Single-pass read-only"),
 
     # 2018 tracker - single-line headers
-    (TRACKER_2018, "Dec18", 2018, 10, 19, "Single-pass read-only"),
+    (TRACKER_2018, "Dec18", 2018, 10, calculate_expected_columns("B", "T"), "Single-pass read-only"),
 ]
 
 
 @pytest.mark.skipif(
-    not TRACKER_2024.exists() or not TRACKER_2019.exists() or not TRACKER_2018.exists(),
+    any(not tf.exists() for tf, _, _, _, _, _ in TRACKER_TEST_CASES),
     reason="Tracker files not available"
 )
 @pytest.mark.parametrize(
