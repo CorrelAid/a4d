@@ -6,10 +6,11 @@ Complete guide for migrating the A4D pipeline from R to Python.
 
 ## Quick Reference
 
-**Status**: Phase 0 Complete ✅ (Project setup)
-**Next**: Phase 1 - Core Infrastructure
+**Status**: Phase 2 - Patient Extraction Complete ✅
+**Next**: Export raw parquet + Product extraction
 **Timeline**: 12-13 weeks total
 **Current Branch**: `migration`
+**Last Updated**: 2025-10-24
 
 ---
 
@@ -254,16 +255,26 @@ job.result()
 - [x] Add GitHub Actions CI
 - [x] Create basic config.py
 
-### Phase 1: Core Infrastructure (NEXT)
+### Phase 1: Core Infrastructure (PARTIAL)
+- [x] **reference/synonyms.py** - Column name mapping ✅
+  - Load YAML files (reuse from reference_data/)
+  - Create reverse mapping dict
+  - `rename_columns()` method with strict mode
+  - Comprehensive test coverage
+
+- [x] **reference/provinces.py** - Province validation ✅
+  - Load allowed provinces YAML
+  - Case-insensitive validation
+  - Country mapping
+
+- [x] **reference/loaders.py** - YAML loading utilities ✅
+  - Find reference_data directory
+  - Load YAML with validation
+
 - [ ] **logging.py** - loguru setup with JSON output
   - Console handler (pretty, colored)
   - File handler (JSON for BigQuery upload)
   - `file_logger()` context manager
-
-- [ ] **synonyms/mapper.py** - Column name mapping
-  - Load YAML files (reuse from reference_data/)
-  - Create reverse mapping dict
-  - `rename_dataframe()` method
 
 - [ ] **clean/converters.py** - Type conversion with error tracking
   - `ErrorCollector` class
@@ -289,20 +300,30 @@ job.result()
 
 - [ ] **utils/paths.py** - Path utilities
 
-- [ ] **Write tests** for all infrastructure
+### Phase 2: Script 1 - Extraction (IN PROGRESS) ⚡
+- [x] **extract/patient.py** - COMPLETED ✅
+  - [x] Read Excel with openpyxl (read-only, single-pass optimization)
+  - [x] Find all month sheets automatically
+  - [x] Extract tracker year from sheet names or filename
+  - [x] Read and merge two-row headers (with horizontal fill-forward)
+  - [x] Handle merged cells creating duplicate columns (R-compatible merge with commas)
+  - [x] Apply synonym mapping with `ColumnMapper`
+  - [x] Extract from all month sheets with metadata (sheet_name, tracker_month, tracker_year, file_name)
+  - [x] Combine sheets with `diagonal_relaxed` (handles type mismatches)
+  - [x] Filter invalid rows (null patient_id, or "0"/"0" combinations)
+  - [x] 25 comprehensive tests (110 total test suite)
+  - [x] 91% code coverage for patient.py
+  - [ ] Export raw parquet (next step)
 
-### Phase 2: Script 1 - Extraction (Week 3-5)
-- [ ] **extract/patient.py**
-  - Read Excel with Polars/openpyxl
-  - Apply synonym mapping
-  - Extract from all sheets
-  - Export raw parquet
-
-- [ ] **extract/product.py**
+- [ ] **extract/product.py** - TODO
   - Same pattern as patient
 
-- [ ] **Test on sample trackers**
-- [ ] **Compare outputs with R pipeline**
+- [x] **Test on sample trackers** - DONE
+  - Tested with 2024, 2019, 2018 trackers
+  - Handles format variations across years
+
+- [ ] **Compare outputs with R pipeline** - TODO
+  - Need to run both pipelines and compare parquet outputs
 
 ### Phase 3: Script 2 - Cleaning (Week 5-7)
 - [ ] **clean/patient.py**
@@ -635,6 +656,35 @@ No migration needed - just reference from Python code.
 4. **Use existing R code as reference** - Read the R scripts to understand logic
 5. **Ask questions** - Migration docs are guides, not absolute rules
 6. **Document differences** - If output differs from R, document why
+
+---
+
+## Recent Progress (2025-10-24)
+
+### ✅ Completed: Patient Data Extraction
+- **Module**: `src/a4d/extract/patient.py` (180 lines, 91% coverage)
+- **Tests**: 25 tests in `tests/test_extract/test_patient.py` (152 lines)
+- **Key Features**:
+  - Single-pass read-only Excel loading for optimal performance
+  - Automatic month sheet detection and year extraction
+  - Two-row header merging with horizontal fill-forward logic
+  - **R-compatible duplicate column handling**: Merges values with commas (like `tidyr::unite()`)
+  - Synonym-based column harmonization
+  - Multi-sheet extraction with metadata (sheet_name, tracker_month, tracker_year, file_name)
+  - Type-safe concatenation with `diagonal_relaxed`
+  - Intelligent row filtering (removes invalid patient_id patterns)
+
+### 🔑 Key Learnings
+1. **Always verify against R implementation** - Initially implemented incorrect duplicate column handling (renaming) instead of correct approach (merging values)
+2. **Polars constraints** - Cannot have duplicate column names, must handle before DataFrame creation
+3. **Type mismatches** - Use `diagonal_relaxed` when concatenating DataFrames with schema differences
+4. **Simplicity wins** - Refactored complex nested loops to elegant dict-based approach (26% code reduction)
+
+### 📝 Next Steps
+1. Add parquet export to `extract/patient.py`
+2. Implement `extract/product.py` (similar pattern)
+3. Compare outputs with R pipeline (run both and validate parity)
+4. Move to Phase 3: Cleaning module
 
 ---
 

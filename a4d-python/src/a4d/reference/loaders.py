@@ -30,9 +30,7 @@ def find_reference_data_dir() -> Path:
     reference_data_dir = repo_root / "reference_data"
 
     if not reference_data_dir.exists():
-        raise FileNotFoundError(
-            f"reference_data directory not found at {reference_data_dir}"
-        )
+        raise FileNotFoundError(f"reference_data directory not found at {reference_data_dir}")
 
     return reference_data_dir
 

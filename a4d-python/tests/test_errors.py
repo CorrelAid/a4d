@@ -1,7 +1,6 @@
 """Tests for error tracking functionality."""
 
 import polars as pl
-import pytest
 
 from a4d.errors import DataError, ErrorCollector
 

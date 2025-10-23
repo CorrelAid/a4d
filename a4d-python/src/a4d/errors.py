@@ -14,7 +14,6 @@ from typing import Any, Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
-
 # Error code types based on R pipeline
 ErrorCode = Literal[
     "type_conversion",  # Failed to convert type (e.g., "abc" -> int)

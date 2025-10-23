@@ -1,7 +1,6 @@
 """Tests for type conversion with error tracking."""
 
 import polars as pl
-import pytest
 
 from a4d.clean.converters import (
     correct_decimal_sign,
@@ -15,11 +14,13 @@ from a4d.errors import ErrorCollector
 
 def test_safe_convert_column_success():
     """Test successful conversion without errors."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"] * 3,
-        "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
-        "age": ["25", "30", "18"],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
+            "age": ["25", "30", "18"],
+        }
+    )
 
     collector = ErrorCollector()
 
@@ -37,11 +38,13 @@ def test_safe_convert_column_success():
 
 def test_safe_convert_column_with_failures():
     """Test conversion with some failures."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"] * 4,
-        "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
-        "age": ["25", "invalid", "30", "abc"],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 4,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
+            "age": ["25", "invalid", "30", "abc"],
+        }
+    )
 
     collector = ErrorCollector()
 
@@ -53,7 +56,12 @@ def test_safe_convert_column_with_failures():
     )
 
     assert result.schema["age"] == pl.Int32
-    assert result["age"].to_list() == [25, int(settings.error_val_numeric), 30, int(settings.error_val_numeric)]
+    assert result["age"].to_list() == [
+        25,
+        int(settings.error_val_numeric),
+        30,
+        int(settings.error_val_numeric),
+    ]
     assert len(collector) == 2  # Two failures
 
     # Check error details
@@ -65,11 +73,13 @@ def test_safe_convert_column_with_failures():
 
 def test_safe_convert_column_preserves_nulls():
     """Test that existing nulls are preserved."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"] * 3,
-        "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
-        "age": ["25", None, "30"],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
+            "age": ["25", None, "30"],
+        }
+    )
 
     collector = ErrorCollector()
 
@@ -86,9 +96,11 @@ def test_safe_convert_column_preserves_nulls():
 
 def test_correct_decimal_sign():
     """Test decimal sign correction."""
-    df = pl.DataFrame({
-        "weight": ["70,5", "80,2", "65.5"],
-    })
+    df = pl.DataFrame(
+        {
+            "weight": ["70,5", "80,2", "65.5"],
+        }
+    )
 
     result = correct_decimal_sign(df, "weight")
 
@@ -97,11 +109,13 @@ def test_correct_decimal_sign():
 
 def test_cut_numeric_value():
     """Test cutting out-of-range values."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"] * 5,
-        "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
-        "age": [15, -5, 20, 30, 18],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 5,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
+            "age": [15, -5, 20, 30, 18],
+        }
+    )
 
     collector = ErrorCollector()
 
@@ -125,13 +139,15 @@ def test_cut_numeric_value():
 
 def test_safe_convert_multiple_columns():
     """Test batch conversion of multiple columns."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"] * 2,
-        "patient_id": ["XX_QA001", "XX_QA002"],
-        "age": ["25", "30"],
-        "height": ["1.75", "1.80"],
-        "weight": ["70", "80"],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "patient_id": ["XX_QA001", "XX_QA002"],
+            "age": ["25", "30"],
+            "height": ["1.75", "1.80"],
+            "weight": ["70", "80"],
+        }
+    )
 
     collector = ErrorCollector()
 
@@ -150,10 +166,12 @@ def test_safe_convert_multiple_columns():
 
 def test_safe_convert_column_missing_column():
     """Test that missing columns are handled gracefully."""
-    df = pl.DataFrame({
-        "file_name": ["test.xlsx"],
-        "patient_id": ["XX_QA001"],
-    })
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"],
+            "patient_id": ["XX_QA001"],
+        }
+    )
 
     collector = ErrorCollector()
 

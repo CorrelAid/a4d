@@ -57,10 +57,24 @@ def profile_extraction_phases(tracker_file, sheet_name, year):
     header_row_2 = data_start_row - 2
 
     max_cols = 100
-    header_1_raw = list(ws.iter_rows(min_row=header_row_1, max_row=header_row_1,
-                                      min_col=1, max_col=max_cols, values_only=True))[0]
-    header_2_raw = list(ws.iter_rows(min_row=header_row_2, max_row=header_row_2,
-                                      min_col=1, max_col=max_cols, values_only=True))[0]
+    header_1_raw = list(
+        ws.iter_rows(
+            min_row=header_row_1,
+            max_row=header_row_1,
+            min_col=1,
+            max_col=max_cols,
+            values_only=True,
+        )
+    )[0]
+    header_2_raw = list(
+        ws.iter_rows(
+            min_row=header_row_2,
+            max_row=header_row_2,
+            min_col=1,
+            max_col=max_cols,
+            values_only=True,
+        )
+    )[0]
 
     # Trim to actual width
     last_col = max_cols

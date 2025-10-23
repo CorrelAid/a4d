@@ -11,8 +11,6 @@ The pattern is:
 4. Replace failures with error value
 """
 
-from typing import Optional
-
 import polars as pl
 
 from a4d.config import settings
@@ -24,7 +22,7 @@ def safe_convert_column(
     column: str,
     target_type: pl.DataType,
     error_collector: ErrorCollector,
-    error_value: Optional[float | str] = None,
+    error_value: float | str | None = None,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -74,9 +72,7 @@ def safe_convert_column(
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
 
     # Try vectorized conversion (strict=False allows nulls for failures)
-    df = df.with_columns(
-        pl.col(column).cast(target_type, strict=False).alias(f"_conv_{column}")
-    )
+    df = df.with_columns(pl.col(column).cast(target_type, strict=False).alias(f"_conv_{column}"))
 
     # Detect failures: became null but wasn't null before
     failed_mask = pl.col(f"_conv_{column}").is_null() & pl.col(f"_orig_{column}").is_not_null()
@@ -129,9 +125,7 @@ def correct_decimal_sign(df: pl.DataFrame, column: str) -> pl.DataFrame:
     if column not in df.columns:
         return df
 
-    df = df.with_columns(
-        pl.col(column).cast(pl.Utf8).str.replace(",", ".").alias(column)
-    )
+    df = df.with_columns(pl.col(column).cast(pl.Utf8).str.replace(",", ".").alias(column))
 
     return df
 
@@ -210,7 +204,7 @@ def safe_convert_multiple_columns(
     columns: list[str],
     target_type: pl.DataType,
     error_collector: ErrorCollector,
-    error_value: Optional[float | str] = None,
+    error_value: float | str | None = None,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:

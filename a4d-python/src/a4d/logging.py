@@ -22,9 +22,9 @@ Usage:
 """
 
 import sys
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Optional
 
 from loguru import logger
 
@@ -79,8 +79,8 @@ def setup_logging(output_root: Path, log_name: str, level: str = "INFO") -> None
 def file_logger(
     file_name: str,
     output_root: Path,
-    tracker_year: Optional[int] = None,
-    tracker_month: Optional[int] = None,
+    tracker_year: int | None = None,
+    tracker_month: int | None = None,
     level: str = "DEBUG",
 ) -> Generator:
     """Context manager for per-tracker file logging with context.
