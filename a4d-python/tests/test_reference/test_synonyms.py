@@ -1,7 +1,6 @@
 """Tests for column synonym mapper."""
 
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import polars as pl
 import pytest
@@ -88,11 +87,13 @@ class TestColumnMapper:
         """Test basic column renaming."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "Age": [25, 30],
-            "Patient ID": ["P001", "P002"],
-            "Province": ["Bangkok", "Hanoi"],
-        })
+        df = pl.DataFrame(
+            {
+                "Age": [25, 30],
+                "Patient ID": ["P001", "P002"],
+                "Province": ["Bangkok", "Hanoi"],
+            }
+        )
 
         renamed = mapper.rename_columns(df)
 
@@ -105,11 +106,13 @@ class TestColumnMapper:
         """Test that unmapped columns are kept by default."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "Age": [25],
-            "UnknownColumn": ["value"],
-            "AnotherUnmapped": [42],
-        })
+        df = pl.DataFrame(
+            {
+                "Age": [25],
+                "UnknownColumn": ["value"],
+                "AnotherUnmapped": [42],
+            }
+        )
 
         renamed = mapper.rename_columns(df)
 
@@ -121,10 +124,12 @@ class TestColumnMapper:
         """Test that strict mode raises error for unmapped columns."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "Age": [25],
-            "UnknownColumn": ["value"],
-        })
+        df = pl.DataFrame(
+            {
+                "Age": [25],
+                "UnknownColumn": ["value"],
+            }
+        )
 
         with pytest.raises(ValueError, match="Unmapped columns found"):
             mapper.rename_columns(df, strict=True)
@@ -133,10 +138,12 @@ class TestColumnMapper:
         """Test renaming when columns are already standardized."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "age": [25],
-            "patient_id": ["P001"],
-        })
+        df = pl.DataFrame(
+            {
+                "age": [25],
+                "patient_id": ["P001"],
+            }
+        )
 
         renamed = mapper.rename_columns(df)
 
@@ -155,10 +162,12 @@ class TestColumnMapper:
         """Test getting missing columns from DataFrame."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "age": [25],
-            "patient_id": ["P001"],
-        })
+        df = pl.DataFrame(
+            {
+                "age": [25],
+                "patient_id": ["P001"],
+            }
+        )
 
         missing = mapper.get_missing_columns(df)
 
@@ -168,11 +177,13 @@ class TestColumnMapper:
         """Test validation passes when required columns present."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "age": [25],
-            "patient_id": ["P001"],
-            "name": ["Test"],
-        })
+        df = pl.DataFrame(
+            {
+                "age": [25],
+                "patient_id": ["P001"],
+                "name": ["Test"],
+            }
+        )
 
         # Should not raise
         mapper.validate_required_columns(df, ["age", "patient_id"])
@@ -181,9 +192,11 @@ class TestColumnMapper:
         """Test validation fails when required columns missing."""
         mapper = ColumnMapper(simple_synonyms)
 
-        df = pl.DataFrame({
-            "age": [25],
-        })
+        df = pl.DataFrame(
+            {
+                "age": [25],
+            }
+        )
 
         with pytest.raises(ValueError, match="Required columns missing"):
             mapper.validate_required_columns(df, ["age", "patient_id", "name"])

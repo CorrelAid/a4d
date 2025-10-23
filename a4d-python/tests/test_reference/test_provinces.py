@@ -1,7 +1,5 @@
 """Tests for province validation."""
 
-import pytest
-
 from a4d.reference import (
     get_country_for_province,
     is_valid_province,
@@ -46,9 +44,7 @@ class TestLoadAllowedProvinces:
         provinces_by_country = load_provinces_by_country()
 
         # Count should match flattened version
-        expected_count = sum(
-            len(provs) for provs in provinces_by_country.values()
-        )
+        expected_count = sum(len(provs) for provs in provinces_by_country.values())
         assert len(provinces) == expected_count
 
     def test_no_duplicates(self):

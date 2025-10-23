@@ -129,7 +129,9 @@ class ColumnMapper:
                     f"Unmapped columns found: {unmapped_columns}. These columns do not appear in the synonym file."
                 )
             else:
-                logger.debug(f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}")
+                logger.debug(
+                    f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
+                )
 
         # Log successful mappings
         if rename_map:
@@ -211,11 +213,13 @@ if __name__ == "__main__":
     product_mapper = load_product_mapper()
 
     # Example DataFrame
-    df = pl.DataFrame({
-        "Age": [25, 30],
-        "Patient ID": [1, 2],
-        "Product Name": ["A", "B"],
-    })
+    df = pl.DataFrame(
+        {
+            "Age": [25, 30],
+            "Patient ID": [1, 2],
+            "Product Name": ["A", "B"],
+        }
+    )
 
     renamed_df = patient_mapper.rename_columns(df)
     print(renamed_df)

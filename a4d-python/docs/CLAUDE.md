@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 **Python implementation** of the A4D medical tracker data processing pipeline (migrating from R).
@@ -9,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This project processes, cleans, and ingests medical tracker data (Excel files) for the CorrelAid A4D project.
 It extracts patient and product data from Excel trackers, validates and cleans the data, and creates structured tables for ingestion into Google BigQuery.
 
-**Migration Status**: Active development
+**Migration Status**: Phase 2 - Patient Extraction Complete ✅
 **See**: [Migration Guide](migration/MIGRATION_GUIDE.md) for complete migration details
+**Last Updated**: 2025-10-24
 
 ## Package Structure
 
@@ -87,7 +86,7 @@ A4D_UPLOAD_BUCKET=a4dphase2_output
 
 ### Data Flow
 
-```
+```text
 Query BigQuery → Identify changed trackers
        ↓
 For each tracker (parallel):
@@ -154,3 +153,4 @@ When migrating R code:
 3. Error tracking via `ErrorCollector` class
 4. Read R scripts to understand logic, then apply Python patterns
 5. Compare outputs with R pipeline after each phase
+6. Do not migrate blindly – adapt to Pythonic idioms and performance best practices

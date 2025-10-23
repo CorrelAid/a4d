@@ -57,3 +57,4 @@ Both projects use the same reference data:
 - `reference_data/provinces/` - Allowed provinces
 
 **Do not modify these** without testing both R and Python pipelines.
+- Always check your implementation against the original R pipeline and check if the logic is the same

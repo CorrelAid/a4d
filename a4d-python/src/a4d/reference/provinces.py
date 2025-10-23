@@ -63,7 +63,8 @@ def load_provinces_by_country() -> dict[str, list[str]]:
 
     # Lowercase all province names for case-insensitive matching
     provinces_by_country = {
-        country: [p.lower() for p in provinces] for country, provinces in provinces_by_country_raw.items()
+        country: [p.lower() for p in provinces]
+        for country, provinces in provinces_by_country_raw.items()
     }
 
     logger.info(f"Loaded provinces for {len(provinces_by_country)} countries")
