@@ -57,10 +57,12 @@ def safe_convert_column(
     if error_value is None:
         if target_type in (pl.Int32, pl.Int64, pl.Float32, pl.Float64):
             error_value = settings.error_val_numeric
-        elif target_type in (pl.Utf8, pl.Categorical):
+        elif target_type in (pl.Utf8, pl.Categorical, pl.String):
             error_value = settings.error_val_character
         elif target_type == pl.Date:
             error_value = settings.error_val_date
+        elif target_type == pl.Boolean:
+            error_value = False  # Default for boolean conversion failures
         else:
             raise ValueError(f"Cannot determine error value for type {target_type}")
 

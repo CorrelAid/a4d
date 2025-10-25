@@ -300,27 +300,34 @@ job.result()
 
 - [ ] **utils/paths.py** - Path utilities
 
-### Phase 2: Script 1 - Extraction (IN PROGRESS) ⚡
+### Phase 2: Script 1 - Extraction ✅ COMPLETE
 - [x] **extract/patient.py** - COMPLETED ✅
   - [x] Read Excel with openpyxl (read-only, single-pass optimization)
   - [x] Find all month sheets automatically
   - [x] Extract tracker year from sheet names or filename
   - [x] Read and merge two-row headers (with horizontal fill-forward)
+  - [x] **Smart header detection**: Detects title rows vs. actual headers (e.g., "Summary of Patient Recruitment" title above "Patient ID" column)
   - [x] Handle merged cells creating duplicate columns (R-compatible merge with commas)
   - [x] Apply synonym mapping with `ColumnMapper`
-  - [x] Extract from all month sheets with metadata (sheet_name, tracker_month, tracker_year, file_name)
+  - [x] Extract clinic_id from parent directory basename
+  - [x] Process "Patient List" sheet and left join with monthly data
+  - [x] Process "Annual" sheet and left join with monthly data
+  - [x] Extract from all month sheets with metadata (sheet_name, tracker_month, tracker_year, file_name, clinic_id)
   - [x] Combine sheets with `diagonal_relaxed` (handles type mismatches)
   - [x] Filter invalid rows (null patient_id, or "0"/"0" combinations)
-  - [x] 25 comprehensive tests (110 total test suite)
-  - [x] 91% code coverage for patient.py
-  - [ ] Export raw parquet (next step)
+  - [x] **Export raw parquet**: `export_patient_raw()` matches R filename format
+  - [x] 28 comprehensive tests (all passing)
+  - [x] 88% code coverage for patient.py
+  - [x] **Script**: `scripts/export_single_tracker.py` for manual testing
 
 - [ ] **extract/product.py** - TODO
   - Same pattern as patient
 
 - [x] **Test on sample trackers** - DONE
   - Tested with 2024, 2019, 2018 trackers
-  - Handles format variations across years
+  - **2017 Mahosot (Laos/MHS)**: 11 months, legacy "Summary of Patient Recruitment" title row format
+  - **2025 Mahosot (Laos/MHS)**: 6 months, Patient List & Annual sheets, modern format
+  - Handles format variations across years (2017-2025)
 
 - [ ] **Compare outputs with R pipeline** - TODO
   - Need to run both pipelines and compare parquet outputs

@@ -185,3 +185,153 @@ def test_safe_convert_column_missing_column():
 
     assert result.equals(df)
     assert len(collector) == 0
+
+
+def test_safe_convert_column_float64():
+    """Test conversion to Float64 with decimal values."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003"],
+            "weight": ["70.5", "not_a_number", "85.2"],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = safe_convert_column(
+        df=df,
+        column="weight",
+        target_type=pl.Float64,
+        error_collector=collector,
+    )
+
+    assert result.schema["weight"] == pl.Float64
+    assert result["weight"][0] == 70.5
+    assert result["weight"][1] == settings.error_val_numeric
+    assert result["weight"][2] == 85.2
+    assert len(collector) == 1
+
+
+def test_safe_convert_column_custom_error_value():
+    """Test using a custom error value."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "patient_id": ["XX_YY001", "XX_YY002"],
+            "age": ["25", "invalid"],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = safe_convert_column(
+        df=df,
+        column="age",
+        target_type=pl.Int32,
+        error_collector=collector,
+        error_value=-1,
+    )
+
+    assert result["age"].to_list() == [25, -1]
+    assert len(collector) == 1
+
+
+def test_safe_convert_column_string_type():
+    """Test conversion to string type (always succeeds)."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "patient_id": ["XX_YY001", "XX_YY002"],
+            "value": [123, 456],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = safe_convert_column(
+        df=df,
+        column="value",
+        target_type=pl.Utf8,
+        error_collector=collector,
+    )
+
+    assert result.schema["value"] == pl.Utf8
+    assert result["value"].to_list() == ["123", "456"]
+    assert len(collector) == 0
+
+
+def test_correct_decimal_sign_missing_column():
+    """Test decimal sign correction with missing column."""
+    df = pl.DataFrame({"other": ["value"]})
+
+    result = correct_decimal_sign(df, "nonexistent")
+
+    assert result.equals(df)
+
+
+def test_cut_numeric_value_missing_column():
+    """Test cutting with missing column."""
+    df = pl.DataFrame({"other": [1, 2, 3]})
+
+    collector = ErrorCollector()
+
+    result = cut_numeric_value(
+        df=df,
+        column="nonexistent",
+        min_val=0,
+        max_val=10,
+        error_collector=collector,
+    )
+
+    assert result.equals(df)
+    assert len(collector) == 0
+
+
+def test_cut_numeric_value_with_nulls():
+    """Test that nulls are preserved when cutting values."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 4,
+            "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003", "XX_YY004"],
+            "age": [15, None, 30, 20],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = cut_numeric_value(
+        df=df,
+        column="age",
+        min_val=0,
+        max_val=25,
+        error_collector=collector,
+    )
+
+    assert result["age"].to_list() == [15, None, settings.error_val_numeric, 20]
+    assert len(collector) == 1  # Only 30 is out of range
+
+
+def test_cut_numeric_value_ignores_existing_errors():
+    """Test that existing error values are not re-logged."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003"],
+            "age": [15.0, settings.error_val_numeric, 30.0],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = cut_numeric_value(
+        df=df,
+        column="age",
+        min_val=0,
+        max_val=25,
+        error_collector=collector,
+    )
+
+    # Only 30 should be logged, not the existing error value
+    assert result["age"].to_list() == [15, settings.error_val_numeric, settings.error_val_numeric]
+    assert len(collector) == 1
