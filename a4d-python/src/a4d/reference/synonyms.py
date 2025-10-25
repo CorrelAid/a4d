@@ -4,12 +4,44 @@ This module handles the mapping of various column name variants (synonyms)
 to standardized column names used throughout the pipeline.
 """
 
+import re
 from pathlib import Path
 
 import polars as pl
 from loguru import logger
 
 from a4d.reference.loaders import get_reference_data_path, load_yaml
+
+
+def sanitize_str(text: str) -> str:
+    """Sanitize a string for column name matching.
+
+    Converts to lowercase, removes all spaces and special characters,
+    keeping only alphanumeric characters. This matches the R implementation.
+
+    Args:
+        text: String to sanitize
+
+    Returns:
+        Sanitized string with only lowercase alphanumeric characters
+
+    Examples:
+        >>> sanitize_str("Patient ID*")
+        'patientid'
+        >>> sanitize_str("Age* On Reporting")
+        'ageonreporting'
+        >>> sanitize_str("Date 2022")
+        'date2022'
+        >>> sanitize_str("My Awesome 1st Column!!")
+        'myawesome1stcolumn'
+    """
+    # Convert to lowercase
+    text = text.lower()
+    # Remove spaces
+    text = text.replace(" ", "")
+    # Remove all non-alphanumeric characters
+    text = re.sub(r"[^a-z0-9]", "", text)
+    return text
 
 
 class ColumnMapper:
@@ -32,7 +64,12 @@ class ColumnMapper:
     Attributes:
         yaml_path: Path to the synonym YAML file
         synonyms: Dict mapping standard names to lists of synonyms
-        _lookup: Reverse lookup dict mapping synonyms to standard names
+        _lookup: Reverse lookup dict mapping SANITIZED synonyms to standard names
+
+    Note:
+        Synonym matching is case-insensitive and ignores special characters.
+        This matches the R implementation which uses sanitize_str() for both
+        column names and synonym keys before matching.
     """
 
     def __init__(self, yaml_path: Path):
@@ -48,7 +85,8 @@ class ColumnMapper:
         self.yaml_path = yaml_path
         self.synonyms: dict[str, list[str]] = load_yaml(yaml_path)
 
-        # Build reverse lookup: synonym -> standard_name
+        # Build reverse lookup: sanitized_synonym -> standard_name
+        # This matches R's behavior: sanitize both column names and synonym keys
         self._lookup: dict[str, str] = self._build_lookup()
 
         logger.info(
@@ -57,10 +95,16 @@ class ColumnMapper:
         )
 
     def _build_lookup(self) -> dict[str, str]:
-        """Build reverse lookup dictionary from synonyms to standard names.
+        """Build reverse lookup dictionary from SANITIZED synonyms to standard names.
+
+        Sanitizes all synonym keys before adding to lookup, matching R's behavior.
 
         Returns:
-            Dict mapping each synonym to its standard column name
+            Dict mapping each SANITIZED synonym to its standard column name
+
+        Example:
+            >>> # YAML has: patient_id: ["Patient ID", "Patient ID*", "ID"]
+            >>> # Lookup will have: {"patientid": "patient_id", "id": "patient_id"}
         """
         lookup = {}
         for standard_name, synonym_list in self.synonyms.items():
@@ -69,26 +113,40 @@ class ColumnMapper:
                 continue
 
             for synonym in synonym_list:
-                if synonym in lookup:
+                # Sanitize the synonym key before adding to lookup
+                sanitized_key = sanitize_str(synonym)
+
+                if sanitized_key in lookup:
                     logger.warning(
-                        f"Duplicate synonym '{synonym}' found for both "
-                        f"'{lookup[synonym]}' and '{standard_name}'. "
+                        f"Duplicate sanitized synonym '{sanitized_key}' "
+                        f"(from '{synonym}') found for both "
+                        f"'{lookup[sanitized_key]}' and '{standard_name}'. "
                         f"Using '{standard_name}'."
                     )
-                lookup[synonym] = standard_name
+                lookup[sanitized_key] = standard_name
 
         return lookup
 
     def get_standard_name(self, column: str) -> str:
         """Get the standard name for a column.
 
+        Sanitizes the input column name before lookup to match R behavior.
+
         Args:
-            column: Column name (may be a synonym)
+            column: Column name (may be a synonym, with special characters/spaces)
 
         Returns:
             Standard column name, or original if no mapping exists
+
+        Example:
+            >>> mapper.get_standard_name("Patient ID*")
+            'patient_id'  # "Patient ID*" → "patientid" → "patient_id"
+            >>> mapper.get_standard_name("Age* On Reporting")
+            'age'  # "Age* On Reporting" → "ageonreporting" → "age"
         """
-        return self._lookup.get(column, column)
+        # Sanitize input column name before lookup (matches R behavior)
+        sanitized_col = sanitize_str(column)
+        return self._lookup.get(sanitized_col, column)
 
     def rename_columns(
         self,
@@ -129,7 +187,7 @@ class ColumnMapper:
                     f"Unmapped columns found: {unmapped_columns}. These columns do not appear in the synonym file."
                 )
             else:
-                logger.debug(
+                logger.warning(
                     f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
                 )
 

@@ -7,6 +7,49 @@ import pytest
 import yaml
 
 from a4d.reference import ColumnMapper, load_patient_mapper, load_product_mapper
+from a4d.reference.synonyms import sanitize_str
+
+
+class TestSanitizeStr:
+    """Tests for sanitize_str function."""
+
+    def test_basic_sanitization(self):
+        """Test basic sanitization cases."""
+        assert sanitize_str("Patient ID") == "patientid"
+        assert sanitize_str("Patient ID*") == "patientid"
+        assert sanitize_str("Age* On Reporting") == "ageonreporting"
+
+    def test_lowercase_conversion(self):
+        """Test lowercase conversion."""
+        assert sanitize_str("PATIENT ID") == "patientid"
+        assert sanitize_str("Patient Name") == "patientname"
+
+    def test_space_removal(self):
+        """Test space removal."""
+        assert sanitize_str("Date 2022") == "date2022"
+        assert sanitize_str("My Awesome Column") == "myawesomecolumn"
+
+    def test_special_character_removal(self):
+        """Test special character removal."""
+        assert sanitize_str("Patient ID*") == "patientid"
+        assert sanitize_str("My Awesome 1st Column!!") == "myawesome1stcolumn"
+        assert sanitize_str("D.O.B.") == "dob"
+        assert sanitize_str("Age (Years)") == "ageyears"
+        assert sanitize_str("Patient.Name..ANON") == "patientnameanon"
+
+    def test_alphanumeric_preserved(self):
+        """Test that alphanumeric characters are preserved."""
+        assert sanitize_str("Age1") == "age1"
+        assert sanitize_str("test123abc") == "test123abc"
+
+    def test_empty_string(self):
+        """Test empty string."""
+        assert sanitize_str("") == ""
+
+    def test_only_special_chars(self):
+        """Test string with only special characters."""
+        assert sanitize_str("***!!!") == ""
+        assert sanitize_str("...") == ""
 
 
 class TestColumnMapper:
@@ -50,7 +93,8 @@ class TestColumnMapper:
         assert len(mapper.synonyms) == 5
         assert "age" in mapper.synonyms
         assert "Age" in mapper.synonyms["age"]
-        assert len(mapper._lookup) == 8  # Total non-empty synonyms (3+3+1+1)
+        # After sanitization, some synonyms collapse (e.g., "Age" and "Age*" both become "age")
+        assert len(mapper._lookup) == 6  # Sanitized synonyms (age+ageonreporting+id+patientid+patientname+province)
 
     def test_init_missing_file_raises_error(self):
         """Test that __init__ raises error for missing file."""
@@ -58,22 +102,24 @@ class TestColumnMapper:
             ColumnMapper(Path("/nonexistent/file.yaml"))
 
     def test_build_lookup_creates_reverse_mapping(self, simple_synonyms: Path):
-        """Test that reverse lookup is built correctly."""
+        """Test that reverse lookup is built correctly with SANITIZED keys."""
         mapper = ColumnMapper(simple_synonyms)
 
-        assert mapper._lookup["Age"] == "age"
-        assert mapper._lookup["Age*"] == "age"
-        assert mapper._lookup["age on reporting"] == "age"
-        assert mapper._lookup["ID"] == "patient_id"
-        assert mapper._lookup["Patient ID"] == "patient_id"
+        # Lookup uses sanitized keys (lowercase, no spaces, no special chars)
+        assert mapper._lookup["age"] == "age"  # "Age" and "Age*" both sanitize to "age"
+        assert mapper._lookup["ageonreporting"] == "age"  # "age on reporting" → "ageonreporting"
+        assert mapper._lookup["id"] == "patient_id"  # "ID" → "id"
+        assert mapper._lookup["patientid"] == "patient_id"  # "Patient ID" and "Patient ID*" → "patientid"
 
     def test_build_lookup_handles_duplicates(self, duplicate_synonyms: Path):
-        """Test that duplicate synonyms log warning and use last definition."""
+        """Test that duplicate SANITIZED synonyms log warning and use last definition."""
         mapper = ColumnMapper(duplicate_synonyms)
 
-        # "Age" appears in both, should map to the second one encountered
-        assert "Age" in mapper._lookup
-        assert mapper._lookup["Age"] in ["age", "age_at_diagnosis"]
+        # "Age" appears in both age and age_at_diagnosis
+        # After sanitization, both become "age" → duplicate!
+        # Should map to the last one encountered
+        assert "age" in mapper._lookup
+        assert mapper._lookup["age"] in ["age", "age_at_diagnosis"]
 
     def test_get_standard_name(self, simple_synonyms: Path):
         """Test getting standard name for a column."""
@@ -82,6 +128,26 @@ class TestColumnMapper:
         assert mapper.get_standard_name("Age") == "age"
         assert mapper.get_standard_name("Patient ID*") == "patient_id"
         assert mapper.get_standard_name("unknown_column") == "unknown_column"
+
+    def test_get_standard_name_with_sanitization(self, simple_synonyms: Path):
+        """Test that sanitization allows flexible synonym matching."""
+        mapper = ColumnMapper(simple_synonyms)
+
+        # All these variants should map to "patient_id" after sanitization
+        assert mapper.get_standard_name("Patient ID") == "patient_id"
+        assert mapper.get_standard_name("Patient ID*") == "patient_id"
+        assert mapper.get_standard_name("PATIENT ID") == "patient_id"
+        assert mapper.get_standard_name("patient id") == "patient_id"
+        assert mapper.get_standard_name("ID") == "patient_id"
+
+        # Age variants
+        assert mapper.get_standard_name("Age") == "age"
+        assert mapper.get_standard_name("Age*") == "age"
+        assert mapper.get_standard_name("age on reporting") == "age"
+        assert mapper.get_standard_name("AGE ON REPORTING") == "age"
+
+        # Test with extra spaces/special chars (should still match)
+        assert mapper.get_standard_name("Patient  ID*") == "patient_id"
 
     def test_rename_columns_basic(self, simple_synonyms: Path):
         """Test basic column renaming."""

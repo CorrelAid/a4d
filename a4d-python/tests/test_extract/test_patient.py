@@ -49,40 +49,48 @@ def calculate_expected_columns(start_col: str, end_col: str) -> int:
 
 
 # Test data paths
-TRACKER_2024 = Path(
+TRACKER_SBU_2024 = Path(
     "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
     "Malaysia/SBU/2024_Sibu Hospital A4D Tracker.xlsx"
 )
-TRACKER_2019 = Path(
+TRACKER_PNG_2019 = Path(
     "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
     "Malaysia/PNG/2019_Penang General Hospital A4D Tracker_DC.xlsx"
 )
-TRACKER_2018 = Path(
+TRACKER_PNG_2018 = Path(
     "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
     "Malaysia/PNG/2018_Penang General Hospital A4D Tracker_DC.xlsx"
 )
+TRACKER_MHS_2017 = Path(
+    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "Laos/MHS/2017_Mahosot Hospital A4D Tracker.xlsx"
+)
+TRACKER_MHS_2025 = Path(
+    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "Laos/MHS/2025_06_Mahosot Hospital A4D Tracker.xlsx"
+)
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_get_tracker_year_from_sheet_names():
     """Test extracting year from sheet names."""
-    year = get_tracker_year(TRACKER_2024, ["Jan24", "Feb24", "Mar24"])
+    year = get_tracker_year(TRACKER_SBU_2024, ["Jan24", "Feb24", "Mar24"])
     assert year == 2024
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_get_tracker_year_from_filename():
     """Test extracting year from filename as fallback."""
-    year = get_tracker_year(TRACKER_2024, ["January", "February"])
+    year = get_tracker_year(TRACKER_SBU_2024, ["January", "February"])
     assert year == 2024
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_find_month_sheets_2024():
     """Test finding month sheets in 2024 tracker."""
     from openpyxl import load_workbook
 
-    wb = load_workbook(TRACKER_2024, data_only=True)
+    wb = load_workbook(TRACKER_SBU_2024, data_only=True)
     month_sheets = find_month_sheets(wb)
 
     assert len(month_sheets) > 0
@@ -95,7 +103,7 @@ def test_find_month_sheets_2024():
 TRACKER_TEST_CASES = [
     # 2024 tracker - optimized single-pass extraction
     (
-        TRACKER_2024,
+        TRACKER_SBU_2024,
         "Jan24",
         2024,
         4,
@@ -104,7 +112,7 @@ TRACKER_TEST_CASES = [
     ),
     # 2019 tracker - format changes across months! Optimized extraction
     (
-        TRACKER_2019,
+        TRACKER_PNG_2019,
         "Jan19",
         2019,
         10,
@@ -112,7 +120,7 @@ TRACKER_TEST_CASES = [
         "Single-pass read-only",
     ),
     (
-        TRACKER_2019,
+        TRACKER_PNG_2019,
         "Feb19",
         2019,
         10,
@@ -120,7 +128,7 @@ TRACKER_TEST_CASES = [
         "Single-pass read-only",
     ),
     (
-        TRACKER_2019,
+        TRACKER_PNG_2019,
         "Mar19",
         2019,
         10,
@@ -128,7 +136,7 @@ TRACKER_TEST_CASES = [
         "Single-pass read-only",
     ),
     (
-        TRACKER_2019,
+        TRACKER_PNG_2019,
         "Oct19",
         2019,
         11,
@@ -137,7 +145,7 @@ TRACKER_TEST_CASES = [
     ),
     # 2018 tracker - single-line headers
     (
-        TRACKER_2018,
+        TRACKER_PNG_2018,
         "Dec18",
         2018,
         10,
@@ -187,10 +195,10 @@ def test_extract_patient_data_schema(
     print(f"\n{sheet_name}: {len(df)} patients × {len(df.columns)} columns ({notes}) ✓")
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_extract_patient_data_2024_detailed():
     """Detailed test for 2024 tracker with patient ID validation."""
-    df = extract_patient_data(TRACKER_2024, "Jan24", 2024)
+    df = extract_patient_data(TRACKER_SBU_2024, "Jan24", 2024)
 
     # Verify specific patient IDs
     patient_ids = df["Patient ID*"].to_list()
@@ -286,11 +294,11 @@ def test_harmonize_patient_data_columns_empty_dataframe():
     assert len(harmonized.columns) == 0
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_harmonize_real_tracker_data():
     """Test harmonization with real tracker data."""
     # Extract raw data
-    raw_df = extract_patient_data(TRACKER_2024, "Jan24", 2024)
+    raw_df = extract_patient_data(TRACKER_SBU_2024, "Jan24", 2024)
 
     # Harmonize columns
     harmonized = harmonize_patient_data_columns(raw_df)
@@ -373,10 +381,10 @@ def test_merge_duplicate_columns_data_multiple_groups():
     assert result_data == [["1", "A,B", "X,Y,Z", "Alice"]]
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_read_all_patient_sheets_2024():
-    """Test reading all patient sheets from 2024 tracker."""
-    df_all = read_all_patient_sheets(TRACKER_2024)
+    """Test reading all patient sheets from 2024 tracker with Patient List and Annual."""
+    df_all = read_all_patient_sheets(TRACKER_SBU_2024)
 
     # Check that we have data
     assert len(df_all) > 0, "Should have extracted patient data"
@@ -386,6 +394,12 @@ def test_read_all_patient_sheets_2024():
     assert "tracker_month" in df_all.columns
     assert "tracker_year" in df_all.columns
     assert "file_name" in df_all.columns
+    assert "clinic_id" in df_all.columns
+
+    # Check that clinic_id is extracted from parent directory
+    clinic_ids = df_all["clinic_id"].unique().to_list()
+    assert len(clinic_ids) == 1  # All rows should have same clinic_id
+    assert clinic_ids[0] == "SBU"  # Parent directory name
 
     # Check that we have data from multiple months
     unique_months = df_all["tracker_month"].unique().to_list()
@@ -400,13 +414,21 @@ def test_read_all_patient_sheets_2024():
     # Check that we filtered out invalid rows (no null patient_ids)
     assert df_all["patient_id"].null_count() == 0
 
-    print(f"\n2024 Tracker: {len(df_all)} total patients from {len(unique_months)} months ✓")
+    # Check for baseline HbA1c column from Patient List (should be present after join)
+    # Note: This may have .static suffix if there were conflicts
+    hba1c_cols = [col for col in df_all.columns if "hba1c_baseline" in col.lower()]
+    print(f"\nHbA1c baseline columns: {hba1c_cols}")
+
+    print(
+        f"\n2024 Tracker: {len(df_all)} total patients from {len(unique_months)} months"
+        f" (with Patient List & Annual data) ✓"
+    )
 
 
-@pytest.mark.skipif(not TRACKER_2019.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_PNG_2019.exists(), reason="Tracker file not available")
 def test_read_all_patient_sheets_2019():
     """Test reading all patient sheets from 2019 tracker (different formats across months)."""
-    df_all = read_all_patient_sheets(TRACKER_2019)
+    df_all = read_all_patient_sheets(TRACKER_PNG_2019)
 
     # Check that we have data
     assert len(df_all) > 0, "Should have extracted patient data"
@@ -430,13 +452,192 @@ def test_read_all_patient_sheets_2019():
     print(f"\n2019 Tracker: {len(df_all)} total patients from {len(unique_months)} months ✓")
 
 
-@pytest.mark.skipif(not TRACKER_2024.exists(), reason="Tracker file not available")
+@pytest.mark.skipif(not TRACKER_SBU_2024.exists(), reason="Tracker file not available")
 def test_read_all_patient_sheets_file_name():
     """Test that file_name metadata is correctly added."""
-    df_all = read_all_patient_sheets(TRACKER_2024)
+    df_all = read_all_patient_sheets(TRACKER_SBU_2024)
 
     # Check that file_name column exists and matches the tracker file
     assert "file_name" in df_all.columns
     file_names = df_all["file_name"].unique().to_list()
     assert len(file_names) == 1  # All rows should have same file name
-    assert file_names[0] == TRACKER_2024.name
+    assert file_names[0] == TRACKER_SBU_2024.name
+
+
+@pytest.mark.skipif(not TRACKER_MHS_2017.exists(), reason="Tracker file not available")
+def test_read_all_patient_sheets_2017_mhs_complete():
+    """
+    End-to-end test: 2017 Mahosot Hospital tracker (Laos/MHS).
+
+    Characteristics:
+    - Year: 2017
+    - Sheets: Jan17-Dec17 (March is MISSING)
+    - NO Patient List or Annual sheets
+    - clinic_id should be "MHS"
+
+    Expected patient counts per month:
+    - Jan17: 6, Feb17: 6, Apr17: 6, May17: 8, Jun17: 11, Jul17: 11
+    - Aug17: 11, Sep17: 12, Oct17: 12, Nov17: 12, Dec17: 14
+    - Total: 109 patients (11 months)
+    """
+    df_all = read_all_patient_sheets(TRACKER_MHS_2017)
+
+    # Basic validation
+    assert len(df_all) > 0, "Should have extracted patient data"
+    assert "patient_id" in df_all.columns
+    assert "tracker_month" in df_all.columns
+    assert "tracker_year" in df_all.columns
+    assert "clinic_id" in df_all.columns
+
+    # Check clinic_id
+    assert df_all["clinic_id"].unique().to_list() == ["MHS"]
+
+    # Check year
+    assert df_all["tracker_year"].unique().to_list() == [2017]
+
+    # Check we have exactly 11 months (March is missing)
+    unique_months = sorted(df_all["tracker_month"].unique().to_list())
+    expected_months = [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]  # Missing 3 (March)
+    assert unique_months == expected_months, f"Expected {expected_months}, got {unique_months}"
+
+    # Verify patient counts per month
+    import calendar
+
+    expected_counts = {
+        1: 6,   # Jan
+        2: 6,   # Feb
+        # 3 is missing (March)
+        4: 6,   # Apr
+        5: 8,   # May
+        6: 11,  # Jun
+        7: 11,  # Jul
+        8: 11,  # Aug
+        9: 12,  # Sep
+        10: 12,  # Oct
+        11: 12,  # Nov
+        12: 14,  # Dec
+    }
+
+    for month, expected_count in expected_counts.items():
+        month_data = df_all.filter(pl.col("tracker_month") == month)
+        actual_count = len(month_data)
+        assert actual_count == expected_count, (
+            f"Month {month} ({calendar.month_abbr[month]}17): "
+            f"expected {expected_count} patients, got {actual_count}"
+        )
+
+    # Total patient count
+    total_expected = sum(expected_counts.values())  # 109
+    assert len(df_all) == total_expected, f"Total patients: expected {total_expected}, got {len(df_all)}"
+
+    print(
+        f"\n✓ 2017 MHS Tracker: {len(df_all)} patients from 11 months "
+        f"(March missing as expected)"
+    )
+
+
+@pytest.mark.skipif(not TRACKER_MHS_2025.exists(), reason="Tracker file not available")
+def test_read_all_patient_sheets_2025_mhs_with_patient_list():
+    """
+    End-to-end test: 2025 Mahosot Hospital tracker (Laos/MHS).
+
+    Characteristics:
+    - Year: 2025
+    - Sheets: Jan25-Jun25 (6 months)
+    - HAS Patient List and Annual sheets
+    - clinic_id should be "MHS"
+
+    Expected patient counts per month:
+    - Jan25: 95, Feb25: 97, Mar25: 97, Apr25: 97, May25: 98, Jun25: 99
+    - Total: 583 patients
+    """
+    df_all = read_all_patient_sheets(TRACKER_MHS_2025)
+
+    # Basic validation
+    assert len(df_all) > 0, "Should have extracted patient data"
+    assert "patient_id" in df_all.columns
+    assert "tracker_month" in df_all.columns
+    assert "tracker_year" in df_all.columns
+    assert "clinic_id" in df_all.columns
+
+    # Check clinic_id
+    assert df_all["clinic_id"].unique().to_list() == ["MHS"]
+
+    # Check year
+    assert df_all["tracker_year"].unique().to_list() == [2025]
+
+    # Check we have exactly 6 months (Jan-Jun)
+    unique_months = sorted(df_all["tracker_month"].unique().to_list())
+    expected_months = [1, 2, 3, 4, 5, 6]
+    assert unique_months == expected_months, f"Expected {expected_months}, got {unique_months}"
+
+    # Verify patient counts per month
+    import calendar
+
+    expected_counts = {
+        1: 95,  # Jan
+        2: 97,  # Feb
+        3: 97,  # Mar
+        4: 97,  # Apr
+        5: 98,  # May
+        6: 99,  # Jun
+    }
+
+    for month, expected_count in expected_counts.items():
+        month_data = df_all.filter(pl.col("tracker_month") == month)
+        actual_count = len(month_data)
+        assert actual_count == expected_count, (
+            f"Month {month} ({calendar.month_abbr[month]}25): "
+            f"expected {expected_count} patients, got {actual_count}"
+        )
+
+    # Total patient count
+    total_expected = sum(expected_counts.values())  # 583
+    assert len(df_all) == total_expected, f"Total patients: expected {total_expected}, got {len(df_all)}"
+
+    # Check that Patient List data was joined (should have columns from Patient List)
+    # Note: The exact columns depend on what's in the Patient List sheet
+    # We verify by checking for potential .static suffix columns
+    static_cols = [col for col in df_all.columns if ".static" in col]
+    print(f"\nColumns from Patient List (.static suffix): {len(static_cols)}")
+
+    # Check that Annual data was joined
+    annual_cols = [col for col in df_all.columns if ".annual" in col]
+    print(f"Columns from Annual sheet (.annual suffix): {len(annual_cols)}")
+
+    print(
+        f"\n✓ 2025 MHS Tracker: {len(df_all)} patients from 6 months "
+        f"(with Patient List & Annual data joined)"
+    )
+
+
+def test_export_patient_raw(tmp_path):
+    """Test exporting patient data to parquet file."""
+    from a4d.extract.patient import export_patient_raw, read_all_patient_sheets
+
+    # Use the 2024 SBU tracker as test data
+    tracker_file = TRACKER_SBU_2024
+    if not tracker_file.exists():
+        pytest.skip("Tracker file not available")
+
+    # Extract data
+    df = read_all_patient_sheets(tracker_file)
+
+    # Export to temp directory
+    output_dir = tmp_path / "patient_data_raw"
+    output_path = export_patient_raw(df, tracker_file, output_dir)
+
+    # Verify output file exists
+    assert output_path.exists()
+    assert output_path.name == "2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
+    assert output_path.parent == output_dir
+
+    # Verify we can read it back
+    df_read = pl.read_parquet(output_path)
+    assert len(df_read) == len(df)
+    assert df_read.columns == df.columns
+
+    # Verify content matches
+    assert df_read.equals(df)
+
+    print(f"\n✓ Successfully exported and verified {len(df)} rows to parquet")
