@@ -176,6 +176,15 @@ parse_dates <- function(date) {
         return(lubridate::NA_Date_)
     }
 
+    # Handle Excel serial numbers (e.g., "45341.0", "39920.0")
+    # Excel stores dates as days since 1899-12-30
+    numeric_date <- suppressWarnings(as.numeric(date))
+    if (!is.na(numeric_date) && numeric_date > 1 && numeric_date < 100000) {
+        # This is likely an Excel serial number
+        excel_origin <- as.Date("1899-12-30")
+        return(excel_origin + as.integer(numeric_date))
+    }
+
     parsed_date <- suppressWarnings(lubridate::as_date(date))
 
     if (is.na(parsed_date)) {
