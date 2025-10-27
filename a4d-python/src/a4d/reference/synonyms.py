@@ -191,6 +191,43 @@ class ColumnMapper:
                     f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
                 )
 
+        # Handle duplicate mappings: multiple source columns mapping to same target
+        # Keep only first occurrence, drop the rest (edge case from discontinued 2023 format)
+        target_counts: dict[str, int] = {}
+        for target in rename_map.values():
+            target_counts[target] = target_counts.get(target, 0) + 1
+
+        if any(count > 1 for count in target_counts.values()):
+            duplicates = {t: c for t, c in target_counts.items() if c > 1}
+            logger.warning(
+                f"Multiple source columns map to same target name: {duplicates}. "
+                f"Keeping first occurrence only. This is an edge case from discontinued 2023 format."
+            )
+
+            # Keep only first occurrence of each target
+            seen_targets: set[str] = set()
+            columns_to_drop = []
+
+            for source_col, target_col in rename_map.items():
+                if target_col in duplicates:
+                    if target_col in seen_targets:
+                        # Duplicate - drop it
+                        columns_to_drop.append(source_col)
+                        logger.debug(
+                            f"Dropping duplicate source column '{source_col}' "
+                            f"(maps to '{target_col}')"
+                        )
+                    else:
+                        # First occurrence - keep it
+                        seen_targets.add(target_col)
+
+            # Drop duplicates before renaming
+            if columns_to_drop:
+                df = df.drop(columns_to_drop)
+                # Remove dropped columns from rename_map
+                for col in columns_to_drop:
+                    del rename_map[col]
+
         # Log successful mappings
         if rename_map:
             logger.debug(f"Renaming {len(rename_map)} columns: {list(rename_map.items())}")

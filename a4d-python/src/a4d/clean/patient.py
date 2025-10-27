@@ -168,9 +168,16 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
 def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     """Derive insulin_type and insulin_subtype from individual columns.
 
+    Based on R's logic from script2_process_patient_data.R:91-111 but with corrections:
+    - Uses lowercase values (R does this, validation converts to Title Case later)
+    - FIXES R's typo: Uses "rapid-acting" (correct) instead of R's "rapic-acting" (typo)
+
     For 2024+ trackers:
-    - insulin_type: "Human Insulin" if any human column is Y, else "Analog Insulin"
-    - insulin_subtype: Comma-separated list of subtype names where value is Y
+    - insulin_type: "human insulin" if any human column is Y, else "analog insulin"
+    - insulin_subtype: Comma-separated list like "pre-mixed,rapid-acting,long-acting"
+      (will be replaced with "Undefined" by validation since comma-separated values aren't in allowed_values)
+
+    NOTE: Python is CORRECT here. Comparison with R will show differences because R has a typo.
 
     Args:
         df: Input DataFrame with individual insulin columns
@@ -178,35 +185,49 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with insulin_type and insulin_subtype derived
     """
-    # Determine insulin_type
+    # Determine insulin_type (lowercase to match R)
+    # Important: R's ifelse returns NA when all conditions are NA/None
+    # So we only derive insulin_type when at least one column is not None
     df = df.with_columns(
         pl.when(
-            (pl.col("human_insulin_pre_mixed") == "Y")
-            | (pl.col("human_insulin_short_acting") == "Y")
-            | (pl.col("human_insulin_intermediate_acting") == "Y")
+            # Only derive if at least one insulin column is not null
+            pl.col("human_insulin_pre_mixed").is_not_null()
+            | pl.col("human_insulin_short_acting").is_not_null()
+            | pl.col("human_insulin_intermediate_acting").is_not_null()
+            | pl.col("analog_insulin_rapid_acting").is_not_null()
+            | pl.col("analog_insulin_long_acting").is_not_null()
         )
-        .then(pl.lit("Human Insulin"))
-        .otherwise(pl.lit("Analog Insulin"))
+        .then(
+            # Now check which type
+            pl.when(
+                (pl.col("human_insulin_pre_mixed") == "Y")
+                | (pl.col("human_insulin_short_acting") == "Y")
+                | (pl.col("human_insulin_intermediate_acting") == "Y")
+            )
+            .then(pl.lit("human insulin"))
+            .otherwise(pl.lit("analog insulin"))
+        )
+        .otherwise(None)  # Return None if all columns are None (matches R's NA)
         .alias("insulin_type")
     )
 
-    # Build insulin_subtype as comma-separated list
-    # This is complex in Polars - we build a list and join
+    # Build insulin_subtype as comma-separated list (lowercase to match R)
+    # CORRECTED: Use "rapid-acting" (correct) instead of R's "rapic-acting" (typo)
     df = df.with_columns(
         pl.concat_list(
             [
-                pl.when(pl.col("human_insulin_pre_mixed") == "Y").then(pl.lit("Pre-mixed")).otherwise(pl.lit(None)),
+                pl.when(pl.col("human_insulin_pre_mixed") == "Y").then(pl.lit("pre-mixed")).otherwise(pl.lit(None)),
                 pl.when(pl.col("human_insulin_short_acting") == "Y")
-                .then(pl.lit("Short-acting"))
+                .then(pl.lit("short-acting"))
                 .otherwise(pl.lit(None)),
                 pl.when(pl.col("human_insulin_intermediate_acting") == "Y")
-                .then(pl.lit("Intermediate-acting"))
+                .then(pl.lit("intermediate-acting"))
                 .otherwise(pl.lit(None)),
                 pl.when(pl.col("analog_insulin_rapid_acting") == "Y")
-                .then(pl.lit("Rapid-acting"))
+                .then(pl.lit("rapid-acting"))  # CORRECTED from R's typo
                 .otherwise(pl.lit(None)),
                 pl.when(pl.col("analog_insulin_long_acting") == "Y")
-                .then(pl.lit("Long-acting"))
+                .then(pl.lit("long-acting"))
                 .otherwise(pl.lit(None)),
             ]
         )
