@@ -58,3 +58,4 @@ Both projects use the same reference data:
 
 **Do not modify these** without testing both R and Python pipelines.
 - Always check your implementation against the original R pipeline and check if the logic is the same
+- Limit comments to explain why a desigin was made or give important context information for the migration but do not use comments for obvious code otherwise

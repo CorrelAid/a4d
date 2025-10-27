@@ -1,130 +1,135 @@
 #!/usr/bin/env python3
-"""Detailed analysis of differences between R and Python outputs."""
+"""Detailed comparison of R vs Python cleaned outputs - for migration validation."""
 
-import polars as pl
 from pathlib import Path
+import polars as pl
 
 
-def detailed_analysis():
-    """Perform detailed analysis of the differences."""
+def compare_detailed():
+    """Detailed comparison showing all differences for debugging."""
 
-    base_dir = Path(__file__).parent.parent
-    r_file = base_dir / "output/patient_data_raw/R/2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
-    python_file = base_dir / "output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
+    r_clean_path = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output/patient_data_cleaned/2024_Sibu Hospital A4D Tracker_patient_cleaned.parquet")
+    py_clean_path = Path("output/patient_data_clean/Python/2024_Sibu Hospital A4D Tracker_patient_clean.parquet")
 
-    df_r = pl.read_parquet(r_file)
-    df_python = pl.read_parquet(python_file)
+    df_r = pl.read_parquet(r_clean_path)
+    df_py = pl.read_parquet(py_clean_path)
 
-    print("=" * 80)
-    print("DETAILED ANALYSIS OF DIFFERENCES")
-    print("=" * 80)
+    print("=" * 100)
+    print("DETAILED COMPARISON - R vs Python Cleaned Patient Data")
+    print("=" * 100)
 
-    # 1. Check if rows are in the same order
-    print("\n1. ROW ORDER CHECK")
-    print("-" * 80)
+    # 1. SCHEMA DIFFERENCES
+    print("\n" + "=" * 100)
+    print("1. SCHEMA DIFFERENCES")
+    print("=" * 100)
 
-    # Check if patient_id exists and compare
-    if "patient_id" in df_r.columns and "patient_id" in df_python.columns:
-        print("\nFirst 10 patient IDs:")
-        print(f"{'Row':<5} {'R':<30} {'Python':<30}")
-        print("-" * 65)
-        for i in range(min(10, df_r.height)):
-            r_id = df_r["patient_id"][i]
-            py_id = df_python["patient_id"][i]
-            match = "✓" if r_id == py_id else "✗"
-            print(f"{i:<5} {str(r_id):<30} {str(py_id):<30} {match}")
+    r_cols = set(df_r.columns)
+    py_cols = set(df_py.columns)
+    common_cols = sorted(r_cols & py_cols)
+    only_r = sorted(r_cols - py_cols)
+    only_py = sorted(py_cols - r_cols)
 
-    # 2. Check metadata columns
-    print("\n\n2. METADATA COLUMNS CHECK")
-    print("-" * 80)
+    print(f"\n📋 Column comparison:")
+    print(f"   Common columns: {len(common_cols)}")
+    print(f"   Only in R:      {len(only_r)}")
+    print(f"   Only in Python: {len(only_py)}")
 
-    metadata_cols = ["sheet_name", "tracker_month", "tracker_year", "file_name"]
-    for col in metadata_cols:
-        if col in df_r.columns and col in df_python.columns:
-            print(f"\n{col}:")
-            print(f"  R unique values: {df_r[col].unique().to_list()[:5]}")
-            print(f"  Python unique values: {df_python[col].unique().to_list()[:5]}")
-        elif col in df_r.columns:
-            print(f"\n{col}: Only in R")
-        elif col in df_python.columns:
-            print(f"\n{col}: Only in Python")
+    if only_r:
+        print(f"\n   ⚠️  Missing in Python (need to add to schema):")
+        for col in only_r:
+            r_type = df_r[col].dtype
+            null_count = df_r[col].is_null().sum()
+            print(f"      - {col:50s} ({r_type}, {null_count}/{len(df_r)} nulls)")
 
-    # 3. Check the "na" columns in R
-    print("\n\n3. R 'NA' COLUMNS ANALYSIS")
-    print("-" * 80)
+    if only_py:
+        print(f"\n   ⚠️  Extra in Python (not in R schema):")
+        for col in only_py:
+            py_type = df_py[col].dtype
+            null_count = df_py[col].is_null().sum()
+            print(f"      - {col:50s} ({py_type}, {null_count}/{len(df_py)} nulls)")
 
-    na_cols = [c for c in df_r.columns if c.startswith("na")]
-    for col in na_cols:
-        non_null_count = df_r[col].null_count()
-        unique_vals = df_r[col].unique().to_list()[:10]
-        print(f"\n{col}:")
-        print(f"  Non-null count: {df_r.height - non_null_count}/{df_r.height}")
-        print(f"  Unique values (first 10): {unique_vals}")
+    # 2. TYPE DIFFERENCES
+    print("\n" + "=" * 100)
+    print("2. TYPE DIFFERENCES (common columns)")
+    print("=" * 100)
 
-    # 4. Show full row comparison for first patient
-    print("\n\n4. FIRST PATIENT FULL COMPARISON")
-    print("-" * 80)
+    type_diffs = []
+    for col in common_cols:
+        r_type = str(df_r[col].dtype)
+        py_type = str(df_py[col].dtype)
+        if r_type != py_type:
+            type_diffs.append((col, r_type, py_type))
 
-    common_cols = sorted(set(df_r.columns) & set(df_python.columns))
+    if type_diffs:
+        print(f"\n   Found {len(type_diffs)} type differences:")
+        for col, r_type, py_type in type_diffs:
+            print(f"      {col:50s}: R={r_type:15s} vs Python={py_type:15s}")
+    else:
+        print("   ✅ All types match!")
 
-    print(f"\n{'Column':<45} {'R Value':<25} {'Python Value':<25} {'Match'}")
-    print("-" * 100)
+    # 3. VALUE DIFFERENCES
+    print("\n" + "=" * 100)
+    print("3. VALUE DIFFERENCES (common columns)")
+    print("=" * 100)
 
-    for col in common_cols[:30]:  # Show first 30 columns
-        r_val = df_r[col][0]
-        py_val = df_python[col][0]
+    value_diffs = []
 
-        # Handle nulls
-        r_str = "NULL" if r_val is None else str(r_val)
-        py_str = "NULL" if py_val is None else str(py_val)
+    for col in common_cols:
+        r_vals = df_r[col].to_list()
+        py_vals = df_py[col].to_list()
 
-        match = "✓" if r_val == py_val else "✗"
+        if r_vals != py_vals:
+            diff_count = sum(1 for i in range(len(r_vals)) if r_vals[i] != py_vals[i])
+            value_diffs.append((col, diff_count, r_vals, py_vals))
 
-        print(f"{col:<45} {r_str:<25} {py_str:<25} {match}")
+    if value_diffs:
+        print(f"\n   Found {len(value_diffs)} columns with value differences:\n")
 
-    if len(common_cols) > 30:
-        print(f"\n... and {len(common_cols) - 30} more columns")
+        for col, diff_count, r_vals, py_vals in sorted(value_diffs, key=lambda x: x[1], reverse=True):
+            print(f"\n   📌 {col} ({diff_count}/{len(df_r)} rows differ)")
+            print(f"      R type:      {df_r[col].dtype}")
+            print(f"      Python type: {df_py[col].dtype}")
 
-    # 5. Check column name patterns - synonyms issue?
-    print("\n\n5. COLUMN NAME PATTERN ANALYSIS")
-    print("-" * 80)
+            # Show first 5 differing examples
+            diffs_shown = 0
+            for i in range(len(r_vals)):
+                if r_vals[i] != py_vals[i] and diffs_shown < 5:
+                    print(f"      Row {i+1}: R={repr(r_vals[i]):30s} | Python={repr(py_vals[i])}")
+                    diffs_shown += 1
 
-    print("\nR columns with 'na' or unusual patterns:")
-    unusual_r = [c for c in df_r.columns if "na" in c.lower() or c.startswith("_")]
-    for col in unusual_r:
-        print(f"  - {col}")
+            if diff_count > 5:
+                print(f"      ... and {diff_count - 5} more differences")
+    else:
+        print("   ✅ All values match!")
 
-    print("\nPython columns that might be unmapped:")
-    python_unmapped = [c for c in df_python.columns if c[0].isupper() or " " in c]
-    for col in python_unmapped:
-        print(f"  - {col}")
+    # 4. SUMMARY
+    print("\n" + "=" * 100)
+    print("4. SUMMARY - Action Items")
+    print("=" * 100)
 
-    # 6. Check if the issue is row sorting
-    print("\n\n6. ROW SORTING CHECK")
-    print("-" * 80)
+    total_issues = len(only_r) + len(only_py) + len(type_diffs) + len(value_diffs)
 
-    if "patient_id" in df_r.columns and "patient_id" in df_python.columns:
-        r_sorted = df_r.sort("patient_id")
-        py_sorted = df_python.sort("patient_id")
+    if total_issues == 0:
+        print("\n   ✅ Perfect match! R and Python outputs are identical.")
+    else:
+        print(f"\n   Total issues to resolve: {total_issues}")
+        print(f"      - Missing columns in Python: {len(only_r)}")
+        print(f"      - Extra columns in Python:   {len(only_py)}")
+        print(f"      - Type mismatches:           {len(type_diffs)}")
+        print(f"      - Value differences:         {len(value_diffs)}")
 
-        print("\nChecking if values match when both are sorted by patient_id...")
+        print("\n   📋 TODO:")
+        if only_r:
+            print(f"      1. Add {len(only_r)} missing columns to Python schema")
+        if only_py:
+            print(f"      2. Review {len(only_py)} extra Python columns (remove or keep?)")
+        if type_diffs:
+            print(f"      3. Fix {len(type_diffs)} type mismatches")
+        if value_diffs:
+            print(f"      4. Investigate {len(value_diffs)} columns with value differences")
 
-        # Check first few key columns
-        check_cols = ["patient_id", "name", "age", "clinic_visit"]
-        all_match = True
-
-        for col in check_cols:
-            if col in r_sorted.columns and col in py_sorted.columns:
-                is_equal = r_sorted[col].series_equal(py_sorted[col], null_equal=True)
-                print(f"  {col}: {'✓ Match' if is_equal else '✗ Differ'}")
-                if not is_equal:
-                    all_match = False
-
-        if not all_match:
-            print("\n  Values still differ even when sorted. This suggests data extraction differences.")
-        else:
-            print("\n  Values match when sorted! The issue is just row ordering.")
+    print("\n" + "=" * 100)
 
 
 if __name__ == "__main__":
-    detailed_analysis()
+    compare_detailed()

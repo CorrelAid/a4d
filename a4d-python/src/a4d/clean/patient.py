@@ -69,23 +69,24 @@ def clean_patient_data(
     # Step 3: Data transformations (regimen extraction, lowercasing, etc.)
     df = _apply_transformations(df)
 
-    # Step 4: Type conversions
+    # Step 4: Apply meta schema EARLY (like R does) to ensure all columns exist before conversions
+    # This allows unit conversions to work on columns that don't exist in raw data
+    df = apply_schema(df)
+
+    # Step 5: Type conversions
     df = _apply_type_conversions(df, error_collector)
 
-    # Step 5: Range validation and cleanup
+    # Step 6: Range validation and cleanup
     df = _apply_range_validation(df, error_collector)
 
-    # Step 6: Allowed values validation
+    # Step 7: Allowed values validation
     df = validate_all_columns(df, error_collector)
 
-    # Step 7: Unit conversions
+    # Step 8: Unit conversions (requires schema to be applied first!)
     df = _apply_unit_conversions(df)
 
-    # Step 8: Create tracker_date from year/month
+    # Step 9: Create tracker_date from year/month
     df = _add_tracker_date(df)
-
-    # Step 9: Apply meta schema (add missing columns, ensure consistent output)
-    df = apply_schema(df)
 
     # Step 10: Sort by tracker_date and patient_id
     df = df.sort(["tracker_date", "patient_id"])
@@ -157,7 +158,7 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
             df = df.with_columns(pl.col(col).str.replace("-", "N").alias(col))
 
     # Derive insulin_type and insulin_subtype from individual columns (2024+)
-    # Only if the individual columns exist
+    # R's validation will convert insulin_type to Title Case and insulin_subtype to "Undefined"
     if "human_insulin_pre_mixed" in df.columns:
         df = _derive_insulin_fields(df)
 
@@ -231,9 +232,8 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with transformations applied
     """
-    # Lowercase status for validation
-    if "status" in df.columns:
-        df = str_to_lower(df, "status")
+    # Status should keep original case to match R pipeline
+    # R validation is case-insensitive but preserves original values
 
     # Standardize insulin regimen
     if "insulin_regimen" in df.columns:
@@ -274,14 +274,17 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
         DataFrame with types converted
     """
     schema = get_patient_data_schema()
-    metadata_cols = ["file_name", "clinic_id", "tracker_year", "tracker_month", "sheet_name", "patient_id"]
 
     # Convert each column that exists
     for col, target_type in schema.items():
-        if col not in df.columns or col in metadata_cols:
+        if col not in df.columns:
             continue
 
-        # Special handling for Date columns: strip time component
+        # Skip if already the correct type (happens when schema adds NULL columns)
+        if df[col].dtype == target_type:
+            continue
+
+        # Special handling for Date columns: strip time component from datetime strings
         if target_type == pl.Date:
             df = df.with_columns(
                 pl.col(col).str.slice(0, 10).alias(col)  # Take first 10 chars: "2009-04-17"
@@ -400,8 +403,14 @@ def _add_tracker_date(df: pl.DataFrame) -> pl.DataFrame:
     """
     if "tracker_year" in df.columns and "tracker_month" in df.columns:
         # Parse year-month to date (first day of month)
+        # Cast to string first since they're now Int32
         df = df.with_columns(
-            pl.concat_str([pl.col("tracker_year"), pl.lit("-"), pl.col("tracker_month"), pl.lit("-01")])
+            pl.concat_str([
+                pl.col("tracker_year").cast(pl.String),
+                pl.lit("-"),
+                pl.col("tracker_month").cast(pl.String),
+                pl.lit("-01")
+            ])
             .str.to_date("%Y-%m-%d")
             .alias("tracker_date")
         )

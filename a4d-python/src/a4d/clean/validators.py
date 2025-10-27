@@ -15,10 +15,36 @@ transformers.py for better type safety and maintainability.
 
 import polars as pl
 from typing import Any
+import re
 
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 from a4d.reference.loaders import load_yaml, get_reference_data_path
+
+
+def sanitize_str(text: str) -> str:
+    """Sanitize string for case-insensitive matching.
+
+    Matches R's sanitize_str function:
+    1. Convert to lowercase
+    2. Remove spaces
+    3. Remove special characters (keep only alphanumeric)
+
+    Args:
+        text: String to sanitize
+
+    Returns:
+        Sanitized string
+
+    Example:
+        >>> sanitize_str("Active - Remote")
+        'activeremote'
+        >>> sanitize_str("Lost Follow Up")
+        'lostfollowup'
+    """
+    if not isinstance(text, str):
+        return text
+    return re.sub(r'[^a-z0-9]', '', text.lower())
 
 
 def load_validation_rules() -> dict[str, Any]:
@@ -48,64 +74,87 @@ def validate_allowed_values(
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
-    """Validate column against allowed values.
+    """Validate column against allowed values with case-insensitive matching.
+
+    Matches R's validation behavior:
+    1. Sanitize both input values and allowed values for matching
+    2. If matched, replace with canonical value from allowed_values
+    3. If not matched, replace with error value (if replace_invalid=True)
 
     Args:
         df: Input DataFrame
         column: Column name to validate
-        allowed_values: List of allowed string values
+        allowed_values: List of canonical allowed values (e.g., ["Active", "Inactive"])
         error_collector: ErrorCollector instance to track violations
         replace_invalid: If True, replace invalid values with error value
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
     Returns:
-        DataFrame with invalid values replaced (if replace_invalid=True)
+        DataFrame with values normalized to canonical form or replaced
 
     Example:
         >>> collector = ErrorCollector()
         >>> df = validate_allowed_values(
         ...     df=df,
         ...     column="status",
-        ...     allowed_values=["Active", "Inactive"],
+        ...     allowed_values=["Active", "Inactive"],  # Canonical forms
         ...     error_collector=collector,
-        ...     replace_invalid=True,
         ... )
+        >>> # "active", "ACTIVE", "Active" all become "Active"
     """
     if column not in df.columns:
         return df
 
-    # Find invalid values (not in allowed list, not null, not already error value)
-    invalid_mask = (
-        pl.col(column).is_not_null()
-        & (pl.col(column) != settings.error_val_character)
-        & (~pl.col(column).is_in(allowed_values))
-    )
+    # Create mapping: {sanitized → canonical} like R does
+    # E.g., {"active": "Active", "activeremote": "Active - Remote"}
+    canonical_mapping = {sanitize_str(val): val for val in allowed_values}
 
-    # Extract invalid rows for error logging
-    invalid_rows = df.filter(invalid_mask)
+    # Get unique non-null values from the column
+    col_values = df.filter(pl.col(column).is_not_null()).select(column).unique()
 
-    # Log each invalid value
-    if len(invalid_rows) > 0:
-        for row in invalid_rows.iter_rows(named=True):
+    # Track which values need replacement and their canonical forms
+    value_replacements = {}  # {original → canonical or error_value}
+
+    for row in col_values.iter_rows(named=True):
+        original_val = row[column]
+
+        # Skip if already the error value
+        if original_val == settings.error_val_character:
+            value_replacements[original_val] = original_val
+            continue
+
+        # Sanitize and lookup
+        sanitized = sanitize_str(original_val)
+
+        if sanitized in canonical_mapping:
+            # Valid - replace with canonical value
+            value_replacements[original_val] = canonical_mapping[sanitized]
+        else:
+            # Invalid - log error
             error_collector.add_error(
-                file_name=row.get(file_name_col, "unknown"),
-                patient_id=row.get(patient_id_col, "unknown"),
+                file_name="unknown",  # Will be filled in bulk operations
+                patient_id="unknown",
                 column=column,
-                original_value=row[column],
-                error_message=f"Value '{row[column]}' not in allowed values: {allowed_values}",
+                original_value=original_val,
+                error_message=f"Value '{original_val}' not in allowed values: {allowed_values}",
                 error_code="invalid_value",
                 function_name="validate_allowed_values",
             )
 
-    # Replace invalid values with error value if configured
-    if replace_invalid:
-        df = df.with_columns(
-            pl.when(invalid_mask)
-            .then(pl.lit(settings.error_val_character))
-            .otherwise(pl.col(column))
-            .alias(column)
-        )
+            if replace_invalid:
+                value_replacements[original_val] = settings.error_val_character
+            else:
+                value_replacements[original_val] = original_val
+
+    # Apply all replacements at once using pl.when().then() chain
+    # This ensures we replace with canonical values even if they match
+    if value_replacements:
+        expr = pl.col(column)
+        for original, replacement in value_replacements.items():
+            expr = pl.when(pl.col(column) == original).then(pl.lit(replacement)).otherwise(expr)
+
+        df = df.with_columns(expr.alias(column))
 
     return df
 

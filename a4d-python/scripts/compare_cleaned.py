@@ -10,7 +10,7 @@ def compare_cleaned_outputs():
 
     # Check if R cleaned output exists
     # (You'll need to run R pipeline's script2 to generate this)
-    r_clean_path = Path("output/patient_data_clean/R/2024_Sibu Hospital A4D Tracker_patient_clean.parquet")
+    r_clean_path = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output/patient_data_cleaned/2024_Sibu Hospital A4D Tracker_patient_cleaned.parquet")
     py_clean_path = Path("output/patient_data_clean/Python/2024_Sibu Hospital A4D Tracker_patient_clean.parquet")
 
     if not py_clean_path.exists():
