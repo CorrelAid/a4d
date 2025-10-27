@@ -29,7 +29,13 @@ from pathlib import Path
 from loguru import logger
 
 
-def setup_logging(output_root: Path, log_name: str, level: str = "INFO") -> None:
+def setup_logging(
+    output_root: Path,
+    log_name: str,
+    level: str = "INFO",
+    console: bool = True,
+    console_level: str | None = None
+) -> None:
     """Configure loguru for pipeline-wide operational logging.
 
     Creates both console (colored, human-readable) and file (JSON for BigQuery)
@@ -39,11 +45,16 @@ def setup_logging(output_root: Path, log_name: str, level: str = "INFO") -> None
     Args:
         output_root: Root output directory (logs will be in output_root/logs/)
         log_name: Base name for the log file (e.g., "script1_extract")
-        level: Minimum console log level (DEBUG, INFO, WARNING, ERROR)
+        level: Minimum file log level (DEBUG, INFO, WARNING, ERROR)
+        console: Whether to add console handler (set False for CLI with progress bars)
+        console_level: Console log level (None = use level, or set to ERROR for quiet mode)
 
     Example:
         >>> setup_logging(Path("output"), "script1_extract")
         >>> logger.info("Processing started", total_trackers=10)
+
+        >>> # Quiet mode for CLI with progress bars
+        >>> setup_logging(Path("output"), "pipeline", console_level="ERROR")
     """
     log_dir = output_root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -53,13 +64,14 @@ def setup_logging(output_root: Path, log_name: str, level: str = "INFO") -> None
     logger.remove()
 
     # Console handler: pretty, colored output for monitoring
-    # Include some context in format for readability
-    logger.add(
-        sys.stdout,
-        level=level,
-        colorize=True,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-    )
+    if console:
+        console_log_level = console_level if console_level is not None else level
+        logger.add(
+            sys.stdout,
+            level=console_log_level,
+            colorize=True,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        )
 
     # File handler: JSON output for BigQuery upload
     # serialize=True means all context from contextualize() is included
@@ -72,7 +84,8 @@ def setup_logging(output_root: Path, log_name: str, level: str = "INFO") -> None
         compression="zip",
     )
 
-    logger.info("Logging initialized", log_file=str(log_file), level=level)
+    if console:
+        logger.info("Logging initialized", log_file=str(log_file), level=level)
 
 
 @contextmanager

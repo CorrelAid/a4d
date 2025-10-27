@@ -50,23 +50,23 @@ def calculate_expected_columns(start_col: str, end_col: str) -> int:
 
 # Test data paths
 TRACKER_SBU_2024 = Path(
-    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/"
     "Malaysia/SBU/2024_Sibu Hospital A4D Tracker.xlsx"
 )
 TRACKER_PNG_2019 = Path(
-    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/"
     "Malaysia/PNG/2019_Penang General Hospital A4D Tracker_DC.xlsx"
 )
 TRACKER_PNG_2018 = Path(
-    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/"
     "Malaysia/PNG/2018_Penang General Hospital A4D Tracker_DC.xlsx"
 )
 TRACKER_MHS_2017 = Path(
-    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/"
     "Laos/MHS/2017_Mahosot Hospital A4D Tracker.xlsx"
 )
 TRACKER_MHS_2025 = Path(
-    "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/"
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/"
     "Laos/MHS/2025_06_Mahosot Hospital A4D Tracker.xlsx"
 )
 
@@ -232,11 +232,12 @@ def test_harmonize_patient_data_columns_basic():
 
 
 def test_harmonize_patient_data_columns_multiple_synonyms():
-    """Test that multiple columns mapping to same name raises error.
+    """Test that multiple columns mapping to same name keeps first occurrence.
 
     When multiple columns in the input map to the same standardized name
     (e.g., "Patient ID", "ID", "Patient ID*" all map to "patient_id"),
-    Polars will raise a DuplicateError. This is expected behavior.
+    we keep the FIRST occurrence and drop the rest. This matches R behavior
+    and handles edge cases like 2023 complication screening columns.
     """
     raw_df = pl.DataFrame(
         {
@@ -246,9 +247,11 @@ def test_harmonize_patient_data_columns_multiple_synonyms():
         }
     )
 
-    # Multiple columns mapping to the same standard name should raise error
-    with pytest.raises(pl.exceptions.DuplicateError, match="column 'patient_id' is duplicate"):
-        harmonize_patient_data_columns(raw_df)
+    # Should keep first occurrence ("Patient ID") and drop the rest
+    harmonized = harmonize_patient_data_columns(raw_df)
+
+    assert list(harmonized.columns) == ["patient_id"]
+    assert harmonized["patient_id"].to_list() == ["P001"]  # First occurrence kept
 
 
 def test_harmonize_patient_data_columns_unmapped_strict_false():
@@ -457,11 +460,10 @@ def test_read_all_patient_sheets_file_name():
     """Test that file_name metadata is correctly added."""
     df_all = read_all_patient_sheets(TRACKER_SBU_2024)
 
-    # Check that file_name column exists and matches the tracker file
     assert "file_name" in df_all.columns
     file_names = df_all["file_name"].unique().to_list()
-    assert len(file_names) == 1  # All rows should have same file name
-    assert file_names[0] == TRACKER_SBU_2024.name
+    assert len(file_names) == 1
+    assert file_names[0] == TRACKER_SBU_2024.stem
 
 
 @pytest.mark.skipif(not TRACKER_MHS_2017.exists(), reason="Tracker file not available")

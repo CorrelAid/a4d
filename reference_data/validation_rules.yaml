@@ -73,7 +73,18 @@ insulin_type:
   allowed_values: ["Human Insulin", "Analog Insulin"]
   replace_invalid: true
 
-# insulin_subtype: Not validated - it's a derived comma-separated list field
+insulin_subtype:
+  # Note: R derives "rapic-acting" (typo) but validates against "Rapid-acting" (correct)
+  # This causes ALL derived values to become "Undefined" because:
+  # 1. Single values like "rapic-acting" don't match "Rapid-acting"
+  # 2. Comma-separated values like "rapic-acting,long-acting" don't match any single allowed value
+  allowed_values:
+    - "Pre-mixed"
+    - "Short-acting"
+    - "Intermediate-acting"
+    - "Rapid-acting"  # R expects this, but derives "rapic-acting" (typo)
+    - "Long-acting"
+  replace_invalid: true
 
 observations_category:
   allowed_values:
@@ -96,18 +107,19 @@ remote_followup:
   replace_invalid: true
 
 status:
-  # Note: Values are lowercased by transformers.py first
+  # Canonical values in Title Case. Validation is case-insensitive.
+  # If matched, returns the canonical value (e.g., "active" → "Active")
   allowed_values:
-    - "active"
-    - "active - remote"
-    - "active remote"
-    - "active monitoring"
-    - "query"
-    - "inactive"
-    - "transferred"
-    - "lost follow up"
-    - "deceased"
-    - "discontinued"
+    - "Active"
+    - "Active - Remote"
+    - "Active Remote"
+    - "Active Monitoring"
+    - "Query"
+    - "Inactive"
+    - "Transferred"
+    - "Lost Follow Up"
+    - "Deceased"
+    - "Discontinued"
   replace_invalid: true
 
 support_level:

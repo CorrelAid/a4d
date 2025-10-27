@@ -6,6 +6,7 @@ evolved over the years with different formats and structures.
 
 import calendar
 import re
+import warnings
 from pathlib import Path
 
 import polars as pl
@@ -13,6 +14,10 @@ from loguru import logger
 from openpyxl import load_workbook
 
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
+
+# Suppress openpyxl warnings about unsupported Excel features
+# We only read data, so these warnings are not actionable
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
@@ -36,33 +41,27 @@ def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
         >>> get_tracker_year(Path("2024_Clinic.xlsx"), ["Jan24", "Feb24"])
         2024
     """
-    # Try to parse year from month sheet names (e.g., "Jan24" -> 24)
-    # Look for 2-digit numbers in month sheet names
     for sheet in month_sheets:
         match = re.search(r"(\d{2})$", sheet)
         if match:
             year_suffix = int(match.group(1))
-            # Assume 20xx for now (until 2100!)
-            year = 2000 + year_suffix
+            year = 2000 + year_suffix  # Assume 20xx until 2100
             logger.debug(f"Parsed year {year} from sheet name '{sheet}'")
-            
-            # Validate year range (like R pipeline does)
-            if not (2017 <= year <= 2030):
+
+            if not (2017 <= year <= 2030):  # Match R pipeline validation
                 raise ValueError(
                     f"Year {year} is out of valid range (2017-2030). "
                     f"Parsed from sheet name '{sheet}'"
                 )
-            
+
             return year
 
-    # Fallback: extract from filename (e.g., "2024_Clinic.xlsx")
     match = re.search(r"(\d{4})", tracker_file.name)
     if match:
         year = int(match.group(1))
         logger.debug(f"Parsed year {year} from filename '{tracker_file.name}'")
-        
-        # Validate year range (like R pipeline does)
-        if not (2017 <= year <= 2030):
+
+        if not (2017 <= year <= 2030):  # Match R pipeline validation
             raise ValueError(
                 f"Year {year} is out of valid range (2017-2030). "
                 f"Parsed from filename '{tracker_file.name}'"
@@ -97,20 +96,16 @@ def find_month_sheets(workbook) -> list[str]:
     month_sheets = []
 
     for sheet_name in workbook.sheetnames:
-        # Check if sheet name starts with a month abbreviation
         if any(sheet_name.startswith(abbr) for abbr in month_abbrs):
             month_sheets.append(sheet_name)
 
-    # Sort by month number for consistent, predictable processing
-    # Extract month prefix and map to number (Jan=1, Feb=2, etc.)
     def get_month_number(sheet_name: str) -> int:
         """Extract month number from sheet name (Jan=1, ..., Dec=12)."""
         month_prefix = sheet_name[:3]
         try:
             return month_abbrs.index(month_prefix) + 1
         except ValueError:
-            # If prefix doesn't match, push to end
-            return 999
+            return 999  # Push unrecognized sheets to end
 
     month_sheets.sort(key=get_month_number)
 
@@ -184,7 +179,6 @@ def read_header_rows(ws, data_start_row: int, max_cols: int = 100) -> tuple[list
         )
     )[0]
 
-    # Trim to actual width (last non-None column)
     last_col = max_cols
     for i in range(len(header_1_raw) - 1, -1, -1):
         if header_1_raw[i] is not None or header_2_raw[i] is not None:
@@ -232,7 +226,6 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
         >>> merge_headers(h1, h2)
         ['Patient ID', 'Patient Name', 'Province']
     """
-    # Check if header_1 contains "Patient ID" (or common synonyms)
     patient_id_indicators = ["patient id", "patient.id"]
     has_patient_id_in_h1 = any(
         str(h1).strip().lower() in patient_id_indicators
@@ -240,47 +233,35 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
         if h1 is not None
     )
 
-    # Check if header_2 looks like a title row (mostly None values)
     non_none_count_h2 = sum(1 for h2 in header_2 if h2 is not None)
 
-    # If header_1 has Patient ID and header_2 is mostly empty (just a title), use only header_1
     if has_patient_id_in_h1 and non_none_count_h2 <= 2:
         logger.debug(
             "Detected title row in header_2 with Patient ID in header_1, using header_1 only"
         )
         headers = [str(h1).strip() if h1 is not None else None for h1 in header_1]
-        # Clean up headers: remove newlines, extra spaces
         headers = [re.sub(r"\s+", " ", h.replace("\n", " ")) if h else None for h in headers]
         return headers
 
-    # Otherwise, proceed with standard merge logic
     headers = []
     prev_h2 = None  # Track previous h2 for horizontal merges
 
     for h1, h2 in zip(header_1, header_2, strict=True):
         if h1 and h2:
-            # Both have values: concatenate (multi-line detail)
             headers.append(f"{h2} {h1}".strip())
             prev_h2 = h2
         elif h2:
-            # Only h2 has value: use it (multi-line base or merged cell)
             headers.append(str(h2).strip())
             prev_h2 = h2
         elif h1:
-            # Only h1 has value: check if h2 is horizontally merged
             if prev_h2:
-                # h2 is None but h1 exists: likely horizontal merge, fill forward
                 headers.append(f"{prev_h2} {h1}".strip())
             else:
-                # No previous h2: use h1 (single-line or edge case)
                 headers.append(str(h1).strip())
-            # Keep prev_h2 for next iteration (it's still merged)
         else:
-            # Both None
             headers.append(None)
-            prev_h2 = None  # Reset if both are None
+            prev_h2 = None
 
-    # Clean up headers: remove newlines, extra spaces
     headers = [re.sub(r"\s+", " ", h.replace("\n", " ")) if h else None for h in headers]
 
     return headers
@@ -313,10 +294,8 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
         max_col=num_columns,
         values_only=True,
     ):
-        # Stop at first completely empty row (all None values)
         if all(cell is None for cell in row):
             break
-        # Skip rows where first column (patient index) is None
         if row[0] is None:
             continue
         data.append(row)
@@ -347,37 +326,30 @@ def merge_duplicate_columns_data(
         (['ID', 'DM Complications', 'Age'], [['1', 'A,B,C', '25'], ['2', 'X,Y,Z', '30']])
     """
     if len(headers) == len(set(headers)):
-        # No duplicates
         return headers, data
 
-    # Map each header to its column positions
     from collections import defaultdict
 
     header_positions: dict[str, list[int]] = defaultdict(list)
     for idx, header in enumerate(headers):
         header_positions[header].append(idx)
 
-    # Unique headers in order of first appearance (dict keys preserve insertion order in Python 3.7+)
     unique_headers = list(header_positions.keys())
 
-    # Log which headers are duplicated
     duplicated = [h for h, positions in header_positions.items() if len(positions) > 1]
     if duplicated:
         logger.debug(f"Merging {len(duplicated)} duplicate column groups: {duplicated}")
 
-    # Merge data for duplicate columns
     merged_data = []
     for row in data:
         merged_row = []
         for header in unique_headers:
             positions = header_positions[header]
             if len(positions) == 1:
-                # No duplicate, use value as-is
                 merged_row.append(row[positions[0]])
             else:
-                # Merge multiple columns: join non-empty values with commas
                 values = [str(row[pos]) if row[pos] is not None else "" for pos in positions]
-                values = [v for v in values if v]  # Filter out empty strings
+                values = [v for v in values if v]
                 merged_value = ",".join(values) if values else None
                 merged_row.append(merged_value)
         merged_data.append(merged_row)
@@ -411,7 +383,6 @@ def filter_valid_columns(
     valid_indices = [i for i, _ in valid_cols]
     valid_headers = [h for _, h in valid_cols]
 
-    # Filter data to only include valid columns
     filtered_data = [[row[i] for i in valid_indices] for row in data]
 
     return valid_headers, filtered_data
@@ -436,24 +407,21 @@ def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
         ['17.5', None, '18.2']
     """
     EXCEL_ERRORS = [
-        "#DIV/0!",  # Division by zero
-        "#VALUE!",  # Wrong type of argument or operand
-        "#REF!",    # Invalid cell reference
-        "#NAME?",   # Unrecognized formula name
-        "#NUM!",    # Invalid numeric value
-        "#N/A",     # Value not available
-        "#NULL!",   # Incorrect range operator
+        "#DIV/0!",
+        "#VALUE!",
+        "#REF!",
+        "#NAME?",
+        "#NUM!",
+        "#N/A",
+        "#NULL!",
     ]
 
-    # Convert Excel errors to NULL for all columns
-    # Skip metadata columns that should never have Excel errors
     metadata_cols = {"tracker_year", "tracker_month", "clinic_id", "patient_id", "sheet_name", "file_name"}
     data_cols = [col for col in df.columns if col not in metadata_cols]
 
     if not data_cols:
         return df
 
-    # Replace Excel errors with NULL
     df = df.with_columns([
         pl.when(pl.col(col).is_in(EXCEL_ERRORS))
         .then(None)
@@ -462,7 +430,6 @@ def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
         for col in data_cols
     ])
 
-    # Log if we cleaned any errors
     for error in EXCEL_ERRORS:
         for col in data_cols:
             count = (df[col] == error).sum()
@@ -506,7 +473,6 @@ def extract_patient_data(
         >>> "Patient ID*" in df.columns
         True
     """
-    # Single-pass read-only loading for optimal performance
     wb = load_workbook(
         tracker_file,
         read_only=True,
@@ -516,18 +482,15 @@ def extract_patient_data(
     )
     ws = wb[sheet_name]
 
-    # Find where patient data starts
     data_start_row = find_data_start_row(ws)
     logger.debug(
         f"Sheet '{sheet_name}': Patient data found in rows {data_start_row} to {ws.max_row}"
     )
 
-    # Read and merge header rows
     logger.info("Processing headers...")
     header_1, header_2 = read_header_rows(ws, data_start_row)
     headers = merge_headers(header_1, header_2)
 
-    # Filter valid columns BEFORE reading data
     valid_cols = [(i, h) for i, h in enumerate(headers) if h]
 
     if not valid_cols:
@@ -535,20 +498,15 @@ def extract_patient_data(
         logger.warning(f"No valid headers found in sheet '{sheet_name}'")
         return pl.DataFrame()
 
-    # Read patient data rows
     data = read_patient_rows(ws, data_start_row, len(headers))
     wb.close()
 
-    # Filter data to only include valid columns
     valid_headers, filtered_data = filter_valid_columns(headers, data)
 
-    # Merge duplicate columns (handle merged cells that create duplicates)
-    # Like R's tidyr::unite() - concatenates values with commas
     valid_headers, filtered_data = merge_duplicate_columns_data(valid_headers, filtered_data)
 
-    # Create DataFrame with ALL columns explicitly as String type
-    # This ensures consistent schema across all files, avoiding type inference issues
-    # where some files might have Null dtype and others String dtype for the same column
+    # Create DataFrame with ALL columns explicitly as String type to ensure consistent schema
+    # across all files and avoid type inference issues (Null vs String dtype)
     df = pl.DataFrame(
         {
             header: pl.Series(
@@ -687,62 +645,53 @@ def read_all_patient_sheets(
     """
     logger.info(f"Reading all patient sheets from {tracker_file.name}")
 
-    # Load workbook to find sheets
     wb = load_workbook(
         tracker_file, read_only=True, data_only=True, keep_vba=False, keep_links=False
     )
 
-    # Find month sheets
     month_sheets = find_month_sheets(wb)
     if not month_sheets:
         wb.close()
         raise ValueError(f"No month sheets found in {tracker_file.name}")
 
-    # Extract year
     year = get_tracker_year(tracker_file, month_sheets)
     logger.info(f"Processing {len(month_sheets)} month sheets for year {year}")
 
     wb.close()
 
-    # Extract from each month sheet
     all_sheets_data = []
 
     for sheet_name in month_sheets:
         logger.info(f"Processing sheet: {sheet_name}")
 
-        # Extract raw data
         df_sheet = extract_patient_data(tracker_file, sheet_name, year)
 
         if df_sheet.is_empty():
             logger.warning(f"Sheet '{sheet_name}' has no data, skipping")
             continue
 
-        # Harmonize columns
         df_sheet = harmonize_patient_data_columns(df_sheet, mapper=mapper, strict=False)
 
-        # Check for required column
         if "patient_id" not in df_sheet.columns:
             logger.warning(
                 f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
             )
             continue
 
-        # Extract month number
         try:
             month_num = extract_tracker_month(sheet_name)
         except ValueError as e:
             logger.warning(f"Could not extract month from '{sheet_name}': {e}, skipping")
             continue
 
-        # Add metadata columns (including clinic_id from parent directory)
-        # All metadata columns are explicitly cast to String for consistency
-        clinic_id = tracker_file.parent.name  # basename of parent directory
-        file_name = tracker_file.stem  # filename without extension (to match R)
+        # Derived metadata (year, month) use Int64; text metadata (sheet_name, etc.) use String
+        clinic_id = tracker_file.parent.name
+        file_name = tracker_file.stem
         df_sheet = df_sheet.with_columns(
             [
                 pl.lit(sheet_name, dtype=pl.String).alias("sheet_name"),
-                pl.lit(str(month_num), dtype=pl.String).alias("tracker_month"),
-                pl.lit(str(year), dtype=pl.String).alias("tracker_year"),
+                pl.lit(month_num, dtype=pl.Int64).alias("tracker_month"),
+                pl.lit(year, dtype=pl.Int64).alias("tracker_year"),
                 pl.lit(file_name, dtype=pl.String).alias("file_name"),
                 pl.lit(clinic_id, dtype=pl.String).alias("clinic_id"),
             ]
@@ -753,34 +702,26 @@ def read_all_patient_sheets(
     if not all_sheets_data:
         raise ValueError(f"No valid patient data found in any month sheets of {tracker_file.name}")
 
-    # Combine all sheets (like R's bind_rows - handles different columns and types)
-    # Use diagonal_relaxed to handle type mismatches (e.g., Null vs String)
+    # Use diagonal_relaxed to handle type mismatches (e.g., Null vs String) like R's bind_rows
     logger.info(f"Combining {len(all_sheets_data)} sheets...")
     df_combined = pl.concat(all_sheets_data, how="diagonal_relaxed")
 
-    # Filter invalid rows (no patient_id and no name, or patient_id="0" and name="0")
     initial_rows = len(df_combined)
 
-    # Filter 1: Remove rows with both patient_id and name null
     if "name" in df_combined.columns:
         df_combined = df_combined.filter(
             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
         )
-
-        # Filter 2: Remove rows with patient_id="0" and name="0"
         df_combined = df_combined.filter(~((pl.col("patient_id") == "0") & (pl.col("name") == "0")))
     else:
-        # If no 'name' column, just filter null patient_id
         df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
 
     filtered_rows = initial_rows - len(df_combined)
     if filtered_rows > 0:
         logger.info(f"Filtered out {filtered_rows} invalid rows")
 
-    # Clean Excel error codes (convert to NULL)
     df_combined = clean_excel_errors(df_combined)
 
-    # Load workbook again to check for Patient List and Annual sheets
     wb = load_workbook(
         tracker_file, read_only=True, data_only=True, keep_vba=False, keep_links=False
     )
@@ -793,11 +734,9 @@ def read_all_patient_sheets(
         try:
             patient_list = extract_patient_data(tracker_file, "Patient List", year)
             if not patient_list.is_empty():
-                # Harmonize columns
                 patient_list = harmonize_patient_data_columns(patient_list, mapper=mapper, strict=False)
 
                 if "patient_id" in patient_list.columns:
-                    # Filter invalid rows
                     if "name" in patient_list.columns:
                         patient_list = patient_list.filter(
                             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
@@ -808,12 +747,10 @@ def read_all_patient_sheets(
                     else:
                         patient_list = patient_list.filter(pl.col("patient_id").is_not_null())
 
-                    # Left join: remove hba1c_baseline from monthly data, remove name from patient list
                     # R: select(-any_of(c("hba1c_baseline"))) and select(-any_of(c("name")))
                     df_monthly = df_combined.drop("hba1c_baseline") if "hba1c_baseline" in df_combined.columns else df_combined
                     patient_list_join = patient_list.drop("name") if "name" in patient_list.columns else patient_list
 
-                    # Left join on patient_id (many-to-one relationship)
                     df_combined = df_monthly.join(
                         patient_list_join,
                         on="patient_id",
@@ -834,11 +771,9 @@ def read_all_patient_sheets(
         try:
             annual_data = extract_patient_data(tracker_file, "Annual", year)
             if not annual_data.is_empty():
-                # Harmonize columns
                 annual_data = harmonize_patient_data_columns(annual_data, mapper=mapper, strict=False)
 
                 if "patient_id" in annual_data.columns:
-                    # Filter invalid rows
                     if "name" in annual_data.columns:
                         annual_data = annual_data.filter(
                             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
@@ -849,12 +784,10 @@ def read_all_patient_sheets(
                     else:
                         annual_data = annual_data.filter(pl.col("patient_id").is_not_null())
 
-                    # Left join: remove status and name from annual data
                     # R: select(-any_of(c("status", "name")))
                     cols_to_drop = [col for col in ["status", "name"] if col in annual_data.columns]
                     annual_data_join = annual_data.drop(cols_to_drop) if cols_to_drop else annual_data
 
-                    # Left join on patient_id (many-to-one relationship)
                     df_combined = df_combined.join(
                         annual_data_join,
                         on="patient_id",
@@ -874,8 +807,7 @@ def read_all_patient_sheets(
         f"from {len(all_sheets_data)} month sheets"
     )
 
-    # Reorder columns for consistency: metadata first, then patient data
-    # Standard order: tracker_year, tracker_month, clinic_id, patient_id, then rest
+    # Reorder: metadata first (tracker_year, tracker_month, clinic_id, patient_id), then patient data
     priority_cols = ["tracker_year", "tracker_month", "clinic_id", "patient_id"]
     existing_priority = [c for c in priority_cols if c in df_combined.columns]
     other_cols = [c for c in df_combined.columns if c not in priority_cols]

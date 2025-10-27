@@ -87,9 +87,13 @@ def test_validate_allowed_values_with_invalid():
     assert len(collector) == 2
 
     # Check error details
+    # Note: file_name and patient_id are "unknown" placeholders in validate_allowed_values
+    # They get filled in during bulk processing operations
     errors_df = collector.to_dataframe()
-    assert errors_df.filter(pl.col("patient_id") == "XX_QA002")["original_value"][0] == "INVALID"
-    assert errors_df.filter(pl.col("patient_id") == "XX_QA004")["original_value"][0] == "BAD_VALUE"
+    # Order is not guaranteed, so check using sets
+    assert set(errors_df["original_value"].to_list()) == {"INVALID", "BAD_VALUE"}
+    assert errors_df["column"].to_list() == ["status", "status"]
+    assert errors_df["error_code"].to_list() == ["invalid_value", "invalid_value"]
 
 
 def test_validate_allowed_values_preserves_nulls():
@@ -244,8 +248,8 @@ def test_validate_column_from_rules_missing_column():
 def test_validate_all_columns():
     """Test validation of all columns with rules.
 
-    Note: Status values are lowercase because transformers.py lowercases them
-    before validation. This test focuses on validation only.
+    Note: Validation uses case-insensitive matching and normalizes to canonical values.
+    For example, "active" becomes "Active", "y" becomes "Y".
     """
     df = pl.DataFrame(
         {
@@ -253,7 +257,7 @@ def test_validate_all_columns():
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "clinic_visit": ["Y", "N", "INVALID1"],
             "patient_consent": ["Y", "INVALID2", "N"],
-            "status": ["active", "INVALID3", "inactive"],  # Lowercase (post-transformation)
+            "status": ["active", "INVALID3", "inactive"],  # Lowercase input
         }
     )
 
@@ -262,9 +266,10 @@ def test_validate_all_columns():
     result = validate_all_columns(df, collector)
 
     # All invalid values should be replaced
+    # Valid values should be normalized to canonical form (Title Case for status)
     assert result["clinic_visit"].to_list() == ["Y", "N", settings.error_val_character]
     assert result["patient_consent"].to_list() == ["Y", settings.error_val_character, "N"]
-    assert result["status"].to_list() == ["active", settings.error_val_character, "inactive"]
+    assert result["status"].to_list() == ["Active", settings.error_val_character, "Inactive"]
 
     # Should have logged 3 errors (one per invalid value)
     assert len(collector) == 3
@@ -290,13 +295,18 @@ def test_validate_all_columns_only_validates_existing():
     assert len(collector) == 0
 
 
-def test_validate_allowed_values_case_sensitive():
-    """Test that validation is case-sensitive."""
+def test_validate_allowed_values_case_insensitive():
+    """Test that validation is case-insensitive and normalizes to canonical values.
+
+    Validation matches R behavior:
+    - "y" matches "Y" (case-insensitive)
+    - Returns canonical value "Y" (not the input "y")
+    """
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
-            "clinic_visit": ["Y", "y", "N"],
+            "clinic_visit": ["Y", "y", "N"],  # Mixed case
         }
     )
 
@@ -310,6 +320,6 @@ def test_validate_allowed_values_case_sensitive():
         replace_invalid=True,
     )
 
-    # Lowercase "y" should be invalid
-    assert result["clinic_visit"].to_list() == ["Y", settings.error_val_character, "N"]
-    assert len(collector) == 1
+    # Lowercase "y" should match "Y" and be normalized to canonical "Y"
+    assert result["clinic_visit"].to_list() == ["Y", "Y", "N"]
+    assert len(collector) == 0  # No errors - "y" is valid
