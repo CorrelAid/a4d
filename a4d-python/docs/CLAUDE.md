@@ -7,9 +7,9 @@
 This project processes, cleans, and ingests medical tracker data (Excel files) for the CorrelAid A4D project.
 It extracts patient and product data from Excel trackers, validates and cleans the data, and creates structured tables for ingestion into Google BigQuery.
 
-**Migration Status**: Phase 2 - Patient Extraction Complete ✅
+**Migration Status**: Phase 3 - Patient Cleaning Complete ✅
 **See**: [Migration Guide](migration/MIGRATION_GUIDE.md) for complete migration details
-**Last Updated**: 2025-10-24
+**Last Updated**: 2025-10-26
 
 ## Package Structure
 
@@ -60,14 +60,43 @@ uv run ruff check . && uv run ruff format . && uv run ty check src/ && uv run py
 
 ### Running the Pipeline
 
-```bash
-# Full pipeline
-uv run python scripts/run_pipeline.py
+**Production CLI:**
 
-# Options
-uv run python scripts/run_pipeline.py --max-workers 8  # Parallel processing
-uv run python scripts/run_pipeline.py --force           # Reprocess all files
-uv run python scripts/run_pipeline.py --skip-upload     # Local testing
+```bash
+# Process all trackers in data_root
+uv run a4d process-patient
+
+# Process single file (for testing/comparison with R)
+uv run a4d process-patient --file /path/to/tracker.xlsx
+
+# Parallel processing with 8 workers
+uv run a4d process-patient --workers 8
+
+# Extract + clean only (skip table creation)
+uv run a4d process-patient --skip-tables
+
+# Force reprocess (ignore existing outputs)
+uv run a4d process-patient --force
+```
+
+**Python API:**
+
+```python
+from pathlib import Path
+from a4d.pipeline import run_patient_pipeline
+
+# Process all trackers
+result = run_patient_pipeline(max_workers=4)
+
+# Process single file
+result = run_patient_pipeline(
+    tracker_files=[Path("/data/2024_Sibu.xlsx")]
+)
+
+# Check results
+print(f"Success: {result.success}")
+print(f"Successful: {result.successful_trackers}/{result.total_trackers}")
+print(f"Tables created: {list(result.tables.keys())}")
 ```
 
 ### Configuration
