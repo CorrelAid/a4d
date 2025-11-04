@@ -6,8 +6,10 @@
 #' @param output_root The root directory of the output folder.
 # @export
 create_table_clinic_static_data <- function(output_root) {
-    clinic_data <- readxl::read_excel(path=here::here("reference_data", "clinic_data.xlsx"), sheet=1,
-                                      col_types=c("text", "text", "text", "text", "text", "text", "text", "text", "text", "date", "date"))
+    clinic_data <- readxl::read_excel(
+        path = here::here("reference_data", "clinic_data.xlsx"), sheet = 1,
+        col_types = c("text", "text", "text", "text", "text", "text", "text", "text", "text", "date", "date")
+    )
     clinic_data <- clinic_data %>%
         tidyr::fill(country_code:clinic_id, .direction = "down") %>%
         dplyr::select(2:11)

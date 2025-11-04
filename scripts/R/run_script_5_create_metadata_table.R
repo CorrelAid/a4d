@@ -34,7 +34,6 @@ main <- function() {
         }
 
 
-
         all_data <- all_data %>%
             dplyr::bind_rows(tibble::as_tibble(row))
 
