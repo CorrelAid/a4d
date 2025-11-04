@@ -81,6 +81,10 @@ def clean_patient_data(
     # Must happen before range validation so validated age is correct
     df = _fix_age_from_dob(df, error_collector)
 
+    # Step 5.6: Validate dates (replace future dates with error value)
+    # Must happen after type conversions so dates are proper date types
+    df = _validate_dates(df, error_collector)
+
     # Step 6: Range validation and cleanup
     df = _apply_range_validation(df, error_collector)
 
@@ -126,11 +130,42 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
+def _fix_fbg_column(col: pl.Expr) -> pl.Expr:
+    """Fix FBG column text values to numeric equivalents.
+
+    Matches R's fix_fbg() function (script2_helper_patient_data_fix.R:551-567).
+    Converts qualitative text to numeric values and removes DKA markers.
+
+    Conversions (based on CDC guidelines):
+    - "high", "bad", "hi", "hight" (typo) → "200"
+    - "medium", "med" → "170"
+    - "low", "good", "okay" → "140"
+    - Remove "(DKA)" text
+    - Trim whitespace
+
+    Args:
+        col: Polars expression for FBG column
+
+    Returns:
+        Polars expression with fixed values
+    """
+    return (
+        col.str.to_lowercase()
+        # Use case-when to match full words, not substrings
+        .str.replace_all(r"^(high|hight|bad|hi)$", "200")  # Anchored to full string
+        .str.replace_all(r"^(med|medium)$", "170")
+        .str.replace_all(r"^(low|good|okay)$", "140")
+        .str.replace_all(r"\(DKA\)", "", literal=True)
+        .str.strip_chars()
+    )
+
+
 def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     """Apply preprocessing transformations before type conversion.
 
     This includes:
     - Removing > and < signs from HbA1c values (but tracking them)
+    - Fixing FBG text values (high/medium/low → numeric, removing (DKA))
     - Replacing "-" with "N" in Y/N columns
     - Deriving insulin_type and insulin_subtype from individual columns (2024+)
 
@@ -148,6 +183,15 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     if "hba1c_updated" in df.columns:
         df = df.with_columns(pl.col("hba1c_updated").str.contains(r"[><]").alias("hba1c_updated_exceeds"))
         df = df.with_columns(pl.col("hba1c_updated").str.replace_all(r"[><]", "").alias("hba1c_updated"))
+
+    # Fix FBG text values (R: script2_helper_patient_data_fix.R:551-567)
+    # Convert qualitative values to numeric: high→200, medium→170, low→140
+    # Source: https://www.cdc.gov/diabetes/basics/getting-tested.html
+    if "fbg_updated_mg" in df.columns:
+        df = df.with_columns(_fix_fbg_column(pl.col("fbg_updated_mg")).alias("fbg_updated_mg"))
+
+    if "fbg_updated_mmol" in df.columns:
+        df = df.with_columns(_fix_fbg_column(pl.col("fbg_updated_mmol")).alias("fbg_updated_mmol"))
 
     # Replace "-" with "N" in Y/N columns (2024+ trackers use "-" for No)
     yn_columns = [
@@ -553,6 +597,79 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         logger.info(
             f"Age fixes applied: {ages_fixed} corrected, {ages_missing} filled from DOB, {ages_negative} negative (set to error)"
         )
+
+    return df
+
+
+def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+    """Validate date columns and replace future dates with error value.
+
+    Dates beyond the tracker year are considered invalid and replaced with
+    the error date value (9999-09-09). This matches R pipeline behavior.
+
+    Args:
+        df: Input DataFrame with date columns
+        error_collector: ErrorCollector for tracking validation errors
+
+    Returns:
+        DataFrame with invalid dates replaced
+    """
+    date_columns = get_date_columns()
+    dates_fixed = 0
+
+    # Get the error date as a date type
+    error_date = pl.lit(settings.error_val_date).str.to_date()
+
+    for col in date_columns:
+        if col not in df.columns:
+            continue
+
+        # Skip tracker_date as it's derived and shouldn't be validated
+        if col == "tracker_date":
+            continue
+
+        # Create a date representing end of tracker year (December 31)
+        # Find invalid dates and log them
+        temp_df = df.with_columns(
+            pl.date(pl.col("tracker_year"), 12, 31).alias("_max_valid_date")
+        )
+
+        invalid_dates = temp_df.filter(
+            pl.col(col).is_not_null() & (pl.col(col) > pl.col("_max_valid_date"))
+        )
+
+        # Log each error
+        for row in invalid_dates.iter_rows(named=True):
+            patient_id = row.get("patient_id", "UNKNOWN")
+            file_name = row.get("file_name", "UNKNOWN")
+            original_date = row.get(col)
+            tracker_year = row.get("tracker_year")
+
+            logger.warning(
+                f"Patient {patient_id}: {col} = {original_date} is beyond tracker year {tracker_year}. "
+                f"Replacing with error date."
+            )
+            error_collector.add_error(
+                file_name=file_name,
+                patient_id=patient_id,
+                column=col,
+                original_value=str(original_date),
+                error_message=f"Date {original_date} is beyond tracker year {tracker_year}",
+                error_code="invalid_value",
+                function_name="_validate_dates"
+            )
+            dates_fixed += 1
+
+        # Replace invalid dates with error date (using inline expression)
+        df = temp_df.with_columns(
+            pl.when(pl.col(col).is_not_null() & (pl.col(col) > pl.col("_max_valid_date")))
+            .then(error_date)
+            .otherwise(pl.col(col))
+            .alias(col)
+        ).drop("_max_valid_date")
+
+    if dates_fixed > 0:
+        logger.info(f"Date validation: {dates_fixed} future dates replaced with error value")
 
     return df
 

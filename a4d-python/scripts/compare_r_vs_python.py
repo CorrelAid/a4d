@@ -141,8 +141,8 @@ def compare_metadata_fields(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
     # Key metadata fields that must be identical
     metadata_fields = [
-        "tracker_year", "tracker_month", "file_name",
-        "national_id", "start_date", "end_date"
+        "tracker_year", "tracker_month", "tracker_date",
+        "file_name", "sheet_name", "patient_id"
     ]
 
     existing_fields = [f for f in metadata_fields if f in r_df.columns and f in py_df.columns]
@@ -185,17 +185,17 @@ def compare_patient_records(r_df: pl.DataFrame, py_df: pl.DataFrame, n_samples: 
     """Compare sample patient records in detail."""
     console.print(Panel(f"[bold]Sample Patient Records (first {n_samples})[/bold]", expand=False))
 
-    if "national_id" not in r_df.columns or "national_id" not in py_df.columns:
-        console.print("[yellow]Cannot compare records: national_id column missing[/yellow]\n")
+    if "patient_id" not in r_df.columns or "patient_id" not in py_df.columns:
+        console.print("[yellow]Cannot compare records: patient_id column missing[/yellow]\n")
         return
 
-    # Get first n national_ids from R
-    sample_ids = r_df["national_id"].head(n_samples).to_list()
+    # Get first n patient_ids from R
+    sample_ids = r_df["patient_id"].head(n_samples).to_list()
 
-    for idx, national_id in enumerate(sample_ids, 1):
-        console.print(f"\n[bold]Patient {idx}:[/bold] {national_id}")
+    for idx, patient_id in enumerate(sample_ids, 1):
+        console.print(f"\n[bold]Patient {idx}:[/bold] {patient_id}")
 
-        py_records = py_df.filter(pl.col("national_id") == national_id)
+        py_records = py_df.filter(pl.col("patient_id") == patient_id)
 
         if len(py_records) == 0:
             console.print("[red]  ✗ Not found in Python output![/red]")
@@ -204,12 +204,12 @@ def compare_patient_records(r_df: pl.DataFrame, py_df: pl.DataFrame, n_samples: 
             console.print(f"[yellow]  ⚠ Multiple records in Python ({len(py_records)})[/yellow]")
 
         # Compare key fields
-        r_record = r_df.filter(pl.col("national_id") == national_id).head(1).to_dicts()[0]
+        r_record = r_df.filter(pl.col("patient_id") == patient_id).head(1).to_dicts()[0]
         py_record = py_records.head(1).to_dicts()[0]
 
         comparison_fields = [
-            "tracker_year", "tracker_month", "start_date", "end_date",
-            "sex", "age_group", "diagnosis_malaria"
+            "tracker_year", "tracker_month", "tracker_date", "sheet_name",
+            "sex", "age", "dob", "status", "province"
         ]
 
         comp_table = Table(box=box.SIMPLE, show_header=False)
@@ -241,40 +241,85 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
     """Find all value differences for common records."""
     console.print(Panel("[bold]Value Mismatches Analysis[/bold]", expand=False))
 
-    if "national_id" not in r_df.columns or "national_id" not in py_df.columns:
-        console.print("[yellow]Cannot analyze values: national_id column missing[/yellow]\n")
+    if "patient_id" not in r_df.columns or "patient_id" not in py_df.columns:
+        console.print("[yellow]Cannot analyze values: patient_id column missing[/yellow]\n")
         return
 
-    # Join on national_id
+    # Join on patient_id + sheet_name to match same month records
+    # (patients can have multiple records across different months)
+    join_keys = ["patient_id", "sheet_name"]
+    if not all(key in r_df.columns and key in py_df.columns for key in join_keys):
+        console.print(f"[yellow]Cannot analyze values: missing join keys {join_keys}[/yellow]\n")
+        return
+
     try:
-        joined = r_df.join(py_df, on="national_id", how="inner", suffix="_py")
-        console.print(f"[cyan]Analyzing {len(joined):,} common records (matched on national_id)[/cyan]\n")
+        joined = r_df.join(py_df, on=join_keys, how="inner", suffix="_py")
+        console.print(f"[cyan]Analyzing {len(joined):,} common records (matched on {'+'.join(join_keys)})[/cyan]\n")
     except Exception as e:
         console.print(f"[red]Error joining datasets: {e}[/red]\n")
         return
 
-    # Find columns in both datasets
-    common_cols = set(r_df.columns) & set(py_df.columns) - {"national_id"}
+    # Find columns in both datasets (excluding join keys)
+    common_cols = set(r_df.columns) & set(py_df.columns) - set(join_keys)
 
     mismatches = {}
+
+    # Tolerance for floating point comparisons
+    # Use relative tolerance of 1e-9 (about 9 decimal places)
+    FLOAT_REL_TOL = 1e-9
+    FLOAT_ABS_TOL = 1e-12
 
     for col in sorted(common_cols):
         col_py = f"{col}_py"
         if col in joined.columns and col_py in joined.columns:
             try:
-                # Count mismatches
-                mismatched_rows = joined.filter(pl.col(col) != pl.col(col_py))
+                # Check if column is numeric (float or int)
+                col_dtype = joined[col].dtype
+                is_numeric = col_dtype in [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]
+
+                if is_numeric:
+                    # For numeric columns, use approximate comparison
+                    # Two values are considered equal if |a - b| <= max(rel_tol * max(|a|, |b|), abs_tol)
+
+                    # Add columns for comparison logic
+                    comparison_df = joined.with_columns([
+                        # Calculate absolute difference
+                        ((pl.col(col) - pl.col(col_py)).abs()).alias("_abs_diff"),
+                        # Calculate tolerance threshold
+                        pl.max_horizontal([
+                            FLOAT_REL_TOL * pl.max_horizontal([pl.col(col).abs(), pl.col(col_py).abs()]),
+                            pl.lit(FLOAT_ABS_TOL)
+                        ]).alias("_tolerance"),
+                        # Check null status
+                        pl.col(col).is_null().alias("_col_null"),
+                        pl.col(col_py).is_null().alias("_col_py_null"),
+                    ])
+
+                    # Find mismatches
+                    # Mismatch if: (1) null status differs OR (2) both not null and differ by more than tolerance
+                    mismatched_rows = comparison_df.filter(
+                        (pl.col("_col_null") != pl.col("_col_py_null")) |  # Null mismatch
+                        ((~pl.col("_col_null")) & (pl.col("_abs_diff") > pl.col("_tolerance")))  # Value mismatch
+                    )
+                else:
+                    # For non-numeric columns, use exact comparison
+                    mismatched_rows = joined.filter(pl.col(col) != pl.col(col_py))
+
                 mismatch_count = len(mismatched_rows)
 
                 if mismatch_count > 0:
                     mismatch_pct = (mismatch_count / len(joined)) * 100
+                    # Include patient_id and sheet_name in examples for debugging
+                    examples_with_ids = mismatched_rows.select(["patient_id", "sheet_name", col, col_py])
                     mismatches[col] = {
                         "count": mismatch_count,
                         "percentage": mismatch_pct,
-                        "examples": mismatched_rows.select([col, col_py]).head(3)
+                        "examples": mismatched_rows.select([col, col_py]).head(3),
+                        "examples_with_ids": examples_with_ids
                     }
-            except Exception:
+            except Exception as e:
                 # Some columns might not support comparison
+                console.print(f"[dim]Skipped column '{col}': {e}[/dim]")
                 pass
 
     if mismatches:
@@ -286,7 +331,7 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
         for col, stats in sorted(mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True):
             # Determine priority
-            if col in ["national_id", "tracker_year", "tracker_month", "start_date", "end_date"]:
+            if col in ["patient_id", "tracker_year", "tracker_month", "tracker_date", "file_name", "sheet_name"]:
                 priority = "[red]HIGH[/red]"
             elif stats["percentage"] > 10:
                 priority = "[yellow]MEDIUM[/yellow]"
@@ -302,11 +347,13 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
         console.print(mismatch_table)
 
-        # Show some examples
-        console.print("\n[dim]Examples of mismatches (first 3 columns with highest mismatch %):[/dim]")
-        for col, stats in list(sorted(mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True))[:3]:
-            console.print(f"\n[bold]{col}:[/bold]")
-            console.print(stats["examples"])
+        # Show ALL mismatched columns with patient_id and sheet_name
+        console.print("\n[bold]Detailed Mismatches (showing ALL errors):[/bold]")
+        for col, stats in sorted(mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True):
+            console.print(f"\n[bold cyan]{col}:[/bold cyan] {stats['count']} mismatches ({stats['percentage']:.1f}%)")
+            # Include patient_id and sheet_name in examples
+            examples_with_ids = stats["examples_with_ids"]
+            console.print(examples_with_ids)
 
     else:
         console.print("[green]✓ All values match for common records![/green]")
