@@ -76,6 +76,11 @@ def clean_patient_data(
     # Step 5: Type conversions
     df = _apply_type_conversions(df, error_collector)
 
+    # Step 5.5: Fix age from DOB (like R pipeline does)
+    # Must happen after type conversions so DOB is a proper date
+    # Must happen before range validation so validated age is correct
+    df = _fix_age_from_dob(df, error_collector)
+
     # Step 6: Range validation and cleanup
     df = _apply_range_validation(df, error_collector)
 
@@ -409,6 +414,145 @@ def _apply_unit_conversions(df: pl.DataFrame) -> pl.DataFrame:
                 .otherwise(None)
                 .alias("fbg_updated_mg")
             )
+
+    return df
+
+
+def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+    """Fix age by calculating from DOB and tracker date.
+
+    Matches R pipeline's fix_age() function (script2_helper_patient_data_fix.R:329).
+    Always uses calculated age from DOB rather than trusting Excel value.
+
+    Logic:
+    1. Calculate age: tracker_year - birth_year
+    2. Adjust if birthday hasn't occurred yet: if tracker_month < birth_month: age -= 1
+    3. If calculated age differs from Excel age, log warning and use calculated
+    4. If calculated age is negative, use error value and log warning
+
+    Args:
+        df: DataFrame with age, dob, tracker_year, tracker_month, patient_id columns
+        error_collector: ErrorCollector for tracking data quality issues
+
+    Returns:
+        DataFrame with corrected age values
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "patient_id": ["P001"],
+        ...     "age": [21.0],  # Wrong value from Excel
+        ...     "dob": [date(2006, 8, 8)],
+        ...     "tracker_year": [2025],
+        ...     "tracker_month": [2]
+        ... })
+        >>> collector = ErrorCollector()
+        >>> fixed = _fix_age_from_dob(df, collector)
+        >>> fixed["age"][0]  # Should be 18, not 21
+        18.0
+    """
+    # Only fix if we have the necessary columns
+    required_cols = ["age", "dob", "tracker_year", "tracker_month", "patient_id"]
+    if not all(col in df.columns for col in required_cols):
+        logger.debug("Skipping age fix: missing required columns")
+        return df
+
+    logger.info("Fixing age values from DOB (matching R pipeline logic)")
+
+    # Calculate age from DOB
+    # calc_age = tracker_year - year(dob)
+    # if tracker_month < month(dob): calc_age -= 1
+    df = df.with_columns(
+        pl.when(pl.col("dob").is_not_null())
+        .then(
+            pl.col("tracker_year") - pl.col("dob").dt.year()
+            - pl.when(pl.col("tracker_month") < pl.col("dob").dt.month()).then(1).otherwise(0)
+        )
+        .otherwise(None)
+        .alias("_calc_age")
+    )
+
+    # Track which ages were fixed
+    ages_fixed = 0
+    ages_missing = 0
+    ages_negative = 0
+
+    # For each row where calc_age differs from age, log and fix
+    for row in df.filter(
+        pl.col("_calc_age").is_not_null()
+        & ((pl.col("age").is_null()) | (pl.col("age") != pl.col("_calc_age")))
+    ).iter_rows(named=True):
+        patient_id = row["patient_id"]
+        file_name = row.get("file_name", "unknown")
+        excel_age = row["age"]
+        calc_age = row["_calc_age"]
+
+        if excel_age is None or (excel_age == settings.error_val_numeric):
+            logger.warning(
+                f"Patient {patient_id}: age is missing. "
+                f"Using calculated age {calc_age} instead of original age."
+            )
+            error_collector.add_error(
+                file_name=file_name,
+                patient_id=patient_id,
+                column="age",
+                original_value=excel_age if excel_age is not None else "NULL",
+                error_message=f"Age missing, calculated from DOB as {calc_age}",
+                error_code="missing_value",
+                function_name="_fix_age_from_dob"
+            )
+            ages_missing += 1
+        elif calc_age < 0:
+            logger.warning(
+                f"Patient {patient_id}: calculated age is negative ({calc_age}). "
+                f"Please check this manually. Using error value instead."
+            )
+            error_collector.add_error(
+                file_name=file_name,
+                patient_id=patient_id,
+                column="age",
+                original_value=str(excel_age),
+                error_message=f"Calculated age is negative ({calc_age}), check DOB",
+                error_code="invalid_value",
+                function_name="_fix_age_from_dob"
+            )
+            ages_negative += 1
+        else:
+            logger.warning(
+                f"Patient {patient_id}: age {excel_age} is different from calculated age {calc_age}. "
+                f"Using calculated age instead of original age."
+            )
+            error_collector.add_error(
+                file_name=file_name,
+                patient_id=patient_id,
+                column="age",
+                original_value=str(excel_age),
+                error_message=f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age.",
+                error_code="invalid_value",
+                function_name="_fix_age_from_dob"
+            )
+            ages_fixed += 1
+
+    # Apply fixes:
+    # 1. Use calculated age when available and non-negative
+    # 2. Use error value for negative ages
+    df = df.with_columns(
+        pl.when(pl.col("_calc_age").is_not_null())
+        .then(
+            pl.when(pl.col("_calc_age") < 0)
+            .then(pl.lit(settings.error_val_numeric))
+            .otherwise(pl.col("_calc_age"))
+        )
+        .otherwise(pl.col("age"))
+        .alias("age")
+    )
+
+    # Drop temporary column
+    df = df.drop("_calc_age")
+
+    if ages_fixed > 0 or ages_missing > 0 or ages_negative > 0:
+        logger.info(
+            f"Age fixes applied: {ages_fixed} corrected, {ages_missing} filled from DOB, {ages_negative} negative (set to error)"
+        )
 
     return df
 
