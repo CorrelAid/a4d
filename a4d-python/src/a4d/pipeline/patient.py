@@ -11,6 +11,7 @@ from a4d.config import settings
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
 from a4d.pipeline.tracker import process_tracker_patient
+from a4d.tables.logs import create_table_logs
 from a4d.tables.patient import (
     create_table_patient_data_annual,
     create_table_patient_data_monthly,
@@ -107,7 +108,7 @@ def process_patient_tables(
     annual_path = create_table_patient_data_annual(cleaned_files, output_dir)
     tables["annual"] = annual_path
 
-    logger.info(f"Created {len(tables)} final tables")
+    logger.info(f"Created {len(tables)} patient tables")
     return tables
 
 
@@ -291,8 +292,19 @@ def run_patient_pipeline(
         try:
             cleaned_dir = output_root / "patient_data_cleaned"
             tables_dir = output_root / "tables"
+
+            # Create patient tables
             tables = process_patient_tables(cleaned_dir, tables_dir)
-            logger.info(f"Created {len(tables)} final tables")
+
+            # Create logs table separately (operational data, not patient data)
+            logs_dir = output_root / "logs"
+            if logs_dir.exists():
+                logger.info("Creating logs table from pipeline execution logs")
+                logs_table_path = create_table_logs(logs_dir, tables_dir)
+                tables["logs"] = logs_table_path
+                logger.info(f"Logs table created: {logs_table_path}")
+
+            logger.info(f"Created {len(tables)} tables total")
         except Exception as e:
             logger.exception("Failed to create tables")
             # Don't fail entire pipeline if table creation fails

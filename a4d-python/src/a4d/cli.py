@@ -1,27 +1,77 @@
 """Command-line interface for A4D pipeline."""
 
 from pathlib import Path
+from typing import Annotated
 
+import polars as pl
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from a4d.pipeline.patient import run_patient_pipeline
+from a4d.pipeline.patient import process_patient_tables, run_patient_pipeline
+from a4d.tables.logs import create_table_logs
 
 app = typer.Typer(name="a4d", help="A4D medical tracker data processing pipeline", no_args_is_help=True)
 
 console = Console()
 
 
+def _display_tables_summary(tables: dict[str, Path]) -> None:
+    """Display summary table of created tables with record counts.
+
+    Args:
+        tables: Dictionary mapping table name to output path
+    """
+    if not tables:
+        return
+
+    console.print("\n[bold green]Created Tables:[/bold green]")
+    tables_table = Table(title="Created Tables")
+    tables_table.add_column("Table", style="cyan")
+    tables_table.add_column("Path", style="green")
+    tables_table.add_column("Records", justify="right", style="magenta")
+
+    # Add patient tables first, then logs table
+    for name in ["static", "monthly", "annual"]:
+        if name in tables:
+            path = tables[name]
+            try:
+                df = pl.read_parquet(path)
+                record_count = f"{len(df):,}"
+            except Exception:
+                record_count = "?"
+            tables_table.add_row(name, str(path.name), record_count)
+
+    # Add logs table last
+    if "logs" in tables:
+        path = tables["logs"]
+        try:
+            df = pl.read_parquet(path)
+            record_count = f"{len(df):,}"
+        except Exception:
+            record_count = "?"
+        tables_table.add_row("logs", str(path.name), record_count)
+
+    console.print(tables_table)
+    console.print()
+
+
 @app.command("process-patient")
 def process_patient_cmd(
-    file: Path | None = typer.Option(
-        None, "--file", "-f", help="Process specific tracker file (if not set, processes all files in data_root)"
-    ),
-    workers: int = typer.Option(1, "--workers", "-w", help="Number of parallel workers (1 = sequential)"),
-    skip_tables: bool = typer.Option(False, "--skip-tables", help="Skip table creation (only extract + clean)"),
-    force: bool = typer.Option(False, "--force", help="Force reprocessing (ignore existing outputs)"),
-    output_root: Path | None = typer.Option(None, "--output", "-o", help="Output directory (default: from config)"),
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file", "-f", help="Process specific tracker file (if not set, processes all files in data_root)"
+        ),
+    ] = None,
+    workers: Annotated[int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")] = 1,
+    skip_tables: Annotated[
+        bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
+    ] = False,
+    force: Annotated[bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")] = False,
+    output_root: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
+    ] = None,
 ):
     """Process patient data pipeline.
 
@@ -126,7 +176,7 @@ def process_patient_cmd(
             files_by_errors = sorted(
                 [(tr.tracker_file.name, tr.cleaning_errors) for tr in result.tracker_results if tr.cleaning_errors > 0],
                 key=lambda x: x[1],
-                reverse=True
+                reverse=True,
             )[:10]
 
             errors_table = Table()
@@ -139,16 +189,7 @@ def process_patient_cmd(
             console.print(errors_table)
 
         # Show created tables
-        if result.tables:
-            console.print("\n[bold green]Created Tables:[/bold green]")
-            tables_table = Table()
-            tables_table.add_column("Table", style="cyan")
-            tables_table.add_column("Path", style="green")
-
-            for name, path in result.tables.items():
-                tables_table.add_row(name, str(path))
-
-            console.print(tables_table)
+        _display_tables_summary(result.tables)
 
         # Exit status
         if result.success:
@@ -160,7 +201,73 @@ def process_patient_cmd(
 
     except Exception as e:
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@app.command("create-tables")
+def create_tables_cmd(
+    input_dir: Annotated[Path, typer.Option("--input", "-i", help="Directory containing cleaned parquet files")],
+    output_dir: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Output directory for tables (default: input_dir/tables)")
+    ] = None,
+):
+    """Create final tables from existing cleaned parquet files.
+
+    This command creates the patient tables (static, monthly, annual) and logs table
+    from existing cleaned parquet files, without running the full pipeline.
+
+    Useful for:
+    - Re-creating tables after fixing table creation logic
+    - Creating tables from manually cleaned data
+    - Testing table creation independently
+
+    \\b
+    Examples:
+        # Create tables from existing output
+        uv run a4d create-tables --input output/patient_data_cleaned
+
+        # Specify custom output directory
+        uv run a4d create-tables --input output/patient_data_cleaned --output custom_tables
+    """
+    console.print("\n[bold blue]A4D Table Creation[/bold blue]\n")
+
+    # Determine output directory
+    if output_dir is None:
+        output_dir = input_dir.parent / "tables"
+
+    console.print(f"Input directory: {input_dir}")
+    console.print(f"Output directory: {output_dir}\n")
+
+    # Find cleaned parquet files
+    cleaned_files = list(input_dir.glob("*_patient_cleaned.parquet"))
+    if not cleaned_files:
+        console.print(f"[bold red]Error: No cleaned parquet files found in {input_dir}[/bold red]\n")
         raise typer.Exit(1)
+
+    console.print(f"Found {len(cleaned_files)} cleaned parquet files\n")
+
+    try:
+        console.print("[bold]Creating tables...[/bold]")
+
+        # Create patient tables
+        tables = process_patient_tables(input_dir, output_dir)
+
+        # Create logs table separately (operational data)
+        logs_dir = input_dir.parent / "logs"
+        if logs_dir.exists():
+            console.print("  • Creating logs table...")
+            logs_table_path = create_table_logs(logs_dir, output_dir)
+            tables["logs"] = logs_table_path
+        else:
+            console.print(f"  [yellow]Warning: Logs directory not found at {logs_dir}[/yellow]")
+
+        # Display results
+        console.print("\n[bold green]✓ Tables created successfully![/bold green]")
+        _display_tables_summary(tables)
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error creating tables: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
 
 
 @app.command("version")
