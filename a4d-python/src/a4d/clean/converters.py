@@ -13,6 +13,7 @@ The pattern is:
 
 import polars as pl
 
+from a4d.clean.date_parser import parse_date_flexible
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 
@@ -105,6 +106,86 @@ def safe_convert_column(
 
     # Clean up temporary columns
     df = df.drop([f"_orig_{column}", f"_conv_{column}"])
+
+    return df
+
+
+def parse_date_column(
+    df: pl.DataFrame,
+    column: str,
+    error_collector: ErrorCollector,
+    file_name_col: str = "file_name",
+    patient_id_col: str = "patient_id",
+) -> pl.DataFrame:
+    """Parse date column using flexible date parser.
+
+    Uses parse_date_flexible() to handle various date formats including:
+    - Standard formats (ISO, DD/MM/YYYY, etc.)
+    - Abbreviated month-year (Mar-18, Jan-20)
+    - Excel serial numbers
+    - 4-letter month names
+
+    Args:
+        df: Input DataFrame
+        column: Column name to parse
+        error_collector: ErrorCollector instance to track failures
+        file_name_col: Column containing file name for error tracking
+        patient_id_col: Column containing patient ID for error tracking
+
+    Returns:
+        DataFrame with parsed date column
+
+    Example:
+        >>> df = parse_date_column(
+        ...     df=df,
+        ...     column="hba1c_updated_date",
+        ...     error_collector=collector,
+        ... )
+    """
+    if column not in df.columns:
+        return df
+
+    # Store original values for error reporting
+    df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
+
+    # Apply parse_date_flexible to each value
+    # Convert to string first, then map the parser function
+    df = df.with_columns(
+        pl.col(column)
+        .cast(pl.Utf8)
+        .map_elements(lambda x: parse_date_flexible(x, error_val=settings.error_val_date), return_dtype=pl.Date)
+        .alias(f"_parsed_{column}")
+    )
+
+    # Detect failures: parsed to error date
+    error_date = pl.lit(settings.error_val_date).str.to_date()
+    failed_mask = (
+        pl.col(f"_parsed_{column}").is_not_null()
+        & (pl.col(f"_parsed_{column}") == error_date)
+        & pl.col(f"_orig_{column}").is_not_null()
+    )
+
+    # Extract failed rows for error logging
+    failed_rows = df.filter(failed_mask)
+
+    # Log each failure
+    if len(failed_rows) > 0:
+        for row in failed_rows.iter_rows(named=True):
+            error_collector.add_error(
+                file_name=row.get(file_name_col, "unknown"),
+                patient_id=row.get(patient_id_col, "unknown"),
+                column=column,
+                original_value=row[f"_orig_{column}"],
+                error_message=f"Could not parse date",
+                error_code="type_conversion",
+                function_name="parse_date_column",
+            )
+
+    # Use parsed values
+    df = df.with_columns(pl.col(f"_parsed_{column}").alias(column))
+
+    # Clean up temporary columns
+    df = df.drop([f"_orig_{column}", f"_parsed_{column}"])
 
     return df
 

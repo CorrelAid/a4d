@@ -19,6 +19,7 @@ from loguru import logger
 from a4d.clean.converters import (
     correct_decimal_sign,
     cut_numeric_value,
+    parse_date_column,
     safe_convert_column,
 )
 from a4d.clean.schema import (
@@ -106,6 +107,46 @@ def clean_patient_data(
     return df
 
 
+def _extract_date_from_measurement(df: pl.DataFrame, col_name: str) -> pl.DataFrame:
+    """Extract date from measurement values in legacy trackers.
+
+    Matches R's extract_date_from_measurement() (script2_helper_patient_data_fix.R:115).
+
+    For pre-2019 trackers, values and dates are combined in format:
+    - "14.5 (Jan-20)" → value="14.5 ", date="Jan-20"
+    - ">14 (Mar-18)" → value=">14 ", date="Mar-18"
+    - "148 mg/dl   (Mar-18)" → value="148 mg/dl   ", date="Mar-18"
+
+    Args:
+        df: Input DataFrame
+        col_name: Column name containing combined value+date
+
+    Returns:
+        DataFrame with extracted date in {col_name}_date column
+    """
+    if col_name not in df.columns:
+        return df
+
+    date_col_name = col_name.replace("_mg", "").replace("_mmol", "") + "_date"
+
+    # Check if date column already exists (2019+ trackers)
+    if date_col_name in df.columns:
+        return df
+
+    # Extract value before '(' and date between '(' and ')'
+    # Using regex: everything before '(', then '(', then capture date, then optional ')'
+    df = df.with_columns([
+        # Extract value (everything before parenthesis, or entire value if no parenthesis)
+        pl.col(col_name).str.extract(r"^([^(]+)", 1).str.strip_chars().alias(col_name),
+        # Extract date (everything between parentheses, if present)
+        pl.col(col_name).str.extract(r"\(([^)]+)\)", 1).alias(date_col_name)
+    ])
+
+    logger.debug(f"Extracted date from {col_name} into {date_col_name}")
+
+    return df
+
+
 def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     """Apply fixes for legacy tracker formats (pre-2024).
 
@@ -114,8 +155,7 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     - Combined blood pressure values (sys/dias in one column)
     - Different column structures
 
-    For now, we skip these complex legacy fixes and implement them
-    when we encounter older trackers.
+    Matches R's legacy handling in script2_process_patient_data.R:30-66.
 
     Args:
         df: Input DataFrame
@@ -123,9 +163,13 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with legacy fixes applied
     """
-    # TODO: Implement when we process pre-2024 trackers:
-    # - extract_date_from_measurement() for hba1c_updated, fbg_updated
-    # - split_bp_in_sys_and_dias() for blood_pressure_mmhg
+    # Extract dates from measurement columns for pre-2019 trackers
+    # R checks if *_date column exists, if not, extracts from measurement column
+    df = _extract_date_from_measurement(df, "hba1c_updated")
+    df = _extract_date_from_measurement(df, "fbg_updated_mg")
+    df = _extract_date_from_measurement(df, "fbg_updated_mmol")
+
+    # TODO: Implement split_bp_in_sys_and_dias() for blood_pressure_mmhg when needed
 
     return df
 
@@ -140,7 +184,7 @@ def _fix_fbg_column(col: pl.Expr) -> pl.Expr:
     - "high", "bad", "hi", "hight" (typo) → "200"
     - "medium", "med" → "170"
     - "low", "good", "okay" → "140"
-    - Remove "(DKA)" text
+    - Remove "(DKA)" text, "mg/dl", "mmol/l" suffixes
     - Trim whitespace
 
     Args:
@@ -151,6 +195,9 @@ def _fix_fbg_column(col: pl.Expr) -> pl.Expr:
     """
     return (
         col.str.to_lowercase()
+        # Remove unit suffixes (from legacy trackers like 2018)
+        .str.replace_all(r"\s*mg/dl\s*", "", literal=False)
+        .str.replace_all(r"\s*mmol/l\s*", "", literal=False)
         # Use case-when to match full words, not substrings
         .str.replace_all(r"^(high|hight|bad|hi)$", "200")  # Anchored to full string
         .str.replace_all(r"^(med|medium)$", "170")
@@ -333,7 +380,7 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
     Only converts columns that exist in both the DataFrame and the schema.
 
     Special handling:
-    - Date columns: Strip time component from datetime strings
+    - Date columns: Use flexible date parser (handles Mar-18, Excel serials, etc.)
     - Integer columns: Convert via Float64 first to handle decimals
 
     Args:
@@ -354,14 +401,16 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
         if df[col].dtype == target_type:
             continue
 
-        # Special handling for Date columns: strip time component from datetime strings
+        # Special handling for Date columns: use flexible date parser
         if target_type == pl.Date:
+            # Strip time component if present (e.g., "2009-04-17 00:00:00" → "2009-04-17")
             df = df.with_columns(
-                pl.col(col).str.slice(0, 10).alias(col)  # Take first 10 chars: "2009-04-17"
+                pl.col(col).cast(pl.Utf8).str.slice(0, 10).alias(col)
             )
-
+            # Use custom date parser for flexibility (handles Mar-18, Excel serials, etc.)
+            df = parse_date_column(df, col, error_collector)
         # Special handling for Int32: convert via Float64 first (handles "14.0" → 14.0 → 14)
-        if target_type == pl.Int32:
+        elif target_type == pl.Int32:
             df = safe_convert_column(df, col, pl.Float64, error_collector)
             df = df.with_columns(pl.col(col).round(0).cast(pl.Int32, strict=False).alias(col))
         else:
