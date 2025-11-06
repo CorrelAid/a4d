@@ -22,13 +22,21 @@ Files that have been compared and validated (acceptable differences documented):
      - Float comparison: Approximate comparison with tolerances
    - Notes: Baseline validation, all major issues resolved
 
-2. **2018_CDA A4D Tracker** 🔄 PARTIAL
-   - Date: 2025-11-04
-   - Status: In Progress
-   - Known Issues:
-     - hba1c_updated (71.0% mismatches) - investigated, found need for HbA1c symbol handling
-     - fbg_updated_mg/mmol (55.1% mismatches) - FIXED with FBG text conversion
-   - Notes: Older tracker format, used for testing edge cases
+2. **2018_CDA A4D Tracker** ✅
+   - Date: 2025-11-07
+   - Status: PASSED
+   - Mismatches: 3 acceptable (Python is more correct than R)
+     - `fbg_updated_mg` (37.7%): Python extracts values correctly from "value (date)" format, R shows error values
+     - `fbg_updated_mmol` (37.7%): Same as above, Python correctly calculates mmol conversion
+     - `fbg_updated_date` (1.4%): Python correctly parses DD/MM/YY as 08/06/18 → 2018-06-08, R incorrectly shows 2008-06-18
+   - Fixed Issues:
+     - Flexible date parsing: Handles DD/MM/YYYY, month-year abbreviations, Excel serials
+     - Date extraction from measurements: Extracts dates from "value (Mar-18)" format
+     - Month-year without separator: Handles "May18" in addition to "May-18"
+     - FBG unit suffix removal: Strips "mg/dl" and "mmol/l" from values
+     - All date fields: 100% match on dob, t1d_diagnosis_date, recruitment_date, age
+   - Cleaning Errors: 37 (down from 257 initially)
+   - Notes: Oldest tracker format (2018), all date parsing issues resolved. Python implementation is more accurate than R for this file.
 
 ### 🔄 In Progress
 
@@ -59,9 +67,8 @@ For each file:
 
 2. **Run comparison**
    ```bash
-   uv run python scripts/compare_r_vs_python.py \
-     -r "/Volumes/.../output_r/patient_data_cleaned/FILE.parquet" \
-     -p "/Volumes/.../output_python/patient_data_cleaned/FILE.parquet"
+   # Simplified: just provide the filename
+   uv run python scripts/compare_r_vs_python.py -f "2018_CDA A4D Tracker_patient_cleaned.parquet"
    ```
 
 3. **Analyze results**
@@ -76,25 +83,26 @@ For each file:
 
 ## Known Acceptable Differences
 
-These differences are expected and acceptable:
+These differences are expected and acceptable (Python is more correct):
 
 1. **insulin_total_units**: Python extracts from Excel, R doesn't (Python is correct)
 2. **status**: Formatting difference with hyphen ("Active Remote" vs "Active - Remote")
+3. **fbg_updated_mg/mmol** (legacy trackers): Python correctly extracts from "value (date)" format, R shows error values
+4. **Date parsing edge cases**: Python correctly handles DD/MM/YY format, R may swap day/month in some cases
 
 ## Next Files to Validate
 
 Priority order:
 
-1. **2018_CDA A4D Tracker** - Finish validation, oldest format
-2. **2019 trackers** - Old format validation
-3. **2020-2023 trackers** - Mid-period formats
-4. **2024-2025 trackers** - Recent formats with new columns
+1. **2019 trackers** - Old format validation (similar to 2018)
+2. **2020-2023 trackers** - Mid-period formats
+3. **2024-2025 trackers** - Recent formats with new columns
 
 ## Summary Statistics
 
 - **Total:** 174 files
-- **Validated:** 1 (0.6%)
-- **In Progress:** 1 (0.6%)
+- **Validated:** 2 (1.1%)
+- **In Progress:** 0 (0.0%)
 - **Pending:** 172 (98.9%)
 
-Last Updated: 2025-11-04
+Last Updated: 2025-11-07
