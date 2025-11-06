@@ -65,9 +65,10 @@ def parse_date_flexible(date_str: Optional[str], error_val: str = "9999-09-09") 
     if re.search(r"[a-zA-Z]{4}", date_str):
         date_str = re.sub(r"([a-zA-Z]{3})[a-zA-Z]", r"\1", date_str)
 
-    # Special handling for month-year formats (e.g., "Mar-18", "Jan-20")
+    # Special handling for month-year formats (e.g., "Mar-18", "Jan-20", "May18")
     # These should be interpreted as "Mar 2018", "Jan 2020", not "Mar day-18 of current year"
-    month_year_pattern = r"^([A-Za-z]{3})[-\s](\d{2})$"
+    # Separator (hyphen/space) is optional to handle both "May-18" and "May18"
+    month_year_pattern = r"^([A-Za-z]{3})[-\s]?(\d{2})$"
     match = re.match(month_year_pattern, date_str)
     if match:
         month_abbr, year_2digit = match.groups()
