@@ -5,9 +5,8 @@ This script performs detailed comparison of cleaned patient data from
 R and Python pipelines to verify the migration produces equivalent results.
 
 Usage:
-    uv run python scripts/compare_r_vs_python.py \\
-        --r-parquet <path_to_r_output> \\
-        --python-parquet <path_to_python_output>
+    uv run python scripts/compare_r_vs_python.py --file "2018_CDA A4D Tracker_patient_cleaned.parquet"
+    uv run python scripts/compare_r_vs_python.py -f "2018_CDA A4D Tracker_patient_cleaned.parquet"
 """
 
 import polars as pl
@@ -20,6 +19,10 @@ from rich import box
 
 console = Console()
 app = typer.Typer()
+
+# Fixed base directories for R and Python outputs
+R_OUTPUT_BASE = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned")
+PYTHON_OUTPUT_BASE = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/patient_data_cleaned")
 
 
 def display_basic_stats(r_df: pl.DataFrame, py_df: pl.DataFrame, file_name: str):
@@ -411,12 +414,24 @@ def display_summary(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
 @app.command()
 def compare(
-    r_parquet: Path = typer.Option(..., "--r-parquet", "-r", help="R pipeline output (cleaned parquet)"),
-    python_parquet: Path = typer.Option(..., "--python-parquet", "-p", help="Python pipeline output (cleaned parquet)"),
+    file_name: str = typer.Option(..., "--file", "-f", help="Parquet filename (e.g., '2018_CDA A4D Tracker_patient_cleaned.parquet')"),
 ):
-    """Compare R vs Python cleaned patient data outputs."""
+    """Compare R vs Python cleaned patient data outputs.
+
+    The script looks for the file in fixed base directories:
+    - R output: /Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned/
+    - Python output: /Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/patient_data_cleaned/
+    """
 
     console.print("\n[bold blue]A4D Migration Validation: R vs Python Comparison[/bold blue]\n")
+
+    # Construct full paths
+    r_parquet = R_OUTPUT_BASE / file_name
+    python_parquet = PYTHON_OUTPUT_BASE / file_name
+
+    console.print(f"[dim]R path: {r_parquet}[/dim]")
+    console.print(f"[dim]Python path: {python_parquet}[/dim]")
+    console.print()
 
     # Read data
     console.print("[bold]Loading data...[/bold]")
@@ -438,7 +453,6 @@ def compare(
     console.print()
 
     # Run comparisons
-    file_name = r_parquet.name
     display_basic_stats(r_df, py_df, file_name)
     compare_schemas(r_df, py_df)
     compare_metadata_fields(r_df, py_df)
