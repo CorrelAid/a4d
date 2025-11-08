@@ -116,8 +116,9 @@ def find_month_sheets(workbook) -> list[str]:
 def find_data_start_row(ws) -> int:
     """Find the first row containing patient data.
 
-    Scans column A for the first non-None value, which indicates
-    where patient data begins.
+    Scans column A for the first numeric value (patient row numbers: 1, 2, 3...).
+    This skips any non-numeric values that may appear above the patient data
+    (e.g., spaces, text, product data).
 
     Args:
         ws: openpyxl worksheet object
@@ -126,15 +127,14 @@ def find_data_start_row(ws) -> int:
         Row number (1-indexed) where patient data starts
 
     Raises:
-        ValueError: If no data is found in column A
+        ValueError: If no numeric data is found in column A
     """
-    for row_idx, (cell_value,) in enumerate(
-        ws.iter_rows(min_col=1, max_col=1, values_only=True), start=1
-    ):
-        if cell_value is not None:
+    for row_idx in range(1, ws.max_row + 1):
+        cell_value = ws.cell(row_idx, 1).value
+        if cell_value is not None and isinstance(cell_value, (int, float)):
             return row_idx
 
-    raise ValueError("No patient data found in column A")
+    raise ValueError("No patient data found in column A (looking for numeric row numbers)")
 
 
 def read_header_rows(ws, data_start_row: int, max_cols: int = 100) -> tuple[list, list]:
