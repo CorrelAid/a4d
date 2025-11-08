@@ -21,7 +21,7 @@ Files with 0 or minimal mismatches (perfect data alignment):
 5. **2023 Sultanah Malihah Hospital** - Perfect match
 6. **2024 Phattalung Hospital** - Perfect match
 
-#### Critical Issues - Record Count Mismatches (10 files)
+#### Critical Issues - Record Count Mismatches (7 files remaining, 3 resolved)
 
 Files with different numbers of records between R and Python (requires investigation):
 
@@ -34,13 +34,17 @@ Files with different numbers of records between R and Python (requires investiga
    - Fix 2 Applied: Replaced `map_elements()` with list-based approach in `parse_date_column()` (src/a4d/clean/converters.py:151-157)
    - Data Quality: 4 acceptable mismatches (blood_pressure fields, insulin_regimen case, bmi precision) - all documented as known acceptable differences
 
-2. **2021 Vietnam National Children's Hospital** ⚠️
-   - R output file not found
-   - Status: Cannot compare
+2. **2021 Vietnam National Children's Hospital** ✅
+   - R: 711 records, Python: 711 records ✅
+   - Status: VALIDATED - Perfect record count match
+   - Data Quality: Acceptable mismatches (blood_pressure fields 88.3%, province improvements 48.7%, minor bmi/status/date differences)
 
-3. **2022 Surat Thani Hospital** ⚠️
-   - R: 276 records, Python: 270 records (-2.2%)
-   - Status: FAIL - 6 missing records
+3. **2022 Surat Thani Hospital** ✅ FULLY FIXED
+   - R: 276 records, Python: 276 records ✅
+   - Status: FIXED - Extraction bug resolved
+   - Root Cause: Patient TH_ST003 had missing row numbers (column A) in months May-Oct, causing rows to be skipped
+   - Fix Applied: Modified `read_patient_rows()` to accept rows where row number is None but patient_id exists (src/a4d/extract/patient.py:303)
+   - Data Quality: Acceptable mismatches (blood_pressure, fbg_baseline, t1d_diagnosis_age) - all documented as known acceptable differences
 
 4. **2022 Mandalay Children's Hospital** ⚠️
    - R: 1,080 records, Python: 1,083 records (+0.3%)
@@ -72,7 +76,7 @@ Files with different numbers of records between R and Python (requires investiga
 
 #### Validated Files with Acceptable Differences
 
-The remaining **158 files** have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
+The remaining **160 files** (including 2021 Phattalung Hospital, 2021 Vietnam National Children's Hospital, and 2022 Surat Thani Hospital, originally flagged for investigation but now validated/fixed) have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
 
 ## Validation Procedure
 
@@ -189,9 +193,11 @@ Based on the comprehensive validation of all 174 files:
 
 ### 🔴 CRITICAL - Must Fix Before Production
 
-1. **Record count discrepancies** (9 files remaining, 2021 Phattalung FIXED ✅)
+1. **Record count discrepancies** (7 files remaining, 3 resolved ✅)
    - ✅ Fixed: 2021 Phattalung Hospital (extraction + cleaning bugs resolved)
-   - Remaining issues: Investigate filtering/validation logic differences
+   - ✅ Validated: 2021 Vietnam National Children's Hospital (711 records match, was incorrectly listed as "R output not found")
+   - ✅ Fixed: 2022 Surat Thani Hospital (missing row number handling fixed)
+   - Remaining issues: Investigate filtering/validation logic differences for 7 trackers
    - Files with extra records may indicate over-inclusive filters or duplicate handling issues
    - Files with missing records require immediate investigation
 
@@ -224,8 +230,8 @@ Based on the comprehensive validation of all 174 files:
 - **Total Files:** 174
 - **Fully Validated:** 174 (100%)
 - **Perfect Matches:** 6 (3.4%)
-- **Acceptable Differences:** 159 (91.4%)
-- **Record Count Mismatches:** 9 (5.2%) - REQUIRES INVESTIGATION
+- **Acceptable Differences:** 161 (92.5%)
+- **Record Count Mismatches:** 7 (4.0%) - REQUIRES INVESTIGATION
 
 ### Schema Validation
 - **All 174 files** have matching schemas (83 columns)
@@ -242,7 +248,7 @@ Based on the comprehensive validation of all 174 files:
 
 **Python Missing/Issues:**
 - ❌ Blood pressure field extraction (2019+ trackers)
-- ❌ Record count inconsistencies (9 files remaining, 2021 Phattalung now fixed)
+- ❌ Record count inconsistencies (7 files remaining, 2021 Phattalung + 2021 Vietnam + 2022 Surat Thani now validated/fixed)
 - ⚠️ Some baseline FBG extraction differences
 - ⚠️ String normalization (case sensitivity)
 
@@ -251,11 +257,39 @@ Based on the comprehensive validation of all 174 files:
 **The Python pipeline is ready for production with the following conditions:**
 
 1. ✅ **APPROVED for use** - Most data quality is equal or better than R
-2. ⚠️ **SHOULD FIX** - Remaining record count discrepancies (9 files)
+2. ⚠️ **SHOULD FIX** - Remaining record count discrepancies (7 files)
 3. ⚠️ **SHOULD IMPLEMENT** - Blood pressure field extraction for completeness
 4. ✅ **ACCEPTABLE** - Other differences are minor or improvements
 
 ## Recent Fixes Applied
+
+### 2025-11-09: Extraction Bug Fix (missing row numbers)
+
+**Issue**: Some Excel trackers have patient rows missing the row number in column A (which normally contains 1, 2, 3...) but still have valid patient data in subsequent columns.
+
+**Example**: 2022 Surat Thani Hospital tracker had patient TH_ST003 with:
+- Working months (Jan-Apr, Nov-Dec): row number = 3 in column A ✓
+- Failing months (May-Oct): row number = None in column A, but patient_id='TH_ST003' in column B ✓
+
+**Previous Logic**: Skipped ALL rows where row[0] (column A / row number) was None → Lost 6 TH_ST003 records from May-Oct sheets (-2.2% data loss)
+
+**Fix**: Modified `read_patient_rows()` in src/a4d/extract/patient.py:303 to only skip rows where BOTH row[0] (row number) AND row[1] (patient_id) are None. This accepts rows with valid patient data even if the row number is missing.
+
+**Impact**:
+- ✅ 2022 Surat Thani Hospital: Now extracts all 276 records (was 270)
+- ✅ Recovered all 6 missing TH_ST003 records (now has 12 months vs 6)
+- ✅ More robust handling of Excel data quality issues across all trackers
+
+**Code Change**:
+```python
+# Before: Skipped if row number missing
+if row[0] is None:
+    continue
+
+# After: Only skip if BOTH row number AND patient_id missing
+if row[0] is None and (len(row) < 2 or row[1] is None):
+    continue
+```
 
 ### 2025-11-08: Extraction Bug Fix (find_data_start_row)
 
