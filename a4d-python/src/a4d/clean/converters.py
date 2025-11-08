@@ -149,13 +149,13 @@ def parse_date_column(
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
 
     # Apply parse_date_flexible to each value
-    # Convert to string first, then map the parser function
-    df = df.with_columns(
-        pl.col(column)
-        .cast(pl.Utf8)
-        .map_elements(lambda x: parse_date_flexible(x, error_val=settings.error_val_date), return_dtype=pl.Date)
-        .alias(f"_parsed_{column}")
-    )
+    # NOTE: Using list-based approach instead of map_elements() because map_elements()
+    # with return_dtype=pl.Date fails when ALL values are None (all-NA columns like hospitalisation_date).
+    # Explicit Series creation with dtype=pl.Date works because it doesn't require non-null values.
+    column_values = df[column].cast(pl.Utf8).to_list()
+    parsed_dates = [parse_date_flexible(val, error_val=settings.error_val_date) for val in column_values]
+    parsed_series = pl.Series(f"_parsed_{column}", parsed_dates, dtype=pl.Date)
+    df = df.with_columns(parsed_series)
 
     # Detect failures: parsed to error date
     error_date = pl.lit(settings.error_val_date).str.to_date()
