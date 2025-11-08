@@ -271,7 +271,9 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     """Read patient data rows from the worksheet.
 
     Reads from data_start_row until either ws.max_row or the first completely
-    empty row. Skips rows where the first column (patient index) is None.
+    empty row. Skips rows where both the row number (column A) and patient_id
+    (column B) are None, but accepts rows where patient_id exists even if row
+    number is missing (handles data quality issues in Excel files).
 
     Args:
         ws: openpyxl worksheet object
@@ -296,7 +298,9 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     ):
         if all(cell is None for cell in row):
             break
-        if row[0] is None:
+        # Skip rows where both row number (col A) AND patient_id (col B) are missing
+        # This handles cases where Excel has missing row numbers but valid patient data
+        if row[0] is None and (len(row) < 2 or row[1] is None):
             continue
         data.append(row)
 
