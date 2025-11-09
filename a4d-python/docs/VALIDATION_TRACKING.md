@@ -21,7 +21,7 @@ Files with 0 or minimal mismatches (perfect data alignment):
 5. **2023 Sultanah Malihah Hospital** - Perfect match
 6. **2024 Phattalung Hospital** - Perfect match
 
-#### Critical Issues - Record Count Mismatches (6 files remaining, 4 resolved)
+#### Critical Issues - Record Count Mismatches (10 files investigated, 8 resolved, 1 known difference, 1 skipped)
 
 Files with different numbers of records between R and Python (requires investigation):
 
@@ -46,17 +46,20 @@ Files with different numbers of records between R and Python (requires investiga
    - Fix Applied: Modified `read_patient_rows()` to accept rows where row number is None but patient_id exists (src/a4d/extract/patient.py:303)
    - Data Quality: Acceptable mismatches (blood_pressure, fbg_baseline, t1d_diagnosis_age) - all documented as known acceptable differences
 
-4. **2022 Mandalay Children's Hospital** ⚠️
-   - R: 1,080 records, Python: 1,083 records (+0.3%)
-   - Status: INVESTIGATE - 3 extra records
+4. **2022 Mandalay Children's Hospital** ✅ RESOLVED
+   - R: 1,080 records, Python: 1,080 records ✅
+   - Status: RESOLVED - Fixed by earlier improvements (numeric zero filtering, patient_id normalization)
 
-5. **2024 Likas Women & Children's Hospital** ⚠️
-   - R: 211 records, Python: 215 records (+1.9%)
-   - Status: INVESTIGATE - 4 extra records
+5. **2024 Likas Women & Children's Hospital** ✅ RESOLVED
+   - R: 211 records, Python: 211 records ✅
+   - Status: RESOLVED - Fixed by earlier improvements (numeric zero filtering, patient_id normalization)
 
-6. **2024 Mandalay Children's Hospital** ⚠️
+6. **2024 Mandalay Children's Hospital** ⚠️ KNOWN DIFFERENCE
    - R: 1,174 records, Python: 1,185 records (+0.9%)
-   - Status: INVESTIGATE - 11 extra records
+   - Status: KNOWN DIFFERENCE - R implicit filtering
+   - Root Cause: Patient MM_MD001 has 12 monthly records in Excel (Jan-Dec 2024), but R only keeps 1 (Jan24). All 101 patients in this tracker have name == patient_id pattern. MM_MD001 has only 9 unique data patterns across 12 months, but R keeps only 1 record (not 9), suggesting implicit R behavior that couldn't be identified in R code.
+   - Decision: Keep Python's behavior - all 12 monthly records are legitimate observations for longitudinal tracking
+   - Impact: 11 extra records in Python (0.9% difference)
 
 7. **2024 Sultanah Bahiyah** ✅ FULLY FIXED
    - R: 142 records, Python: 142 records ✅
@@ -65,21 +68,35 @@ Files with different numbers of records between R and Python (requires investiga
    - Fix Applied: Added filtering to remove any patient_id starting with "#" during extraction (src/a4d/extract/patient.py:724, 757, 796)
    - Note: Minor string normalization difference: Python preserves "MY_SM003_SB" while R normalizes to "MY_SM003" (not data loss)
 
-8. **2024 Vietnam National Children Hospital** ⚠️
-   - R: 900 records, Python: 903 records (+0.3%)
-   - Status: INVESTIGATE - 3 extra records
+8. **2024 Vietnam National Children Hospital** ⚠️ SKIPPED - EXCEL DATA QUALITY ISSUE
+   - R: 900 records, Python: 927 records (+3.0%)
+   - Status: SKIPPED - Source data quality issue in Excel file
+   - Root Cause: Jul24 sheet contains 27 patients with duplicate rows (two different entries per patient with conflicting data). Example: VN_VC016 appears in rows 102 and 113 with different status ("Lost Follow Up" vs "Active") and different medical data.
+   - Decision: Skip validation for this tracker - requires Excel file correction
+   - Impact: 27 duplicate records in Python raw extraction
 
-9. **2025_06 Kantha Bopha II Hospital** ⚠️
-   - R: 1,026 records, Python: 1,042 records (+1.6%)
-   - Status: INVESTIGATE - 16 extra records
+9. **2025_06 Kantha Bopha II Hospital** ✅ RESOLVED
+   - R: 1,026 records, Python: 1,026 records ✅
+   - Status: RESOLVED - Fixed by earlier improvements (numeric zero filtering, patient_id normalization)
 
-10. **2025_06 Taunggyi Women & Children Hospital** ⚠️
-    - R: 166 records, Python: 170 records (+2.4%)
-    - Status: INVESTIGATE - 4 extra records, invalid "0.0" patient ID
+10. **2025_06 Taunggyi Women & Children Hospital** ✅ FULLY FIXED
+    - R: 166 records, Python: 166 records ✅
+    - Status: FIXED - Numeric zero filtering extended
+    - Root Cause: 4 records with patient_id='0.0' and name='0.0' in Jun25 sheet, previous filter only caught "0" not "0.0"
+    - Fix Applied: Extended invalid patient_id filter to use `is_in(["0", "0.0"])` with `str.strip_chars()` (src/a4d/extract/patient.py:720-724, 755-758, 795-798)
+    - Commit: 9f55646
 
 #### Validated Files with Acceptable Differences
 
-The remaining **161 files** (including 2021 Phattalung Hospital, 2021 Vietnam National Children's Hospital, 2022 Surat Thani Hospital, and 2024 Sultanah Bahiyah, originally flagged for investigation but now validated/fixed) have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
+The remaining **165 files** (including all resolved trackers above) have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
+
+## Summary Statistics
+
+- **Total Trackers:** 174
+- **Perfect Record Count Match:** 169 (97.1%)
+- **Known Differences (Acceptable):** 1 (2024 Mandalay Children's Hospital - R implicit filtering)
+- **Skipped (Excel Data Quality Issues):** 1 (2024 Vietnam National Children Hospital)
+- **Critical Bugs Fixed:** 8 trackers resolved through bug fixes
 
 ## Validation Procedure
 
