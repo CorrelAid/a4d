@@ -717,7 +717,11 @@ def read_all_patient_sheets(
         df_combined = df_combined.filter(
             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
         )
-        df_combined = df_combined.filter(~((pl.col("patient_id") == "0") & (pl.col("name") == "0")))
+        # Filter out rows where both patient_id and name are numeric zeros (0, 0.0, "0", "0.0", etc.)
+        df_combined = df_combined.filter(
+            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
+              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
+        )
     else:
         df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
 
@@ -749,7 +753,8 @@ def read_all_patient_sheets(
                             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
                         )
                         patient_list = patient_list.filter(
-                            ~((pl.col("patient_id") == "0") & (pl.col("name") == "0"))
+                            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
+                              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
                         )
                     else:
                         patient_list = patient_list.filter(pl.col("patient_id").is_not_null())
@@ -788,7 +793,8 @@ def read_all_patient_sheets(
                             ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
                         )
                         annual_data = annual_data.filter(
-                            ~((pl.col("patient_id") == "0") & (pl.col("name") == "0"))
+                            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
+                              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
                         )
                     else:
                         annual_data = annual_data.filter(pl.col("patient_id").is_not_null())
