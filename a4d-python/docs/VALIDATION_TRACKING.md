@@ -21,7 +21,7 @@ Files with 0 or minimal mismatches (perfect data alignment):
 5. **2023 Sultanah Malihah Hospital** - Perfect match
 6. **2024 Phattalung Hospital** - Perfect match
 
-#### Critical Issues - Record Count Mismatches (7 files remaining, 3 resolved)
+#### Critical Issues - Record Count Mismatches (6 files remaining, 4 resolved)
 
 Files with different numbers of records between R and Python (requires investigation):
 
@@ -58,9 +58,12 @@ Files with different numbers of records between R and Python (requires investiga
    - R: 1,174 records, Python: 1,185 records (+0.9%)
    - Status: INVESTIGATE - 11 extra records
 
-7. **2024 Sultanah Bahiyah** ⚠️
-   - R: 142 records, Python: 145 records (+2.1%)
-   - Status: INVESTIGATE - 3 extra records with "#REF!" patient IDs
+7. **2024 Sultanah Bahiyah** ✅ FULLY FIXED
+   - R: 142 records, Python: 142 records ✅
+   - Status: FIXED - Excel error filtering implemented
+   - Root Cause: 3 rows in Jul24 sheet had patient_id="#REF!" (Excel reference error), Python was extracting these while R filtered them out
+   - Fix Applied: Added filtering to remove any patient_id starting with "#" during extraction (src/a4d/extract/patient.py:724, 757, 796)
+   - Note: Minor string normalization difference: Python preserves "MY_QH003_SB" while R normalizes to "MY_QH003" (not data loss)
 
 8. **2024 Vietnam National Children Hospital** ⚠️
    - R: 900 records, Python: 903 records (+0.3%)
@@ -76,7 +79,7 @@ Files with different numbers of records between R and Python (requires investiga
 
 #### Validated Files with Acceptable Differences
 
-The remaining **160 files** (including 2021 Phattalung Hospital, 2021 Vietnam National Children's Hospital, and 2022 Surat Thani Hospital, originally flagged for investigation but now validated/fixed) have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
+The remaining **161 files** (including 2021 Phattalung Hospital, 2021 Vietnam National Children's Hospital, 2022 Surat Thani Hospital, and 2024 Sultanah Bahiyah, originally flagged for investigation but now validated/fixed) have matching record counts and schemas (83 columns), with acceptable data value differences documented below in "Known Acceptable Differences".
 
 ## Validation Procedure
 
@@ -193,11 +196,12 @@ Based on the comprehensive validation of all 174 files:
 
 ### 🔴 CRITICAL - Must Fix Before Production
 
-1. **Record count discrepancies** (7 files remaining, 3 resolved ✅)
+1. **Record count discrepancies** (6 files remaining, 4 resolved ✅)
    - ✅ Fixed: 2021 Phattalung Hospital (extraction + cleaning bugs resolved)
    - ✅ Validated: 2021 Vietnam National Children's Hospital (711 records match, was incorrectly listed as "R output not found")
    - ✅ Fixed: 2022 Surat Thani Hospital (missing row number handling fixed)
-   - Remaining issues: Investigate filtering/validation logic differences for 7 trackers
+   - ✅ Fixed: 2024 Sultanah Bahiyah (Excel error filtering + ws.max_row bug fixed)
+   - Remaining issues: Investigate filtering/validation logic differences for 6 trackers
    - Files with extra records may indicate over-inclusive filters or duplicate handling issues
    - Files with missing records require immediate investigation
 
@@ -231,7 +235,8 @@ Based on the comprehensive validation of all 174 files:
 - **Fully Validated:** 174 (100%)
 - **Perfect Matches:** 6 (3.4%)
 - **Acceptable Differences:** 161 (92.5%)
-- **Record Count Mismatches:** 7 (4.0%) - REQUIRES INVESTIGATION
+- **Fixed Issues:** 4 (2.3%)
+- **Record Count Mismatches:** 6 (3.4%) - REQUIRES INVESTIGATION
 
 ### Schema Validation
 - **All 174 files** have matching schemas (83 columns)
@@ -262,6 +267,35 @@ Based on the comprehensive validation of all 174 files:
 4. ✅ **ACCEPTABLE** - Other differences are minor or improvements
 
 ## Recent Fixes Applied
+
+### 2025-11-09: Extraction Bug Fixes (Excel errors + ws.max_row)
+
+**Issue 1**: Excel error values like `#REF!`, `#DIV/0!`, etc. appearing in patient_id cells were being extracted as valid records instead of being filtered out.
+
+**Example**: 2024 Sultanah Bahiyah tracker had 3 rows in Jul24 sheet with `patient_id="#REF!"` (Excel reference error from deleted cell references). R pipeline filtered these out during extraction, Python was keeping them.
+
+**Fix 1**: Added filtering in `read_all_patient_sheets()` (src/a4d/extract/patient.py:724, 757, 796) to remove any rows where `patient_id` starts with "#" (which covers all Excel error patterns). Applied to all three extraction paths: monthly sheets, Patient List, and Annual sheets.
+
+**Issue 2**: Some Excel worksheets don't have dimension metadata, causing `ws.max_row` to be `None` in openpyxl's read_only mode. This caused a `TypeError` when trying to compute `ws.max_row + 1`.
+
+**Fix 2**: Added fallback in `find_data_start_row()` (src/a4d/extract/patient.py:132) to use 1000 as default when `ws.max_row` is None.
+
+**Impact**:
+- ✅ 2024 Sultanah Bahiyah: Now extracts 142 records (was 145, removed 3 #REF! errors)
+- ✅ Perfect match with R output (142 records)
+- ✅ More robust handling of Excel files without dimension info
+- ⚠️  Note: Minor string normalization difference remains: Python preserves "MY_QH003_SB" while R normalizes to "MY_QH003" (not data loss, just different normalization)
+
+**Code Changes**:
+```python
+# Fix 1: Filter Excel errors
+df_combined = df_combined.filter(~pl.col("patient_id").str.starts_with("#"))
+
+# Fix 2: Handle None max_row
+max_row = ws.max_row or 1000
+for row_idx in range(1, max_row + 1):
+    ...
+```
 
 ### 2025-11-09: Extraction Bug Fix (missing row numbers)
 
