@@ -211,6 +211,7 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     """Apply preprocessing transformations before type conversion.
 
     This includes:
+    - Normalizing patient_id (remove transfer clinic suffix)
     - Removing > and < signs from HbA1c values (but tracking them)
     - Fixing FBG text values (high/medium/low → numeric, removing (DKA))
     - Replacing "-" with "N" in Y/N columns
@@ -222,6 +223,17 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with preprocessing applied
     """
+    # Normalize patient_id: Keep only COUNTRY_ID part, remove transfer clinic suffix
+    # Pattern: "MY_QH003_SB" → "MY_QH003" (keep first two underscore-separated parts)
+    # This ensures consistent patient linking across years when patients transfer clinics
+    if "patient_id" in df.columns:
+        df = df.with_columns(
+            pl.when(pl.col("patient_id").str.contains("_"))
+            .then(pl.col("patient_id").str.extract(r"^([A-Z]+_[^_]+)", 1))
+            .otherwise(pl.col("patient_id"))
+            .alias("patient_id")
+        )
+
     # Track HbA1c exceeds markers (> or <)
     if "hba1c_baseline" in df.columns:
         df = df.with_columns(pl.col("hba1c_baseline").str.contains(r"[><]").alias("hba1c_baseline_exceeds"))
