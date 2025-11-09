@@ -129,7 +129,8 @@ def find_data_start_row(ws) -> int:
     Raises:
         ValueError: If no numeric data is found in column A
     """
-    for row_idx in range(1, ws.max_row + 1):
+    max_row = ws.max_row or 1000
+    for row_idx in range(1, max_row + 1):
         cell_value = ws.cell(row_idx, 1).value
         if cell_value is not None and isinstance(cell_value, (int, float)):
             return row_idx
@@ -720,6 +721,8 @@ def read_all_patient_sheets(
     else:
         df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
 
+    df_combined = df_combined.filter(~pl.col("patient_id").str.starts_with("#"))
+
     filtered_rows = initial_rows - len(df_combined)
     if filtered_rows > 0:
         logger.info(f"Filtered out {filtered_rows} invalid rows")
@@ -750,6 +753,8 @@ def read_all_patient_sheets(
                         )
                     else:
                         patient_list = patient_list.filter(pl.col("patient_id").is_not_null())
+
+                    patient_list = patient_list.filter(~pl.col("patient_id").str.starts_with("#"))
 
                     # R: select(-any_of(c("hba1c_baseline"))) and select(-any_of(c("name")))
                     df_monthly = df_combined.drop("hba1c_baseline") if "hba1c_baseline" in df_combined.columns else df_combined
@@ -787,6 +792,8 @@ def read_all_patient_sheets(
                         )
                     else:
                         annual_data = annual_data.filter(pl.col("patient_id").is_not_null())
+
+                    annual_data = annual_data.filter(~pl.col("patient_id").str.starts_with("#"))
 
                     # R: select(-any_of(c("status", "name")))
                     cols_to_drop = [col for col in ["status", "name"] if col in annual_data.columns]
