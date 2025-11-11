@@ -236,11 +236,15 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
 
     # Track HbA1c exceeds markers (> or <)
     if "hba1c_baseline" in df.columns:
-        df = df.with_columns(pl.col("hba1c_baseline").str.contains(r"[><]").alias("hba1c_baseline_exceeds"))
+        df = df.with_columns(
+            pl.col("hba1c_baseline").str.contains(r"[><]").fill_null(False).alias("hba1c_baseline_exceeds")
+        )
         df = df.with_columns(pl.col("hba1c_baseline").str.replace_all(r"[><]", "").alias("hba1c_baseline"))
 
     if "hba1c_updated" in df.columns:
-        df = df.with_columns(pl.col("hba1c_updated").str.contains(r"[><]").alias("hba1c_updated_exceeds"))
+        df = df.with_columns(
+            pl.col("hba1c_updated").str.contains(r"[><]").fill_null(False).alias("hba1c_updated_exceeds")
+        )
         df = df.with_columns(pl.col("hba1c_updated").str.replace_all(r"[><]", "").alias("hba1c_updated"))
 
     # Fix FBG text values (R: script2_helper_patient_data_fix.R:551-567)
