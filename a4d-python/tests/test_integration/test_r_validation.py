@@ -136,13 +136,19 @@ VALUE_MAPPINGS = {
 }
 
 # Patient-level exceptions where R has extraction errors but Python is correct
-# Format: {filename: {patient_id: {tracker_month: [columns_to_skip], ...}}}
-# These specific patient-month-column combinations will be excluded from comparison
+# Format: {filename: {patient_id: {reason: str, skip_columns: [str]}}}
+# These specific patient-column combinations will be excluded from comparison for ALL months
 PATIENT_LEVEL_EXCEPTIONS = {
     "2025_06_CDA A4D Tracker_patient_cleaned.parquet": {
         "KH_CD018": {
             "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
             "skip_columns": ["insulin_type"],
+        },
+    },
+    "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
+        "KH_JV078": {
+            "reason": "R sets error date '9999-09-09' for lost_date when Excel cell is empty. Python correctly extracts null.",
+            "skip_columns": ["lost_date"],
         },
     },
 }
@@ -506,6 +512,9 @@ def test_data_values_match(filename, r_path, py_path):
             pl.Int64,
         ]
 
+        # Check if string column - treat null and empty string as equivalent
+        is_string = df_compare[r_col_for_comparison].dtype in [pl.Utf8, pl.String]
+
         if is_numeric and df_compare[r_col_for_comparison].dtype in [pl.Float32, pl.Float64]:
             # For floats, use approximate equality (accounting for floating point precision)
             # Values must differ by more than 1e-6 to be considered different
@@ -520,8 +529,30 @@ def test_data_values_match(filename, r_path, py_path):
                 | ((df_compare[r_col_for_comparison].is_null()) & (df_compare[py_col].is_not_null()))
                 | ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_null()))
             )
+        elif is_string:
+            # For strings, treat null and empty string as equivalent
+            # Normalize: convert empty strings to null for comparison
+            r_normalized = pl.when(df_compare[r_col_for_comparison] == "").then(None).otherwise(df_compare[r_col_for_comparison])
+            py_normalized = pl.when(df_compare[py_col] == "").then(None).otherwise(df_compare[py_col])
+
+            df_compare = df_compare.with_columns([
+                r_normalized.alias(f"{r_col_for_comparison}_norm"),
+                py_normalized.alias(f"{py_col}_norm")
+            ])
+
+            diff_mask = (
+                # Both non-null and different
+                (
+                    (df_compare[f"{r_col_for_comparison}_norm"].is_not_null())
+                    & (df_compare[f"{py_col}_norm"].is_not_null())
+                    & (df_compare[f"{r_col_for_comparison}_norm"] != df_compare[f"{py_col}_norm"])
+                )
+                # One null, other not null (after normalization)
+                | ((df_compare[f"{r_col_for_comparison}_norm"].is_null()) & (df_compare[f"{py_col}_norm"].is_not_null()))
+                | ((df_compare[f"{r_col_for_comparison}_norm"].is_not_null()) & (df_compare[f"{py_col}_norm"].is_null()))
+            )
         else:
-            # For non-floats, use exact comparison
+            # For non-floats and non-strings, use exact comparison
             diff_mask = (
                 # Both non-null and different
                 (
