@@ -110,7 +110,7 @@ SKIP_COLUMNS_IN_COMPARISON = {
 # Use this when R has errors affecting many/all patients in specific columns for a file
 FILE_COLUMN_EXCEPTIONS = {
     "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "Excel uses Unicode '≥15' (U+2265) instead of ASCII '>15'. R's regex only matches ASCII '>|<', fails to extract, results in error value 999999. Python handles both. R needs update to support Unicode comparison operators.",
+        "reason": "Excel cells contain Unicode '≥15' (U+2265). R's readxl reads raw Unicode. Python's openpyxl (data_only=True) normalizes to ASCII '>15'. R's regex grepl('>|<') only matches ASCII, fails to parse '≥15', results in error value 999999. R needs update to handle Unicode comparison operators (≥, ≤).",
         "skip_columns": ["hba1c_baseline", "hba1c_baseline_exceeds", "hba1c_updated", "hba1c_updated_exceeds"],
     },
 }
