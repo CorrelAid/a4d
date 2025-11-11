@@ -105,6 +105,16 @@ SKIP_COLUMNS_IN_COMPARISON = {
     "insulin_total_units",  # R has problems extracting this column correctly
 }
 
+# File-specific column exceptions where R has systematic extraction errors
+# Format: {filename: {reason: str, skip_columns: [str]}}
+# Use this when R has errors affecting many/all patients in specific columns for a file
+FILE_COLUMN_EXCEPTIONS = {
+    "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
+        "reason": "Excel uses Unicode '≥15' (U+2265) instead of ASCII '>15'. R's regex only matches ASCII '>|<', fails to extract, results in error value 999999. Python handles both. R needs update to support Unicode comparison operators.",
+        "skip_columns": ["hba1c_baseline", "hba1c_baseline_exceeds", "hba1c_updated", "hba1c_updated_exceeds"],
+    },
+}
+
 # Columns that should never be null/empty - critical data integrity check
 REQUIRED_COLUMNS = {
     "patient_id",
@@ -132,7 +142,7 @@ PATIENT_LEVEL_EXCEPTIONS = {
     "2025_06_CDA A4D Tracker_patient_cleaned.parquet": {
         "KH_CD018": {
             "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
-            "skip_columns": ["insulin_type"],  # Skip for all months of this patient
+            "skip_columns": ["insulin_type"],
         },
     },
 }
@@ -403,7 +413,7 @@ def test_data_values_match(filename, r_path, py_path):
     """
     if int(filename[:4]) < 2025:
         pytest.skip("Data value comparison only for 2025 trackers and later")
-        
+
     # Skip if marked for skipping
     if filename in SKIP_VALIDATION:
         pytest.skip(SKIP_VALIDATION[filename])
@@ -432,8 +442,12 @@ def test_data_values_match(filename, r_path, py_path):
     df_py_subset = df_py.select(common_cols)
 
     # Add suffixes to distinguish R vs Python columns
-    df_r_renamed = df_r_subset.rename({col: f"{col}_r" for col in common_cols if col not in ["patient_id", "tracker_month"]})
-    df_py_renamed = df_py_subset.rename({col: f"{col}_py" for col in common_cols if col not in ["patient_id", "tracker_month"]})
+    df_r_renamed = df_r_subset.rename(
+        {col: f"{col}_r" for col in common_cols if col not in ["patient_id", "tracker_month"]}
+    )
+    df_py_renamed = df_py_subset.rename(
+        {col: f"{col}_py" for col in common_cols if col not in ["patient_id", "tracker_month"]}
+    )
 
     # Join on patient_id and tracker_month
     df_joined = df_r_renamed.join(df_py_renamed, on=["patient_id", "tracker_month"], how="inner")
@@ -447,9 +461,14 @@ def test_data_values_match(filename, r_path, py_path):
         if col in ["patient_id", "tracker_month"]:
             continue
 
-        # Skip columns with known acceptable differences
+        # Skip columns with known acceptable differences (global)
         if col in SKIP_COLUMNS_IN_COMPARISON:
             continue
+
+        # Skip columns with file-specific systematic errors
+        if filename in FILE_COLUMN_EXCEPTIONS:
+            if col in FILE_COLUMN_EXCEPTIONS[filename].get("skip_columns", []):
+                continue
 
         r_col = f"{col}_r"
         py_col = f"{col}_py"
@@ -469,22 +488,34 @@ def test_data_values_match(filename, r_path, py_path):
             mapping = VALUE_MAPPINGS[col]
             # Map R values to their Python equivalents for comparison
             df_compare = df_compare.with_columns(
-                pl.col(r_col).replace_strict(mapping, default=pl.col(r_col), return_dtype=pl.Utf8).alias(f"{r_col}_mapped")
+                pl.col(r_col)
+                .replace_strict(mapping, default=pl.col(r_col), return_dtype=pl.Utf8)
+                .alias(f"{r_col}_mapped")
             )
             r_col_for_comparison = f"{r_col}_mapped"
         else:
             r_col_for_comparison = r_col
 
         # Check if numeric column - use approximate comparison for floats
-        is_numeric = df_compare[r_col_for_comparison].dtype in [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64]
+        is_numeric = df_compare[r_col_for_comparison].dtype in [
+            pl.Float32,
+            pl.Float64,
+            pl.Int8,
+            pl.Int16,
+            pl.Int32,
+            pl.Int64,
+        ]
 
         if is_numeric and df_compare[r_col_for_comparison].dtype in [pl.Float32, pl.Float64]:
             # For floats, use approximate equality (accounting for floating point precision)
             # Values must differ by more than 1e-6 to be considered different
             diff_mask = (
                 # Both non-null and significantly different
-                ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_not_null()) &
-                 ((df_compare[r_col_for_comparison] - df_compare[py_col]).abs() > 1e-6))
+                (
+                    (df_compare[r_col_for_comparison].is_not_null())
+                    & (df_compare[py_col].is_not_null())
+                    & ((df_compare[r_col_for_comparison] - df_compare[py_col]).abs() > 1e-6)
+                )
                 # One null, other not null
                 | ((df_compare[r_col_for_comparison].is_null()) & (df_compare[py_col].is_not_null()))
                 | ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_null()))
@@ -493,8 +524,11 @@ def test_data_values_match(filename, r_path, py_path):
             # For non-floats, use exact comparison
             diff_mask = (
                 # Both non-null and different
-                ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_not_null()) &
-                 (df_compare[r_col_for_comparison] != df_compare[py_col]))
+                (
+                    (df_compare[r_col_for_comparison].is_not_null())
+                    & (df_compare[py_col].is_not_null())
+                    & (df_compare[r_col_for_comparison] != df_compare[py_col])
+                )
                 # One null, other not null
                 | ((df_compare[r_col_for_comparison].is_null()) & (df_compare[py_col].is_not_null()))
                 | ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_null()))
@@ -503,11 +537,13 @@ def test_data_values_match(filename, r_path, py_path):
         diff_records = df_compare.filter(diff_mask)
 
         if len(diff_records) > 0:
-            mismatches.append({
-                "column": col,
-                "mismatches": len(diff_records),
-                "sample_patients": diff_records.select(["patient_id", "tracker_month", r_col, py_col]).head(5)
-            })
+            mismatches.append(
+                {
+                    "column": col,
+                    "mismatches": len(diff_records),
+                    "sample_patients": diff_records.select(["patient_id", "tracker_month", r_col, py_col]).head(5),
+                }
+            )
 
     if mismatches:
         # Build detailed error message
@@ -515,7 +551,7 @@ def test_data_values_match(filename, r_path, py_path):
         for mismatch in mismatches[:5]:  # Show first 5 columns with issues
             error_msg += f"\nColumn '{mismatch['column']}': {mismatch['mismatches']} mismatching records\n"
             error_msg += "Sample differing records:\n"
-            error_msg += str(mismatch['sample_patients'])
+            error_msg += str(mismatch["sample_patients"])
 
         if len(mismatches) > 5:
             error_msg += f"\n\n... and {len(mismatches) - 5} more columns with mismatches"
