@@ -125,6 +125,18 @@ VALUE_MAPPINGS = {
     },
 }
 
+# Patient-level exceptions where R has extraction errors but Python is correct
+# Format: {filename: {patient_id: {tracker_month: [columns_to_skip], ...}}}
+# These specific patient-month-column combinations will be excluded from comparison
+PATIENT_LEVEL_EXCEPTIONS = {
+    "2025_06_CDA A4D Tracker_patient_cleaned.parquet": {
+        "KH_CD018": {
+            "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
+            "skip_columns": ["insulin_type"],  # Skip for all months of this patient
+        },
+    },
+}
+
 
 @pytest.fixture(scope="module")
 def tracker_files():
@@ -442,8 +454,17 @@ def test_data_values_match(filename, r_path, py_path):
         r_col = f"{col}_r"
         py_col = f"{col}_py"
 
-        # Apply value mappings if this column has known equivalences
+        # Start with all joined data
         df_compare = df_joined
+
+        # Filter out patient-level exceptions for this file and column
+        if filename in PATIENT_LEVEL_EXCEPTIONS:
+            for patient_id, exception_info in PATIENT_LEVEL_EXCEPTIONS[filename].items():
+                if col in exception_info.get("skip_columns", []):
+                    # Exclude this patient from comparison for this column
+                    df_compare = df_compare.filter(pl.col("patient_id") != patient_id)
+
+        # Apply value mappings if this column has known equivalences
         if col in VALUE_MAPPINGS:
             mapping = VALUE_MAPPINGS[col]
             # Map R values to their Python equivalents for comparison
