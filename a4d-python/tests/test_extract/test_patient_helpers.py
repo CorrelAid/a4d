@@ -72,8 +72,8 @@ class TestFindDataStartRow:
         # Random start position between 10 and 100
         random_start = random.randint(10, 100)
 
-        # Insert first data value at random position
-        ws[f"A{random_start}"] = f"DATA_ROW_{random_start}"
+        # Insert first data value at random position (must be numeric)
+        ws[f"A{random_start}"] = 1
 
         result = find_data_start_row(ws)
         assert result == random_start
@@ -103,7 +103,7 @@ class TestFindDataStartRow:
         ws["A1"] = None
         ws["A2"] = None
         ws["A3"] = None
-        ws["A4"] = "First data"
+        ws["A4"] = 1  # First numeric data
 
         result = find_data_start_row(ws)
         assert result == 4
