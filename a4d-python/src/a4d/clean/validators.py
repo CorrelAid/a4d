@@ -211,6 +211,53 @@ def validate_column_from_rules(
     return df
 
 
+def validate_province(
+    df: pl.DataFrame,
+    error_collector: ErrorCollector,
+    file_name_col: str = "file_name",
+    patient_id_col: str = "patient_id",
+) -> pl.DataFrame:
+    """Validate province column against allowed provinces from YAML.
+
+    Uses the shared allowed_provinces.yaml file to validate province values.
+    Matches R's behavior: sanitizes values for comparison and sets invalid
+    provinces to "Undefined".
+
+    Args:
+        df: Input DataFrame
+        error_collector: ErrorCollector instance
+        file_name_col: Column containing file name for error tracking
+        patient_id_col: Column containing patient ID for error tracking
+
+    Returns:
+        DataFrame with province validated
+
+    Example:
+        >>> collector = ErrorCollector()
+        >>> df = validate_province(df, collector)
+    """
+    from a4d.reference.provinces import load_canonical_provinces
+
+    if "province" not in df.columns:
+        return df
+
+    # Load canonical province names (with proper casing) for validation
+    allowed_provinces = load_canonical_provinces()
+
+    # Use generic validator with loaded provinces
+    df = validate_allowed_values(
+        df=df,
+        column="province",
+        allowed_values=allowed_provinces,
+        error_collector=error_collector,
+        replace_invalid=True,
+        file_name_col=file_name_col,
+        patient_id_col=patient_id_col,
+    )
+
+    return df
+
+
 def validate_all_columns(
     df: pl.DataFrame,
     error_collector: ErrorCollector,
@@ -245,5 +292,13 @@ def validate_all_columns(
                 file_name_col=file_name_col,
                 patient_id_col=patient_id_col,
             )
+
+    # Validate province separately (not in validation_rules.yaml)
+    df = validate_province(
+        df=df,
+        error_collector=error_collector,
+        file_name_col=file_name_col,
+        patient_id_col=patient_id_col,
+    )
 
     return df
