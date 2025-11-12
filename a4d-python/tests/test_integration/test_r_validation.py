@@ -113,10 +113,6 @@ FILE_COLUMN_EXCEPTIONS = {
         "reason": "Excel cells contain Unicode '≥15' (U+2265). R's readxl reads raw Unicode. Python's openpyxl (data_only=True) normalizes to ASCII '>15'. R's regex grepl('>|<') only matches ASCII, fails to parse '≥15', results in error value 999999. R needs update to handle Unicode comparison operators (≥, ≤).",
         "skip_columns": ["hba1c_baseline", "hba1c_baseline_exceeds", "hba1c_updated", "hba1c_updated_exceeds"],
     },
-    "2025_06_Kantha Bopha II Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "R sets province to 'Undefined' for Takéo, Tboung Khmum, and Preah Sihanouk despite these being in allowed_provinces.yaml. Python correctly preserves these province names. All three provinces are properly listed in the YAML with correct UTF-8 encoding (Takéo has é as U+00E9). R's sanitize_str() should handle this by removing accents, but validation appears to fail. Needs investigation in R's check_allowed_values() or YAML loading.",
-        "skip_columns": ["province"],
-    },
 }
 
 # Columns that should never be null/empty - critical data integrity check
