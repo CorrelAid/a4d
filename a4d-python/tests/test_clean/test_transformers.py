@@ -8,6 +8,7 @@ from a4d.clean.transformers import (
     str_to_lower,
     apply_transformation,
     correct_decimal_sign_multiple,
+    fix_sex,
 )
 
 
@@ -249,3 +250,140 @@ def test_extract_regimen_order_matters():
 
     # "basal" is checked first in the code, so it should match that
     assert result["insulin_regimen"][0] == "Basal-bolus (MDI)"
+
+
+def test_fix_sex_female_synonyms():
+    """Test that female synonyms are mapped to 'F'."""
+    df = pl.DataFrame(
+        {
+            "sex": [
+                "Female",
+                "FEMALE",
+                "girl",
+                "Woman",
+                "fem",
+                "Feminine",
+                "f",
+                "F",
+            ]
+        }
+    )
+
+    result = fix_sex(df)
+
+    # All should be mapped to "F"
+    assert all(v == "F" for v in result["sex"].to_list())
+
+
+def test_fix_sex_male_synonyms():
+    """Test that male synonyms are mapped to 'M'."""
+    df = pl.DataFrame(
+        {
+            "sex": [
+                "Male",
+                "MALE",
+                "boy",
+                "Man",
+                "masculine",
+                "m",
+                "M",
+            ]
+        }
+    )
+
+    result = fix_sex(df)
+
+    # All should be mapped to "M"
+    assert all(v == "M" for v in result["sex"].to_list())
+
+
+def test_fix_sex_invalid_values():
+    """Test that invalid values are set to 'Undefined'."""
+    df = pl.DataFrame(
+        {
+            "sex": [
+                "invalid",
+                "unknown",
+                "other",
+                "X",
+            ]
+        }
+    )
+
+    result = fix_sex(df)
+
+    # All should be set to "Undefined"
+    assert all(v == "Undefined" for v in result["sex"].to_list())
+
+
+def test_fix_sex_preserves_nulls():
+    """Test that null and empty values are preserved as null."""
+    df = pl.DataFrame(
+        {
+            "sex": ["Female", None, "", "Male"],
+        }
+    )
+
+    result = fix_sex(df)
+
+    assert result["sex"][0] == "F"
+    assert result["sex"][1] is None
+    assert result["sex"][2] is None
+    assert result["sex"][3] == "M"
+
+
+def test_fix_sex_case_insensitive():
+    """Test that matching is case-insensitive."""
+    df = pl.DataFrame(
+        {
+            "sex": [
+                "FEMALE",
+                "female",
+                "Female",
+                "FeMaLe",
+                "MALE",
+                "male",
+                "Male",
+                "MaLe",
+            ]
+        }
+    )
+
+    result = fix_sex(df)
+
+    assert result["sex"].to_list() == ["F", "F", "F", "F", "M", "M", "M", "M"]
+
+
+def test_fix_sex_missing_column():
+    """Test that missing column is handled gracefully."""
+    df = pl.DataFrame({"other": ["value"]})
+
+    result = fix_sex(df)
+
+    assert result.equals(df)
+
+
+def test_fix_sex_matches_r_behavior():
+    """Test that fix_sex matches R's fix_sex() function exactly.
+
+    This test uses the exact values from R's function definition.
+    """
+    df = pl.DataFrame(
+        {
+            "sex": [
+                # Female synonyms from R
+                "female", "girl", "woman", "fem", "feminine", "f",
+                # Male synonyms from R
+                "male", "boy", "man", "masculine", "m",
+                # Invalid
+                "other", "unknown",
+                # Null/empty
+                None, "",
+            ]
+        }
+    )
+
+    result = fix_sex(df)
+
+    expected = ["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "Undefined", "Undefined", None, None]
+    assert result["sex"].to_list() == expected

@@ -156,13 +156,17 @@ PATIENT_LEVEL_EXCEPTIONS = {
         },
     },
     "2025_06_Kantha Bopha II Hospital A4D Tracker_patient_cleaned.parquet": {
+        "KH_KB023": {
+            "reason": "R extraction error: sex should be 'F' but R sets 'Undefined'. Python correctly extracts 'F'.",
+            "skip_columns": ["sex"],
+        },
         "KH_KB073": {
             "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
-            "skip_columns": ["insulin_regimen"],
+            "skip_columns": ["insulin_type"],
         },
         "KH_KB139": {
             "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
-            "skip_columns": ["insulin_regimen"],
+            "skip_columns": ["insulin_type"],
         },
     },
 }
@@ -546,13 +550,14 @@ def test_data_values_match(filename, r_path, py_path):
         elif is_string:
             # For strings, treat null and empty string as equivalent
             # Normalize: convert empty strings to null for comparison
-            r_normalized = pl.when(df_compare[r_col_for_comparison] == "").then(None).otherwise(df_compare[r_col_for_comparison])
+            r_normalized = (
+                pl.when(df_compare[r_col_for_comparison] == "").then(None).otherwise(df_compare[r_col_for_comparison])
+            )
             py_normalized = pl.when(df_compare[py_col] == "").then(None).otherwise(df_compare[py_col])
 
-            df_compare = df_compare.with_columns([
-                r_normalized.alias(f"{r_col_for_comparison}_norm"),
-                py_normalized.alias(f"{py_col}_norm")
-            ])
+            df_compare = df_compare.with_columns(
+                [r_normalized.alias(f"{r_col_for_comparison}_norm"), py_normalized.alias(f"{py_col}_norm")]
+            )
 
             diff_mask = (
                 # Both non-null and different
@@ -562,8 +567,14 @@ def test_data_values_match(filename, r_path, py_path):
                     & (df_compare[f"{r_col_for_comparison}_norm"] != df_compare[f"{py_col}_norm"])
                 )
                 # One null, other not null (after normalization)
-                | ((df_compare[f"{r_col_for_comparison}_norm"].is_null()) & (df_compare[f"{py_col}_norm"].is_not_null()))
-                | ((df_compare[f"{r_col_for_comparison}_norm"].is_not_null()) & (df_compare[f"{py_col}_norm"].is_null()))
+                | (
+                    (df_compare[f"{r_col_for_comparison}_norm"].is_null())
+                    & (df_compare[f"{py_col}_norm"].is_not_null())
+                )
+                | (
+                    (df_compare[f"{r_col_for_comparison}_norm"].is_not_null())
+                    & (df_compare[f"{py_col}_norm"].is_null())
+                )
             )
         else:
             # For non-floats and non-strings, use exact comparison

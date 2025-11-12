@@ -357,6 +357,7 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     Transformations are explicit Python code (not config-driven):
     - Lowercase status for case-insensitive validation
     - Standardize insulin regimen descriptions
+    - Map sex synonyms to M/F
     - Correct European decimal format
 
     Args:
@@ -371,6 +372,11 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     # Standardize insulin regimen
     if "insulin_regimen" in df.columns:
         df = extract_regimen(df)
+
+    # Map sex synonyms to M/F (matching R's fix_sex)
+    if "sex" in df.columns:
+        from a4d.clean.transformers import fix_sex
+        df = fix_sex(df)
 
     # Correct European decimal format (comma → dot)
     numeric_cols = [
