@@ -86,6 +86,10 @@ def clean_patient_data(
     # Must happen after type conversions so dates are proper date types
     df = _validate_dates(df, error_collector)
 
+    # Step 5.7: Calculate BMI from weight and height (like R does)
+    # Must happen after type conversions and before range validation
+    df = _calculate_bmi(df)
+
     # Step 6: Range validation and cleanup
     df = _apply_range_validation(df, error_collector)
 
@@ -444,6 +448,25 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
             )
 
     return df
+
+
+def _calculate_bmi(df: pl.DataFrame) -> pl.DataFrame:
+    """Calculate BMI from weight and height.
+
+    Matches R's fix_bmi() function (script2_helper_patient_data_fix.R:401).
+    This REPLACES any existing BMI value with calculated BMI = weight / height^2.
+
+    Must be called after type conversions (so weight/height are numeric)
+    and before range validation (so calculated BMI gets validated).
+
+    Args:
+        df: Input DataFrame
+
+    Returns:
+        DataFrame with calculated BMI column
+    """
+    from a4d.clean.transformers import fix_bmi
+    return fix_bmi(df)
 
 
 def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:

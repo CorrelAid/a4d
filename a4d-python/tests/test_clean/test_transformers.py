@@ -9,7 +9,9 @@ from a4d.clean.transformers import (
     apply_transformation,
     correct_decimal_sign_multiple,
     fix_sex,
+    fix_bmi,
 )
+from a4d.config import settings
 
 
 def test_extract_regimen_basal():
@@ -387,3 +389,138 @@ def test_fix_sex_matches_r_behavior():
 
     expected = ["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "Undefined", "Undefined", None, None]
     assert result["sex"].to_list() == expected
+
+
+def test_fix_bmi_basic_calculation():
+    """Test basic BMI calculation from weight and height."""
+    df = pl.DataFrame(
+        {
+            "weight": [70.0, 80.0, 65.0],
+            "height": [1.75, 1.80, 1.60],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    # BMI = weight / height^2
+    assert "bmi" in result.columns
+    assert result["bmi"][0] == pytest.approx(22.857, abs=0.001)  # 70 / 1.75^2 = 22.857
+    assert result["bmi"][1] == pytest.approx(24.691, abs=0.001)  # 80 / 1.80^2 = 24.691
+    assert result["bmi"][2] == pytest.approx(25.391, abs=0.001)  # 65 / 1.60^2 = 25.391
+
+
+def test_fix_bmi_replaces_existing():
+    """Test that calculated BMI replaces existing BMI value."""
+    df = pl.DataFrame(
+        {
+            "weight": [70.0],
+            "height": [1.75],
+            "bmi": [999.9],  # Wrong BMI that should be replaced
+        }
+    )
+
+    result = fix_bmi(df)
+
+    # Should replace wrong BMI with correct calculation
+    assert result["bmi"][0] == pytest.approx(22.857, abs=0.001)
+
+
+def test_fix_bmi_null_weight():
+    """Test that null weight results in null BMI."""
+    df = pl.DataFrame(
+        {
+            "weight": [None, 70.0],
+            "height": [1.75, 1.75],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    assert result["bmi"][0] is None
+    assert result["bmi"][1] is not None
+
+
+def test_fix_bmi_null_height():
+    """Test that null height results in null BMI."""
+    df = pl.DataFrame(
+        {
+            "weight": [70.0, 70.0],
+            "height": [None, 1.75],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    assert result["bmi"][0] is None
+    assert result["bmi"][1] is not None
+
+
+def test_fix_bmi_error_value_weight():
+    """Test that error value weight results in error value BMI."""
+    df = pl.DataFrame(
+        {
+            "weight": [settings.error_val_numeric, 70.0],
+            "height": [1.75, 1.75],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    assert result["bmi"][0] == settings.error_val_numeric
+    assert result["bmi"][1] == pytest.approx(22.857, abs=0.001)
+
+
+def test_fix_bmi_error_value_height():
+    """Test that error value height results in error value BMI."""
+    df = pl.DataFrame(
+        {
+            "weight": [70.0, 70.0],
+            "height": [settings.error_val_numeric, 1.75],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    assert result["bmi"][0] == settings.error_val_numeric
+    assert result["bmi"][1] == pytest.approx(22.857, abs=0.001)
+
+
+def test_fix_bmi_missing_columns():
+    """Test that missing weight or height columns are handled gracefully."""
+    # Missing both
+    df = pl.DataFrame({"other": [1, 2, 3]})
+    result = fix_bmi(df)
+    assert result.equals(df)
+
+    # Missing weight
+    df = pl.DataFrame({"height": [1.75, 1.80]})
+    result = fix_bmi(df)
+    assert result.equals(df)
+
+    # Missing height
+    df = pl.DataFrame({"weight": [70.0, 80.0]})
+    result = fix_bmi(df)
+    assert result.equals(df)
+
+
+def test_fix_bmi_matches_r_behavior():
+    """Test that fix_bmi matches R's fix_bmi() function exactly."""
+    df = pl.DataFrame(
+        {
+            "weight": [70.0, None, settings.error_val_numeric, 80.0, 65.0],
+            "height": [1.75, 1.80, 1.75, None, settings.error_val_numeric],
+        }
+    )
+
+    result = fix_bmi(df)
+
+    # Row 0: Normal calculation
+    assert result["bmi"][0] == pytest.approx(22.857, abs=0.001)
+    # Row 1: Null weight → null BMI
+    assert result["bmi"][1] is None
+    # Row 2: Error weight → error BMI
+    assert result["bmi"][2] == settings.error_val_numeric
+    # Row 3: Null height → null BMI
+    assert result["bmi"][3] is None
+    # Row 4: Error height → error BMI
+    assert result["bmi"][4] == settings.error_val_numeric
