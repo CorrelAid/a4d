@@ -105,6 +105,46 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
     return df
 
 
+def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
+    """Calculate BMI from weight and height.
+
+    Matches R's fix_bmi() function behavior:
+    - If weight or height is null → BMI becomes null
+    - If weight or height is error value → BMI becomes error value
+    - Otherwise: BMI = weight / height^2
+
+    This calculation REPLACES any existing BMI value, matching R's behavior.
+
+    Args:
+        df: Input DataFrame (must have weight and height columns)
+
+    Returns:
+        DataFrame with calculated BMI column
+
+    Example:
+        >>> df = fix_bmi(df)
+        >>> # weight=70, height=1.75 → bmi=22.86
+    """
+    if "weight" not in df.columns or "height" not in df.columns:
+        return df
+
+    # Calculate BMI: weight / height^2
+    # Match R's case_when logic exactly
+    df = df.with_columns(
+        pl.when(pl.col("weight").is_null() | pl.col("height").is_null())
+        .then(None)
+        .when(
+            (pl.col("weight") == settings.error_val_numeric)
+            | (pl.col("height") == settings.error_val_numeric)
+        )
+        .then(pl.lit(settings.error_val_numeric))
+        .otherwise(pl.col("weight") / pl.col("height").pow(2))
+        .alias("bmi")
+    )
+
+    return df
+
+
 def str_to_lower(df: pl.DataFrame, column: str) -> pl.DataFrame:
     """Convert column values to lowercase.
 
