@@ -72,6 +72,37 @@ def load_provinces_by_country() -> dict[str, list[str]]:
     return provinces_by_country
 
 
+@lru_cache
+def load_canonical_provinces() -> list[str]:
+    """Load all allowed provinces with canonical casing (for validation).
+
+    Unlike load_allowed_provinces() which lowercases for matching,
+    this returns the original province names from the YAML with proper
+    casing and accents to use as canonical values in validation.
+
+    Returns:
+        List of all allowed province names (original casing) across all countries
+
+    Example:
+        >>> provinces = load_canonical_provinces()
+        >>> "Takéo" in provinces
+        True
+        >>> "Bangkok" in provinces
+        True
+    """
+    path = get_reference_data_path("provinces", "allowed_provinces.yaml")
+    provinces_by_country: dict[str, list[str]] = load_yaml(path)
+
+    # Flatten all provinces into single list WITHOUT lowercasing
+    all_provinces = []
+    for _, provinces in provinces_by_country.items():
+        all_provinces.extend(provinces)
+
+    logger.info(f"Loaded {len(all_provinces)} canonical province names from {len(provinces_by_country)} countries")
+
+    return all_provinces
+
+
 def is_valid_province(province: str | None) -> bool:
     """Check if a province name is valid (case-insensitive).
 
