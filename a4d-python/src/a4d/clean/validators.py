@@ -301,4 +301,118 @@ def validate_all_columns(
         patient_id_col=patient_id_col,
     )
 
+    # Fix patient_id LAST (other functions use it for logging)
+    df = fix_patient_id(
+        df=df,
+        error_collector=error_collector,
+        patient_id_col=patient_id_col,
+    )
+
+    return df
+
+
+def fix_patient_id(
+    df: pl.DataFrame,
+    error_collector: ErrorCollector,
+    patient_id_col: str = "patient_id",
+) -> pl.DataFrame:
+    """Validate and fix patient ID format.
+
+    Matches R's fix_id() function behavior:
+    - Valid format: XX_YY### (e.g., "KD_QB004")
+      - 2 uppercase letters, underscore, 2 uppercase letters, 3 digits
+    - Normalizes hyphens to underscores: "KD-QB004" → "KD_QB004"
+    - Truncates if > 8 characters: "KD_QB004XY" → "KD_QB004"
+    - Replaces with error value if ≤ 8 chars and invalid format
+
+    This function should be called LAST in the validation pipeline because
+    other functions use patient_id for error logging.
+
+    Args:
+        df: Input DataFrame
+        error_collector: ErrorCollector for tracking validation errors
+        patient_id_col: Column name for patient ID (default: "patient_id")
+
+    Returns:
+        DataFrame with validated/fixed patient IDs
+
+    Example:
+        >>> df = fix_patient_id(df, error_collector)
+        >>> # "KD_QB004" → "KD_QB004" (valid)
+        >>> # "KD-QB004" → "KD_QB004" (normalized)
+        >>> # "KD_QB004XY" → "KD_QB004" (truncated)
+        >>> # "INVALID" → "Other" (replaced)
+    """
+    import re
+
+    from a4d.config import settings
+
+    if patient_id_col not in df.columns:
+        return df
+
+    # Store original values for error reporting
+    original_col = f"{patient_id_col}_original"
+    df = df.with_columns(pl.col(patient_id_col).alias(original_col))
+
+    # Valid format: XX_YY### (2 letters, underscore, 2 letters, 3 digits)
+    valid_pattern = re.compile(r"^[A-Z]{2}_[A-Z]{2}\d{3}$")
+
+    def fix_single_id(patient_id: str | None) -> str | None:
+        """Fix a single patient ID value."""
+        if patient_id is None:
+            return None
+
+        # Step 1: Replace hyphens with underscores
+        patient_id = patient_id.replace("-", "_")
+
+        # Step 2: Check if it matches the valid pattern
+        if valid_pattern.match(patient_id):
+            return patient_id
+
+        # Step 3: Invalid format - either truncate or replace
+        if len(patient_id) > 8:
+            # Truncate to 8 characters
+            return patient_id[:8]
+        else:
+            # Replace with error value
+            return settings.error_val_character
+
+    # Apply transformation
+    df = df.with_columns(pl.col(patient_id_col).map_elements(fix_single_id, return_dtype=pl.String).alias(patient_id_col))
+
+    # Now collect errors for changed values
+    for row in df.iter_rows(named=True):
+        original = row[original_col]
+        fixed = row[patient_id_col]
+
+        if original != fixed and original is not None:
+            # Normalize original to check if it's just hyphen replacement
+            normalized = original.replace("-", "_")
+
+            if normalized != fixed:
+                # Not just normalization - either truncation or replacement
+                if len(original.replace("-", "_")) > 8:
+                    # Truncation
+                    error_collector.add_error(
+                        file_name="",
+                        patient_id=original,
+                        column=patient_id_col,
+                        original_value=original,
+                        error_message=f"Patient ID truncated (length > 8)",
+                        error_code="invalid_value",
+                    )
+                else:
+                    # Replacement
+                    error_collector.add_error(
+                        file_name="",
+                        patient_id=original,
+                        column=patient_id_col,
+                        original_value=original,
+                        error_message=f"Invalid patient ID format (expected XX_YY###)",
+                        error_code="invalid_value",
+                    )
+
+    # Drop the temporary column
+    df = df.drop(original_col)
+
     return df

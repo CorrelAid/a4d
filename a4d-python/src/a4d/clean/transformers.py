@@ -235,3 +235,147 @@ def correct_decimal_sign_multiple(
         df = correct_decimal_sign(df, column)
 
     return df
+
+
+def replace_range_with_mean(x: str) -> float:
+    """Calculate mean of a range string.
+
+    Matches R's replace_range_with_mean() function behavior.
+    Splits string on "-", converts parts to numeric, returns mean.
+
+    Args:
+        x: Range string (e.g., "0-2", "2-3")
+
+    Returns:
+        Mean of the range values
+
+    Example:
+        >>> replace_range_with_mean("0-2")
+        1.0
+        >>> replace_range_with_mean("2-3")
+        2.5
+    """
+    parts = x.split("-")
+    numbers = [float(p) for p in parts]
+    return sum(numbers) / len(numbers)
+
+
+def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
+    """Fix testing_frequency column by replacing ranges with mean values.
+
+    Matches R's fix_testing_frequency() function behavior:
+    - Replaces ranges like "0-2" with mean "1"
+    - Preserves null and empty values as null
+    - Logs warning when ranges are detected
+
+    Args:
+        df: Input DataFrame
+
+    Returns:
+        DataFrame with testing_frequency ranges replaced by mean values
+
+    Example:
+        >>> df = fix_testing_frequency(df)
+        >>> # "0-2" → "1"
+        >>> # "2-3" → "2.5"
+        >>> # "2" → "2" (unchanged)
+    """
+    if "testing_frequency" not in df.columns:
+        return df
+
+    from loguru import logger
+
+    # Track if we logged warnings
+    has_ranges = False
+
+    def fix_value(value: str | None) -> str | None:
+        """Fix a single testing_frequency value."""
+        nonlocal has_ranges
+
+        if value is None or value == "":
+            return None
+
+        if "-" in value:
+            has_ranges = True
+
+            try:
+                mean_value = replace_range_with_mean(value)
+                # Return as string, remove trailing .0 for whole numbers
+                if mean_value == int(mean_value):
+                    return str(int(mean_value))
+                return str(mean_value)
+            except Exception:
+                # If replacement fails, return None
+                return None
+
+        return value
+
+    # Apply transformation
+    df = df.with_columns(pl.col("testing_frequency").map_elements(fix_value, return_dtype=pl.String).alias("testing_frequency"))
+
+    # Log warning if any ranges were found
+    if has_ranges:
+        logger.warning("Found ranges in testing_frequency column. Replacing with mean values.")
+
+    return df
+
+
+def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
+    """Split blood_pressure_mmhg into systolic and diastolic columns.
+
+    Matches R's split_bp_in_sys_and_dias() function behavior:
+    - Splits "120/80" format into two columns
+    - Invalid formats (without "/") are replaced with error value
+    - Logs warning for invalid values
+
+    Args:
+        df: Input DataFrame with blood_pressure_mmhg column
+
+    Returns:
+        DataFrame with blood_pressure_sys_mmhg and blood_pressure_dias_mmhg columns
+
+    Example:
+        >>> df = split_bp_in_sys_and_dias(df)
+        >>> # "96/55" → sys="96", dias="55"
+        >>> # "96" → sys="999999", dias="999999" (invalid)
+    """
+    if "blood_pressure_mmhg" not in df.columns:
+        return df
+
+    from loguru import logger
+
+    # First, replace invalid values (those without "/") with error format
+    error_val_int = int(settings.error_val_numeric)
+    df = df.with_columns(
+        pl.when(~pl.col("blood_pressure_mmhg").str.contains("/", literal=True))
+        .then(pl.lit(f"{error_val_int}/{error_val_int}"))
+        .otherwise(pl.col("blood_pressure_mmhg"))
+        .alias("blood_pressure_mmhg")
+    )
+
+    # Check if any invalid values were found
+    error_pattern = f"{error_val_int}/{error_val_int}"
+    has_errors = df.filter(pl.col("blood_pressure_mmhg") == error_pattern).height > 0
+
+    if has_errors:
+        logger.warning(
+            f"Found invalid values for column blood_pressure_mmhg that do not follow the format X/Y. "
+            f"Values were replaced with {error_val_int}."
+        )
+
+    # Split the column
+    df = df.with_columns(
+        pl.col("blood_pressure_mmhg")
+        .str.split("/")
+        .list.get(0)
+        .alias("blood_pressure_sys_mmhg"),
+        pl.col("blood_pressure_mmhg")
+        .str.split("/")
+        .list.get(1)
+        .alias("blood_pressure_dias_mmhg"),
+    )
+
+    # Drop the original combined column
+    df = df.drop("blood_pressure_mmhg")
+
+    return df
