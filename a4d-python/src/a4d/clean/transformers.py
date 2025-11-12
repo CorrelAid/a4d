@@ -10,6 +10,8 @@ type: basic_function.
 import polars as pl
 import re
 
+from a4d.config import settings
+
 
 def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.DataFrame:
     """Extract and standardize insulin regimen values.
@@ -48,6 +50,57 @@ def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.Dat
         .str.replace(r"^.*conventional.*$", "Modified conventional TID")
         .alias(column)
     )
+
+    return df
+
+
+def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
+    """Map sex synonyms to canonical values (M/F) or error value.
+
+    Matches R's fix_sex() function behavior:
+    - Female synonyms: female, girl, woman, fem, feminine, f → "F"
+    - Male synonyms: male, boy, man, masculine, m → "M"
+    - Anything else → "Undefined" (error value)
+
+    Args:
+        df: Input DataFrame
+        column: Column name to transform (default: "sex")
+
+    Returns:
+        DataFrame with sex values normalized to M/F or Undefined
+
+    Example:
+        >>> df = fix_sex(df)
+        >>> # "Female" → "F"
+        >>> # "MALE" → "M"
+        >>> # "invalid" → "Undefined"
+    """
+    if column not in df.columns:
+        return df
+
+    # Define synonyms matching R's fix_sex function
+    synonyms_female = ["female", "girl", "woman", "fem", "feminine", "f"]
+    synonyms_male = ["male", "boy", "man", "masculine", "m"]
+
+    # Build expression using pl.when().then().when().then()... chain
+    # Start with null/empty handling
+    expr = (
+        pl.when(pl.col(column).is_null() | (pl.col(column) == ""))
+        .then(None)
+    )
+
+    # Add female synonyms
+    for synonym in synonyms_female:
+        expr = expr.when(pl.col(column).str.to_lowercase() == synonym).then(pl.lit("F"))
+
+    # Add male synonyms
+    for synonym in synonyms_male:
+        expr = expr.when(pl.col(column).str.to_lowercase() == synonym).then(pl.lit("M"))
+
+    # Default: anything else becomes Undefined
+    expr = expr.otherwise(pl.lit(settings.error_val_character))
+
+    df = df.with_columns(expr.alias(column))
 
     return df
 
