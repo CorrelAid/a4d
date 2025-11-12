@@ -8,6 +8,7 @@ from a4d.clean.validators import (
     validate_allowed_values,
     validate_column_from_rules,
     validate_all_columns,
+    fix_patient_id,
 )
 from a4d.config import settings
 from a4d.errors import ErrorCollector
@@ -323,3 +324,270 @@ def test_validate_allowed_values_case_insensitive():
     # Lowercase "y" should match "Y" and be normalized to canonical "Y"
     assert result["clinic_visit"].to_list() == ["Y", "Y", "N"]
     assert len(collector) == 0  # No errors - "y" is valid
+
+
+# Tests for fix_patient_id
+
+
+def test_fix_patient_id_valid_ids():
+    """Test that valid patient IDs are not changed."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_EW004", "AB_CD123", "XY_ZW999"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["KD_EW004", "AB_CD123", "XY_ZW999"]
+    assert len(collector) == 0
+
+
+def test_fix_patient_id_hyphen_normalization():
+    """Test that hyphens are replaced with underscores."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD-EW004", "AB-CD123"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["KD_EW004", "AB_CD123"]
+    assert len(collector) == 0  # Normalization doesn't generate errors
+
+
+def test_fix_patient_id_truncation():
+    """Test that IDs > 8 chars are truncated."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_EW004XY", "KD_EW004ABC", "VERYLONGID"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    # First 8 characters
+    assert result["patient_id"].to_list() == ["KD_EW004", "KD_EW004", "VERYLONG"]
+    # Truncation generates warnings
+    assert len(collector) == 3
+
+
+def test_fix_patient_id_invalid_too_short_first_part():
+    """Test that IDs with < 2 letters in first part are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["K_EW004", "A_CD123"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
+    assert len(collector) == 2
+
+
+def test_fix_patient_id_invalid_too_short_second_part():
+    """Test that IDs with < 2 letters in second part are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_E004", "AB_C123"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
+    assert len(collector) == 2
+
+
+def test_fix_patient_id_invalid_wrong_digits():
+    """Test that IDs without exactly 3 digits are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_EW04", "KD_EW0", "KD_EW0001"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    # All invalid (2 digits, 1 digit, 4 digits)
+    assert result["patient_id"][0] == "Undefined"
+    assert result["patient_id"][1] == "Undefined"
+    # KD_EW0001 is > 8 chars, so truncated to KD_EW000
+    assert result["patient_id"][2] == "KD_EW000"
+
+
+def test_fix_patient_id_invalid_digits_in_letter_positions():
+    """Test that IDs with digits instead of letters are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["11_EW004", "KD_E1004", "12_34567"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
+    assert len(collector) == 3
+
+
+def test_fix_patient_id_invalid_letters_in_digit_positions():
+    """Test that IDs with letters in digit positions are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_EWX04", "KD_EWABC"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
+    assert len(collector) == 2
+
+
+def test_fix_patient_id_invalid_no_underscore():
+    """Test that IDs without underscore are replaced."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KDEW004", "INVALID"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
+    assert len(collector) == 2
+
+
+def test_fix_patient_id_null_values():
+    """Test that null values are preserved."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KD_EW004", None, "AB_CD123"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"][0] == "KD_EW004"
+    assert result["patient_id"][1] is None
+    assert result["patient_id"][2] == "AB_CD123"
+    assert len(collector) == 0
+
+
+def test_fix_patient_id_empty_string():
+    """Test that empty string is replaced with error value."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["", "KD_EW004"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"][0] == "Undefined"
+    assert result["patient_id"][1] == "KD_EW004"
+    assert len(collector) == 1
+
+
+def test_fix_patient_id_missing_column():
+    """Test that missing column is handled gracefully."""
+    df = pl.DataFrame({"other": [1, 2, 3]})
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result.equals(df)
+    assert len(collector) == 0
+
+
+def test_fix_patient_id_mixed_valid_invalid():
+    """Test mixed valid and invalid IDs."""
+    df = pl.DataFrame(
+        {
+            "patient_id": [
+                "KD_EW004",  # Valid
+                "KD-AB123",  # Valid after normalization
+                "INVALID",  # Invalid, replaced
+                "KD_EW004XY",  # Invalid, truncated
+                None,  # Null preserved
+            ],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"][0] == "KD_EW004"
+    assert result["patient_id"][1] == "KD_AB123"
+    assert result["patient_id"][2] == "Undefined"
+    assert result["patient_id"][3] == "KD_EW004"
+    assert result["patient_id"][4] is None
+    assert len(collector) == 2  # 1 replacement + 1 truncation
+
+
+def test_fix_patient_id_lowercase_letters():
+    """Test that lowercase letters make ID invalid."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["kd_ew004", "KD_ew004", "kd_EW004"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    # All should be replaced (format requires uppercase)
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
+    assert len(collector) == 3
+
+
+def test_fix_patient_id_matches_r_behavior():
+    """Test that fix_patient_id matches R's fix_id() exactly."""
+    df = pl.DataFrame(
+        {
+            "patient_id": [
+                "KD_EW004",  # Valid
+                "KD-EW004",  # Normalize - to _
+                "K_EW004",  # Too short first part
+                "KD_E004",  # Too short second part
+                "KD_EWX04",  # Invalid format
+                "11_EW004",  # Digits instead of letters
+                "KD_E1004",  # Digit in letter position
+                "KD_EW004XY",  # Truncate (> 8 chars)
+                None,  # Null
+                "",  # Empty
+            ],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    expected = [
+        "KD_EW004",  # Valid
+        "KD_EW004",  # Normalized
+        "Undefined",  # Invalid
+        "Undefined",  # Invalid
+        "Undefined",  # Invalid
+        "Undefined",  # Invalid
+        "Undefined",  # Invalid
+        "KD_EW004",  # Truncated
+        None,  # Null
+        "Undefined",  # Empty → Other
+    ]
+    assert result["patient_id"].to_list() == expected
+    # Errors: 5 replacements + 1 truncation + 1 empty string = 7
+    assert len(collector) == 7

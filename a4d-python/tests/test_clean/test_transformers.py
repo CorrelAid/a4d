@@ -10,6 +10,9 @@ from a4d.clean.transformers import (
     correct_decimal_sign_multiple,
     fix_sex,
     fix_bmi,
+    replace_range_with_mean,
+    fix_testing_frequency,
+    split_bp_in_sys_and_dias,
 )
 from a4d.config import settings
 
@@ -524,3 +527,271 @@ def test_fix_bmi_matches_r_behavior():
     assert result["bmi"][3] is None
     # Row 4: Error height → error BMI
     assert result["bmi"][4] == settings.error_val_numeric
+
+
+# Tests for replace_range_with_mean
+
+
+def test_replace_range_with_mean_basic():
+    """Test basic range mean calculation."""
+    assert replace_range_with_mean("0-2") == pytest.approx(1.0)
+    assert replace_range_with_mean("2-3") == pytest.approx(2.5)
+    assert replace_range_with_mean("1-5") == pytest.approx(3.0)
+
+
+def test_replace_range_with_mean_larger_ranges():
+    """Test larger range values."""
+    assert replace_range_with_mean("10-20") == pytest.approx(15.0)
+    assert replace_range_with_mean("0-10") == pytest.approx(5.0)
+
+
+def test_replace_range_with_mean_same_values():
+    """Test range where both values are the same."""
+    assert replace_range_with_mean("0-0") == pytest.approx(0.0)
+    assert replace_range_with_mean("5-5") == pytest.approx(5.0)
+
+
+def test_replace_range_with_mean_decimals():
+    """Test ranges with decimal values."""
+    assert replace_range_with_mean("1.5-2.5") == pytest.approx(2.0)
+    assert replace_range_with_mean("0.5-1.5") == pytest.approx(1.0)
+
+
+# Tests for fix_testing_frequency
+
+
+def test_fix_testing_frequency_passthrough():
+    """Test that normal values pass through unchanged."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2", "P3"],
+            "testing_frequency": ["2", "1.5", "3"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"].to_list() == ["2", "1.5", "3"]
+
+
+def test_fix_testing_frequency_range_replacement():
+    """Test that ranges are replaced with mean."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2", "P3"],
+            "testing_frequency": ["0-2", "2-3", "1-5"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"].to_list() == ["1", "2.5", "3"]
+
+
+def test_fix_testing_frequency_mixed():
+    """Test mixed normal values and ranges."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2", "P3", "P4"],
+            "testing_frequency": ["2", "0-2", "1.5", "2-3"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"].to_list() == ["2", "1", "1.5", "2.5"]
+
+
+def test_fix_testing_frequency_null_handling():
+    """Test that null and empty values are preserved."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2", "P3"],
+            "testing_frequency": [None, "", "2"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"][0] is None
+    assert result["testing_frequency"][1] is None
+    assert result["testing_frequency"][2] == "2"
+
+
+def test_fix_testing_frequency_whole_numbers():
+    """Test that whole number means don't have decimal points."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2"],
+            "testing_frequency": ["0-2", "1-3"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    # 0-2 mean is 1.0, should be "1" not "1.0"
+    # 1-3 mean is 2.0, should be "2" not "2.0"
+    assert result["testing_frequency"][0] == "1"
+    assert result["testing_frequency"][1] == "2"
+
+
+def test_fix_testing_frequency_missing_column():
+    """Test that missing column is handled gracefully."""
+    df = pl.DataFrame({"other": [1, 2, 3]})
+
+    result = fix_testing_frequency(df)
+
+    assert result.equals(df)
+
+
+def test_fix_testing_frequency_large_range():
+    """Test larger ranges."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1"],
+            "testing_frequency": ["0-10"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"][0] == "5"
+
+
+def test_fix_testing_frequency_preserves_other_columns():
+    """Test that other columns are preserved."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2"],
+            "testing_frequency": ["0-2", "3"],
+            "other_col": ["A", "B"],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert "patient_id" in result.columns
+    assert "other_col" in result.columns
+    assert result["other_col"].to_list() == ["A", "B"]
+
+
+# Tests for split_bp_in_sys_and_dias
+
+
+def test_split_bp_valid_format():
+    """Test splitting valid blood pressure format."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["96/55", "101/57", "120/80"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert "blood_pressure_sys_mmhg" in result.columns
+    assert "blood_pressure_dias_mmhg" in result.columns
+    assert "blood_pressure_mmhg" not in result.columns
+
+    assert result["blood_pressure_sys_mmhg"].to_list() == ["96", "101", "120"]
+    assert result["blood_pressure_dias_mmhg"].to_list() == ["55", "57", "80"]
+
+
+def test_split_bp_invalid_no_slash():
+    """Test that values without slash are replaced with error value."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["96", "1,6", ""],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    error_val = str(int(settings.error_val_numeric))
+    assert result["blood_pressure_sys_mmhg"].to_list() == [error_val, error_val, error_val]
+    assert result["blood_pressure_dias_mmhg"].to_list() == [error_val, error_val, error_val]
+
+
+def test_split_bp_mixed_valid_invalid():
+    """Test mixed valid and invalid values."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["96/55", "invalid", "120/80"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    error_val = str(int(settings.error_val_numeric))
+    assert result["blood_pressure_sys_mmhg"].to_list() == ["96", error_val, "120"]
+    assert result["blood_pressure_dias_mmhg"].to_list() == ["55", error_val, "80"]
+
+
+def test_split_bp_null_values():
+    """Test that null values are preserved."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["96/55", None, "120/80"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert result["blood_pressure_sys_mmhg"][0] == "96"
+    assert result["blood_pressure_sys_mmhg"][1] is None
+    assert result["blood_pressure_sys_mmhg"][2] == "120"
+
+
+def test_split_bp_missing_column():
+    """Test that missing column is handled gracefully."""
+    df = pl.DataFrame({"other": [1, 2, 3]})
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert result.equals(df)
+
+
+def test_split_bp_drops_original_column():
+    """Test that original blood_pressure_mmhg column is dropped."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["96/55", "120/80"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert "blood_pressure_mmhg" not in result.columns
+
+
+def test_split_bp_preserves_other_columns():
+    """Test that other columns are preserved."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["P1", "P2"],
+            "blood_pressure_mmhg": ["96/55", "120/80"],
+            "other_col": ["A", "B"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert "patient_id" in result.columns
+    assert "other_col" in result.columns
+    assert result["patient_id"].to_list() == ["P1", "P2"]
+    assert result["other_col"].to_list() == ["A", "B"]
+
+
+def test_split_bp_multiple_invalid():
+    """Test multiple invalid values log warning."""
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["invalid1", "invalid2", "96/55"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    error_val = str(int(settings.error_val_numeric))
+    assert result["blood_pressure_sys_mmhg"][0] == error_val
+    assert result["blood_pressure_sys_mmhg"][1] == error_val
+    assert result["blood_pressure_sys_mmhg"][2] == "96"

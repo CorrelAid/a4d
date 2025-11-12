@@ -173,7 +173,11 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     df = _extract_date_from_measurement(df, "fbg_updated_mg")
     df = _extract_date_from_measurement(df, "fbg_updated_mmol")
 
-    # TODO: Implement split_bp_in_sys_and_dias() for blood_pressure_mmhg when needed
+    # Split blood pressure for pre-2024 trackers (R line 72)
+    if "blood_pressure_mmhg" in df.columns:
+        from a4d.clean.transformers import split_bp_in_sys_and_dias
+
+        df = split_bp_in_sys_and_dias(df)
 
     return df
 
@@ -380,7 +384,14 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     # Map sex synonyms to M/F (matching R's fix_sex)
     if "sex" in df.columns:
         from a4d.clean.transformers import fix_sex
+
         df = fix_sex(df)
+
+    # Fix testing frequency ranges (R line 258)
+    if "testing_frequency" in df.columns:
+        from a4d.clean.transformers import fix_testing_frequency
+
+        df = fix_testing_frequency(df)
 
     # Correct European decimal format (comma → dot)
     numeric_cols = [
