@@ -288,15 +288,15 @@ process_raw_patient_file <- function(paths, patient_file, patient_file_name, out
                 cut_numeric_value(min = 0, max = 2.3, col_name = "height"),
             weight = cut_numeric_value(weight, min = 0, max = 200, col_name = "weight"),
             bmi = fix_bmi(weight, height, patient_id) %>%
-                cut_numeric_value(min = 4, max = 60, "bmi"),
+                cut_numeric_value(min = 10, max = 80, "bmi"),
             age = fix_age(age, dob, tracker_year, tracker_month, patient_id) %>%
-                cut_numeric_value(min = 0, max = 25, "age"),
+                cut_numeric_value(min = 0, max = 100, "age"),
             sex = fix_sex(sex, patient_id),
-            hba1c_baseline = cut_numeric_value(hba1c_baseline, min = 4, max = 18, "hba1c_baseline"),
+            hba1c_baseline = cut_numeric_value(hba1c_baseline, min = 0, max = 25, "hba1c_baseline"),
             # https://www.cleveland19.com/story/1425584/ohio-man-holds-world-record-of-highest-blood-sugar/
             # fbg_baseline_mmol = cut_numeric_value(fbg_baseline_mmol, min = 0, max = 136.5, "fbg_baseline_mmol"),
             # https://www.cleveland19.com/story/1425584/ohio-man-holds-world-record-of-highest-blood-sugar/
-            fbg_updated_mmol = cut_numeric_value(fbg_updated_mmol, min = 0, max = 136.5, "fbg_updated_mmol"),
+            fbg_updated_mmol = cut_numeric_value(fbg_updated_mmol, min = 0, max = 150, "fbg_updated_mmol"),
             # blood_pressure_sys_mmhg = cut_numeric_value(blood_pressure_sys_mmhg, min = 20, max = 250, "blood_pressure_sys_mmhg"),
             # blood_pressure_dias_mmhg = cut_numeric_value(blood_pressure_dias_mmhg, min = 20, max = 220, "blood_pressure_dias_mmhg"),
             tracker_date = lubridate::ym(paste(tracker_year, tracker_month, sep = "-")),
