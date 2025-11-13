@@ -61,33 +61,11 @@ KNOWN_ISSUES = {
     "2018_Penang General Hospital A4D Tracker_DC_patient_cleaned.parquet": {
         "duplicate_records": "Excel has duplicate patient_id MY_PN004 in Oct18 sheet that needs to be fixed",
     },
-    "2021_Mahosot Hospital A4D Tracker_DC_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (LA-MH056 -> LA_MH056)",
-    },
-    "2022_Vietnam National Children_s Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (VN-VC070 -> VN_VC070)",
-    },
-    "2023_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (LA-MH056 -> LA_MH056)",
-    },
     "2023_NPH A4D Tracker_patient_cleaned.parquet": {
         "patient_id_format": "Excel has wrong patient IDs in Sep23/Oct23: KH_NPH026 (should be KH_NP026). Python extracts as-is, R truncates to KH_NPH02",
     },
     "2023_Vietnam National Children's Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (VN-VC070 -> VN_VC070)",
         "duplicate_records": "Excel has duplicate patient_id VN_VC026 in Aug23 sheet that needs to be fixed",
-    },
-    "2024_CDA A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (KH-CD016, KH-CD017 -> KH_CD016, KH_CD017)",
-    },
-    "2024_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (LA-MH056 -> LA_MH056)",
-    },
-    "2025_06_Lao Friends Hospital for Children A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (LA-MH093_LF -> LA_MH093_LF)",
-    },
-    "2025_06_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Python needs to normalize hyphens to underscores in patient IDs (LA-MH056 -> LA_MH056)",
     },
     "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet": {
         "patient_id_extraction": "R incorrectly creates 'Undefined' patient_id for 18 records across all months. Python correctly extracts the actual patient IDs (121 unique vs R's 119 + Undefined)",
