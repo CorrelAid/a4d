@@ -20,7 +20,6 @@ set_second_row_as_headers_and_remove_first_row <- function(df) {
 # Conditions to cut of at start msd data
 helper_is_msd_start_row <- function(df, i) {
     condition <- dplyr::case_when(
-
         # 2021
         # any(grepl("MEDICAL", df[i, ])) &
         # any(grepl("Product", df[i + 1, ])) &

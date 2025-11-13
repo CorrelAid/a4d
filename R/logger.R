@@ -45,7 +45,6 @@ setup_file_logger <- function(logfile, output_root) {
 }
 
 
-
 #' Temporary File Logger
 #'
 #' Temporarily change logging to exclusively log to specific log file

@@ -136,7 +136,6 @@ extract_patient_data <- function(tracker_data_file, sheet, year) {
 }
 
 
-
 #' Harmonize patient data column names.
 #'
 #' @description
