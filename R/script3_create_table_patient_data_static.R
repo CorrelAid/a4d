@@ -40,12 +40,14 @@ create_table_patient_data_static <- function(patient_data_files, input_root, out
         dplyr::select(tidyselect::all_of(static_patient_columns))
 
     # get latest static patient data overall
+    # Group by both patient_id AND clinic_id to handle transfer patients
+    # who may appear in multiple clinics during the same tracker period
     static_patient_data <- static_patient_data %>%
-        dplyr::group_by(patient_id) %>%
+        dplyr::group_by(patient_id, clinic_id) %>%
         dplyr::slice_max(tracker_year, n = 1) %>%
         dplyr::slice_max(tracker_month, n = 1, with_ties = FALSE) %>%
         dplyr::ungroup() %>%
-        dplyr::arrange(tracker_year, tracker_month, patient_id)
+        dplyr::arrange(tracker_year, tracker_month, patient_id, clinic_id)
 
     # this assertion holds no longer true because we added clinic_id to the static columns
     # and patients can switch the clinic (from pediatric to adult clinic for example)
