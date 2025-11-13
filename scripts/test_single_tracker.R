@@ -2,10 +2,10 @@
 # Test script to run R pipeline steps 1 & 2 on a single tracker file
 #
 # Usage:
-#   Rscript scripts/test_single_tracker.R "/path/to/tracker.xlsx"
+# Rscript scripts/test_single_tracker.R "/path/to/tracker.xlsx"
 #
 # Example:
-#   Rscript scripts/test_single_tracker.R "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/SBU/2023_Sibu Hospital A4D Tracker.xlsx"
+# Rscript scripts/test_single_tracker.R "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/SBU/2023_Sibu Hospital A4D Tracker.xlsx"
 
 library(devtools)
 
