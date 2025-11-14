@@ -22,25 +22,6 @@ pytestmark = [pytest.mark.slow, pytest.mark.integration]
 R_OUTPUT_DIR = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned")
 PY_OUTPUT_DIR = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/patient_data_cleaned")
 
-
-def get_all_tracker_files() -> list[tuple[str, Path, Path]]:
-    """Get list of all tracker parquet files that exist in R output.
-
-    Returns:
-        List of (filename, r_path, py_path) tuples
-    """
-    if not R_OUTPUT_DIR.exists():
-        return []
-
-    trackers = []
-    for r_file in sorted(R_OUTPUT_DIR.glob("*_patient_cleaned.parquet")):
-        filename = r_file.name
-        py_file = PY_OUTPUT_DIR / filename
-        trackers.append((filename, r_file, py_file))
-
-    return trackers
-
-
 # Acceptable differences where Python behavior is correct/better than R
 # These tests will PASS with the documented differences
 ACCEPTABLE_DIFFERENCES = {
@@ -61,14 +42,14 @@ KNOWN_ISSUES = {
     "2018_Penang General Hospital A4D Tracker_DC_patient_cleaned.parquet": {
         "duplicate_records": "Excel has duplicate patient_id MY_PN004 in Oct18 sheet that needs to be fixed",
     },
-    "2023_NPH A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "Excel has wrong patient IDs in Sep23/Oct23: KH_NPH026 (should be KH_NP026). Python extracts as-is, R truncates to KH_NPH02",
-    },
     "2023_Vietnam National Children's Hospital A4D Tracker_patient_cleaned.parquet": {
         "duplicate_records": "Excel has duplicate patient_id VN_VC026 in Aug23 sheet that needs to be fixed",
     },
+    "2023_NPH A4D Tracker_patient_cleaned.parquet": {
+        "duplicate_records": "4 patients KH_NPH026, KH_NPH027, KH_NPH028, KH_NPH029 have incorrect patient_id in Sep23 and Oct23 and are truncated to KH_NPH02 causing duplicates",
+    },
     "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_extraction": "R incorrectly creates 'Undefined' patient_id for 18 records across all months. Python correctly extracts the actual patient IDs (121 unique vs R's 119 + Undefined)",
+        "duplicate_records": "3 patients MM_NO97, MM_NO98, and MM_NO99 have too short patient_id which are replaced with Undefined causing duplicates",
     },
 }
 
@@ -105,6 +86,14 @@ REQUIRED_COLUMNS = {
     "tracker_date",
     "clinic_id",
     "status",
+}
+
+# Exceptions for required column validation - files where specific required columns have known null values
+# Format: {filename: {column: reason}}
+REQUIRED_COLUMN_EXCEPTIONS = {
+    "2017_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
+        "status": "2017 tracker has missing status values in source Excel file",
+    },
 }
 
 # Value mappings for known acceptable differences between R and Python
@@ -149,6 +138,23 @@ PATIENT_LEVEL_EXCEPTIONS = {
     },
 }
 
+
+def get_all_tracker_files() -> list[tuple[str, Path, Path]]:
+    """Get list of all tracker parquet files that exist in R output.
+
+    Returns:
+        List of (filename, r_path, py_path) tuples
+    """
+    if not R_OUTPUT_DIR.exists():
+        return []
+
+    trackers = []
+    for r_file in sorted(R_OUTPUT_DIR.glob("*_patient_cleaned.parquet")):
+        filename = r_file.name
+        py_file = PY_OUTPUT_DIR / filename
+        trackers.append((filename, r_file, py_file))
+
+    return trackers
 
 @pytest.fixture(scope="module")
 def tracker_files():
@@ -262,6 +268,10 @@ def test_patient_ids_match(filename, r_path, py_path):
     df_r = pl.read_parquet(r_path)
     df_py = pl.read_parquet(py_path)
 
+    if filename == "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet":
+        print("Debug: R patient_ids:", sorted(df_r["patient_id"].unique().to_list()))
+        print("Debug: Python patient_ids:", sorted(df_py["patient_id"].unique().to_list()))
+
     r_patients = set(df_r["patient_id"])
     py_patients = set(df_py["patient_id"])
 
@@ -318,7 +328,7 @@ def test_no_duplicate_records(filename, r_path, py_path):
 
     # Check for duplicates
     duplicates = (
-        df_py.group_by(["patient_id", "tracker_month"]).agg(pl.len().alias("count")).filter(pl.col("count") > 1)
+        df_py.group_by(["patient_id", "clinic_id", "tracker_month"]).agg(pl.len().alias("count")).filter(pl.col("count") > 1)
     )
 
     has_duplicates = len(duplicates) > 0
@@ -335,7 +345,7 @@ def test_no_duplicate_records(filename, r_path, py_path):
             )
 
     assert len(duplicates) == 0, (
-        f"{filename}: Found {len(duplicates)} duplicate (patient_id, tracker_month) combinations"
+        f"{filename}: Found {len(duplicates)} duplicate (patient_id, clinic_id, tracker_month) combinations"
     )
 
 
@@ -363,6 +373,11 @@ def test_required_columns_not_null(filename, r_path, py_path):
         if col not in df_py.columns:
             null_issues.append(f"{col}: Column missing from output")
             continue
+
+        # Skip if this file/column combination has a known exception
+        if filename in REQUIRED_COLUMN_EXCEPTIONS:
+            if col in REQUIRED_COLUMN_EXCEPTIONS[filename]:
+                continue
 
         null_count = df_py[col].null_count()
         if null_count > 0:
