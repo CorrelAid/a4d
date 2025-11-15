@@ -13,6 +13,7 @@ import polars as pl
 from loguru import logger
 from openpyxl import load_workbook
 
+from a4d.errors import ErrorCollector
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
 # Suppress openpyxl warnings about unsupported Excel features
@@ -625,6 +626,7 @@ def extract_tracker_month(sheet_name: str) -> int:
 def read_all_patient_sheets(
     tracker_file: Path,
     mapper: ColumnMapper | None = None,
+    error_collector: ErrorCollector | None = None,
 ) -> pl.DataFrame:
     """Read patient data from all month sheets in a tracker file.
 
@@ -642,6 +644,7 @@ def read_all_patient_sheets(
     Args:
         tracker_file: Path to the tracker Excel file
         mapper: ColumnMapper to use (if None, loads default patient mapper)
+        error_collector: ErrorCollector for tracking data quality issues (optional)
 
     Returns:
         Combined DataFrame with all patient data from all month sheets
@@ -723,23 +726,55 @@ def read_all_patient_sheets(
 
     initial_rows = len(df_combined)
 
+    # Track rows with missing patient_id for error reporting
+    missing_patient_id_rows = df_combined.filter(pl.col("patient_id").is_null())
+    missing_count = len(missing_patient_id_rows)
+
+    if missing_count > 0:
+        logger.error(
+            f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
+            f"these rows will be excluded from processing"
+        )
+
+        # Log to ErrorCollector if available
+        if error_collector is not None:
+            for row in missing_patient_id_rows.iter_rows(named=True):
+                sheet_name = row.get("sheet_name", "unknown")
+                name_value = row.get("name", "")
+                error_collector.add_error(
+                    file_name=tracker_file.stem,
+                    patient_id="MISSING",
+                    column="patient_id",
+                    original_value=None,
+                    error_message=f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})",
+                    error_code="missing_required_field",
+                    script="extract",
+                    function_name="read_all_patient_sheets",
+                )
+
+    # Filter out ALL rows with missing patient_id
+    df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
+
+    # Filter out empty rows (both patient_id and name are null/empty) - this is redundant now but kept for clarity
     if "name" in df_combined.columns:
         df_combined = df_combined.filter(
-            ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
+            ~((pl.col("patient_id").str.strip_chars() == "") &
+              (pl.col("name").is_null() | (pl.col("name").str.strip_chars() == "")))
         )
-        # Filter out rows where both patient_id and name are numeric zeros (0, 0.0, "0", "0.0", etc.)
+
+    # Filter out rows where both patient_id and name are numeric zeros (0, 0.0, "0", "0.0", etc.)
+    if "name" in df_combined.columns:
         df_combined = df_combined.filter(
             ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
               pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
         )
-    else:
-        df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
 
+    # Filter out rows with patient_id starting with "#" (Excel errors like #REF!)
     df_combined = df_combined.filter(~pl.col("patient_id").str.starts_with("#"))
 
     filtered_rows = initial_rows - len(df_combined)
     if filtered_rows > 0:
-        logger.info(f"Filtered out {filtered_rows} invalid rows")
+        logger.info(f"Filtered out {filtered_rows} invalid rows total")
 
     df_combined = clean_excel_errors(df_combined)
 
@@ -758,16 +793,15 @@ def read_all_patient_sheets(
                 patient_list = harmonize_patient_data_columns(patient_list, mapper=mapper, strict=False)
 
                 if "patient_id" in patient_list.columns:
+                    # Filter out rows with missing patient_id
+                    patient_list = patient_list.filter(pl.col("patient_id").is_not_null())
+
+                    # Filter out numeric zeros and Excel errors
                     if "name" in patient_list.columns:
-                        patient_list = patient_list.filter(
-                            ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
-                        )
                         patient_list = patient_list.filter(
                             ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
                               pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
                         )
-                    else:
-                        patient_list = patient_list.filter(pl.col("patient_id").is_not_null())
 
                     patient_list = patient_list.filter(~pl.col("patient_id").str.starts_with("#"))
 
@@ -798,16 +832,15 @@ def read_all_patient_sheets(
                 annual_data = harmonize_patient_data_columns(annual_data, mapper=mapper, strict=False)
 
                 if "patient_id" in annual_data.columns:
+                    # Filter out rows with missing patient_id
+                    annual_data = annual_data.filter(pl.col("patient_id").is_not_null())
+
+                    # Filter out numeric zeros and Excel errors
                     if "name" in annual_data.columns:
-                        annual_data = annual_data.filter(
-                            ~(pl.col("patient_id").is_null() & pl.col("name").is_null())
-                        )
                         annual_data = annual_data.filter(
                             ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
                               pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
                         )
-                    else:
-                        annual_data = annual_data.filter(pl.col("patient_id").is_not_null())
 
                     annual_data = annual_data.filter(~pl.col("patient_id").str.starts_with("#"))
 

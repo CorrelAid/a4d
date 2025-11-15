@@ -631,7 +631,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         & ((pl.col("age").is_null()) | (pl.col("age") != pl.col("_calc_age")))
     ).iter_rows(named=True):
         patient_id = row["patient_id"]
-        file_name = row.get("file_name", "unknown")
+        file_name = row.get("file_name") or "unknown"
         excel_age = row["age"]
         calc_age = row["_calc_age"]
 
