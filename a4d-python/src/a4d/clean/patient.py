@@ -511,23 +511,23 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
 
     # BMI: 4-60
     if "bmi" in df.columns:
-        df = cut_numeric_value(df, "bmi", 4, 60, error_collector)
+        df = cut_numeric_value(df, "bmi", 10, 80, error_collector)
 
     # Age: 0-25 years
     if "age" in df.columns:
-        df = cut_numeric_value(df, "age", 0, 25, error_collector)
+        df = cut_numeric_value(df, "age", 0, 100, error_collector)
 
     # HbA1c baseline: 4-18%
     if "hba1c_baseline" in df.columns:
-        df = cut_numeric_value(df, "hba1c_baseline", 4, 18, error_collector)
+        df = cut_numeric_value(df, "hba1c_baseline", 0, 25, error_collector)
 
     # HbA1c updated: 4-18%
     if "hba1c_updated" in df.columns:
-        df = cut_numeric_value(df, "hba1c_updated", 4, 18, error_collector)
+        df = cut_numeric_value(df, "hba1c_updated", 0, 25, error_collector)
 
     # FBG updated mmol: 0-136.5 (world record)
     if "fbg_updated_mmol" in df.columns:
-        df = cut_numeric_value(df, "fbg_updated_mmol", 0, 136.5, error_collector)
+        df = cut_numeric_value(df, "fbg_updated_mmol", 0, 150, error_collector)
 
     return df
 
