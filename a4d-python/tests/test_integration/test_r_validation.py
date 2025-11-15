@@ -94,6 +94,12 @@ REQUIRED_COLUMN_EXCEPTIONS = {
     "2017_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
         "status": "2017 tracker has missing status values in source Excel file",
     },
+    "2018_Vietnam National Children_s Hospital A4D Tracker_patient_cleaned.parquet": {
+        "status": "2018 tracker has missing status values in source Excel file",
+    },
+    "2019_CDA A4D Tracker_patient_cleaned.parquet": {
+        "status": "Patient KH_QA008 has missing status in April 2019 in source Excel file",
+    },
 }
 
 # Value mappings for known acceptable differences between R and Python
