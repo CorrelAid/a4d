@@ -1,6 +1,8 @@
 """Main patient pipeline orchestration."""
 
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -28,9 +30,11 @@ def _init_worker_logging(output_root: Path):
     Args:
         output_root: Output directory for logs
     """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pid = os.getpid()
     setup_logging(
         output_root=output_root,
-        log_name=f"worker_{id(logger)}",  # Unique name per worker
+        log_name=f"worker_{timestamp}_pid{pid}",
         console_level="ERROR"  # Quiet console
     )
 
