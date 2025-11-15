@@ -100,6 +100,9 @@ REQUIRED_COLUMN_EXCEPTIONS = {
     "2019_CDA A4D Tracker_patient_cleaned.parquet": {
         "status": "Patient KH_QA008 has missing status in April 2019 in source Excel file",
     },
+    "2019_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
+        "status": "Patient LA_QA005 has missing status in January and February 2019 in source Excel file",
+    },
 }
 
 # Value mappings for known acceptable differences between R and Python
@@ -372,6 +375,19 @@ def test_required_columns_not_null(filename, r_path, py_path):
 
     # Read Python file
     df_py = pl.read_parquet(py_path)
+
+    # First, check if exceptions are still valid (alert if fixed)
+    if filename in REQUIRED_COLUMN_EXCEPTIONS:
+        for col, reason in REQUIRED_COLUMN_EXCEPTIONS[filename].items():
+            if col in df_py.columns:
+                null_count = df_py[col].null_count()
+                if null_count == 0:
+                    # Exception exists but column has no nulls - issue is fixed!
+                    pytest.fail(
+                        f"{filename} is listed in REQUIRED_COLUMN_EXCEPTIONS for column '{col}' "
+                        f"but this column no longer has null values! "
+                        f"Please remove this exception from REQUIRED_COLUMN_EXCEPTIONS dict."
+                    )
 
     # Check each required column
     null_issues = []
