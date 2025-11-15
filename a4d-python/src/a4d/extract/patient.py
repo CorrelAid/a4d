@@ -205,7 +205,8 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
     - If header_1 contains "Patient ID" and header_2 is mostly None: use header_1 only
     - If both h1 and h2 exist: concatenate as "h2 h1"
     - If only h2 exists: use h2
-    - If only h1 exists and prev_h2 exists: use "prev_h2 h1" (horizontal merge)
+    - If only h1 exists and both prev_h2 and prev_h1 exist: use "prev_h2 h1" (true horizontal merge)
+    - If only h1 exists and prev_h2 but no prev_h1: use h1 (standalone column with header in row 1)
     - If only h1 exists and no prev_h2: use h1
     - If both None: append None
 
@@ -246,22 +247,31 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
 
     headers = []
     prev_h2 = None  # Track previous h2 for horizontal merges
+    prev_h1 = None  # Track previous h1 to detect true horizontal merges
 
     for h1, h2 in zip(header_1, header_2, strict=True):
         if h1 and h2:
             headers.append(f"{h2} {h1}".strip())
             prev_h2 = h2
+            prev_h1 = h1
         elif h2:
             headers.append(str(h2).strip())
             prev_h2 = h2
+            prev_h1 = None
         elif h1:
-            if prev_h2:
+            # Only forward-fill if previous column also had h1 (true horizontal merge)
+            # If prev had h2 but no h1, it's a standalone vertical header
+            if prev_h2 and prev_h1:
                 headers.append(f"{prev_h2} {h1}".strip())
+                prev_h1 = h1
             else:
                 headers.append(str(h1).strip())
+                prev_h1 = h1
+                prev_h2 = None
         else:
             headers.append(None)
             prev_h2 = None
+            prev_h1 = None
 
     headers = [re.sub(r"\s+", " ", h.replace("\n", " ")) if h else None for h in headers]
 
