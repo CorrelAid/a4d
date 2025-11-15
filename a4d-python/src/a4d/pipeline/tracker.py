@@ -63,9 +63,12 @@ def process_tracker_patient(
 
             # STEP 1: Extract
             logger.info("Step 1: Extracting patient data from Excel")
+            error_collector = ErrorCollector()
+
             df_raw = read_all_patient_sheets(
                 tracker_file=tracker_file,
-                mapper=mapper
+                mapper=mapper,
+                error_collector=error_collector
             )
             logger.info(f"Extracted {len(df_raw)} rows")
 
@@ -79,7 +82,6 @@ def process_tracker_patient(
 
             # STEP 2: Clean
             logger.info("Step 2: Cleaning patient data")
-            error_collector = ErrorCollector()
 
             clean_patient_file(
                 raw_parquet_path=raw_output,

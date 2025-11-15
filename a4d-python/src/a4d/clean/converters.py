@@ -87,8 +87,8 @@ def safe_convert_column(
     if len(failed_rows) > 0:
         for row in failed_rows.iter_rows(named=True):
             error_collector.add_error(
-                file_name=row.get(file_name_col, "unknown"),
-                patient_id=row.get(patient_id_col, "unknown"),
+                file_name=row.get(file_name_col) or "unknown",
+                patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
                 error_message=f"Could not convert to {target_type}",
@@ -172,8 +172,8 @@ def parse_date_column(
     if len(failed_rows) > 0:
         for row in failed_rows.iter_rows(named=True):
             error_collector.add_error(
-                file_name=row.get(file_name_col, "unknown"),
-                patient_id=row.get(patient_id_col, "unknown"),
+                file_name=row.get(file_name_col) or "unknown",
+                patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
                 error_message=f"Could not parse date",
@@ -262,8 +262,8 @@ def cut_numeric_value(
     if len(invalid_rows) > 0:
         for row in invalid_rows.iter_rows(named=True):
             error_collector.add_error(
-                file_name=row.get(file_name_col, "unknown"),
-                patient_id=row.get(patient_id_col, "unknown"),
+                file_name=row.get(file_name_col) or "unknown",
+                patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[column],
                 error_message=f"Value {row[column]} outside allowed range [{min_val}, {max_val}]",

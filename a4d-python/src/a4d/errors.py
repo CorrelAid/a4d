@@ -19,6 +19,7 @@ ErrorCode = Literal[
     "type_conversion",  # Failed to convert type (e.g., "abc" -> int)
     "invalid_value",  # Value outside allowed range or not in allowed list
     "missing_value",  # Required value is missing/NA
+    "missing_required_field",  # Critical field (patient_id, status) is missing, row excluded
     "invalid_tracker",  # Tracker-level issues (missing columns, etc.)
     "function_call",  # Generic function execution error
     "critical_abort",  # Fatal error, tracker cannot be processed
