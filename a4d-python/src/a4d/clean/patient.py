@@ -233,14 +233,20 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     """
     # Normalize patient_id: Keep only COUNTRY_ID part, remove transfer clinic suffix
     # Pattern: "MY_QH003_SB" → "MY_QH003" (keep first two underscore-separated parts)
+    # Also normalizes hyphens first: "LA-QA093_LF" → "LA_QA093_LF" → "LA_QA093"
     # This ensures consistent patient linking across years when patients transfer clinics
     if "patient_id" in df.columns:
         df = df.with_columns(
-            pl.when(pl.col("patient_id").str.contains("_"))
-            .then(pl.col("patient_id").str.extract(r"^([A-Z]+_[^_]+)", 1))
-            .otherwise(pl.col("patient_id"))
+            # First normalize hyphens to underscores
+            pl.col("patient_id").str.replace_all("-", "_").alias("_patient_id_normalized")
+        )
+        df = df.with_columns(
+            pl.when(pl.col("_patient_id_normalized").str.contains("_"))
+            .then(pl.col("_patient_id_normalized").str.extract(r"^([A-Z]+_[^_]+)", 1))
+            .otherwise(pl.col("_patient_id_normalized"))
             .alias("patient_id")
         )
+        df = df.drop("_patient_id_normalized")
 
     # Track HbA1c exceeds markers (> or <)
     if "hba1c_baseline" in df.columns:
