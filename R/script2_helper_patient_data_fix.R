@@ -154,7 +154,7 @@ fix_digit_date <-
             return(lubridate::NA_Date_)
         }
 
-        if (stringr::str_detect(string = date, pattern = "^[:digit:]{5}$")) {
+        if (stringr::str_detect(string = date, pattern = "^[[:digit:]]{5}")) {
             date <- as.character(openxlsx::convertToDate(date))
         }
 
