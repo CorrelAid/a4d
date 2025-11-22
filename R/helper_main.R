@@ -139,7 +139,6 @@ export_data_as_parquet <- function(data, filename, output_root, suffix) {
 }
 
 
-
 #' @title Read allowed provinces from a YAML file.
 #'
 #' @description
