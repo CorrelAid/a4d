@@ -377,20 +377,47 @@ def test_fix_sex_matches_r_behavior():
         {
             "sex": [
                 # Female synonyms from R
-                "female", "girl", "woman", "fem", "feminine", "f",
+                "female",
+                "girl",
+                "woman",
+                "fem",
+                "feminine",
+                "f",
                 # Male synonyms from R
-                "male", "boy", "man", "masculine", "m",
+                "male",
+                "boy",
+                "man",
+                "masculine",
+                "m",
                 # Invalid
-                "other", "unknown",
+                "other",
+                "unknown",
                 # Null/empty
-                None, "",
+                None,
+                "",
             ]
         }
     )
 
     result = fix_sex(df)
 
-    expected = ["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "Undefined", "Undefined", None, None]
+    expected = [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "M",
+        "M",
+        "M",
+        "M",
+        "M",
+        "Undefined",
+        "Undefined",
+        None,
+        None,
+    ]
     assert result["sex"].to_list() == expected
 
 

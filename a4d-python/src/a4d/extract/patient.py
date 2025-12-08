@@ -67,7 +67,7 @@ def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
                 f"Year {year} is out of valid range (2017-2030). "
                 f"Parsed from filename '{tracker_file.name}'"
             )
-        
+
         return year
 
     raise ValueError(
@@ -231,9 +231,7 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
     """
     patient_id_indicators = ["patient id", "patient.id"]
     has_patient_id_in_h1 = any(
-        str(h1).strip().lower() in patient_id_indicators
-        for h1 in header_1
-        if h1 is not None
+        str(h1).strip().lower() in patient_id_indicators for h1 in header_1 if h1 is not None
     )
 
     non_none_count_h2 = sum(1 for h2 in header_2 if h2 is not None)
@@ -432,19 +430,25 @@ def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
         "#NULL!",
     ]
 
-    metadata_cols = {"tracker_year", "tracker_month", "clinic_id", "patient_id", "sheet_name", "file_name"}
+    metadata_cols = {
+        "tracker_year",
+        "tracker_month",
+        "clinic_id",
+        "patient_id",
+        "sheet_name",
+        "file_name",
+    }
     data_cols = [col for col in df.columns if col not in metadata_cols]
 
     if not data_cols:
         return df
 
-    df = df.with_columns([
-        pl.when(pl.col(col).is_in(EXCEL_ERRORS))
-        .then(None)
-        .otherwise(pl.col(col))
-        .alias(col)
-        for col in data_cols
-    ])
+    df = df.with_columns(
+        [
+            pl.when(pl.col(col).is_in(EXCEL_ERRORS)).then(None).otherwise(pl.col(col)).alias(col)
+            for col in data_cols
+        ]
+    )
 
     for error in EXCEL_ERRORS:
         for col in data_cols:
@@ -609,7 +613,7 @@ def extract_tracker_month(sheet_name: str) -> int:
 
     if month_prefix in month_abbrs:
         month_num = month_abbrs.index(month_prefix) + 1  # +1 because index is 0-based
-        
+
         # Validate month is in valid range (1-12)
         # This should always be true given the logic above, but check anyway for safety
         if not (1 <= month_num <= 12):
@@ -617,7 +621,7 @@ def extract_tracker_month(sheet_name: str) -> int:
                 f"Month number {month_num} is out of valid range (1-12). "
                 f"Parsed from sheet name '{sheet_name}'"
             )
-        
+
         return month_num
 
     raise ValueError(f"Could not extract month from sheet name '{sheet_name}'")
@@ -758,15 +762,19 @@ def read_all_patient_sheets(
     # Filter out empty rows (both patient_id and name are null/empty) - this is redundant now but kept for clarity
     if "name" in df_combined.columns:
         df_combined = df_combined.filter(
-            ~((pl.col("patient_id").str.strip_chars() == "") &
-              (pl.col("name").is_null() | (pl.col("name").str.strip_chars() == "")))
+            ~(
+                (pl.col("patient_id").str.strip_chars() == "")
+                & (pl.col("name").is_null() | (pl.col("name").str.strip_chars() == ""))
+            )
         )
 
     # Filter out rows where both patient_id and name are numeric zeros (0, 0.0, "0", "0.0", etc.)
     if "name" in df_combined.columns:
         df_combined = df_combined.filter(
-            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
-              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
+            ~(
+                pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"])
+                & pl.col("name").str.strip_chars().is_in(["0", "0.0"])
+            )
         )
 
     # Filter out rows with patient_id starting with "#" (Excel errors like #REF!)
@@ -790,7 +798,9 @@ def read_all_patient_sheets(
         try:
             patient_list = extract_patient_data(tracker_file, "Patient List", year)
             if not patient_list.is_empty():
-                patient_list = harmonize_patient_data_columns(patient_list, mapper=mapper, strict=False)
+                patient_list = harmonize_patient_data_columns(
+                    patient_list, mapper=mapper, strict=False
+                )
 
                 if "patient_id" in patient_list.columns:
                     # Filter out rows with missing patient_id
@@ -799,25 +809,34 @@ def read_all_patient_sheets(
                     # Filter out numeric zeros and Excel errors
                     if "name" in patient_list.columns:
                         patient_list = patient_list.filter(
-                            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
-                              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
+                            ~(
+                                pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"])
+                                & pl.col("name").str.strip_chars().is_in(["0", "0.0"])
+                            )
                         )
 
                     patient_list = patient_list.filter(~pl.col("patient_id").str.starts_with("#"))
 
                     # R: select(-any_of(c("hba1c_baseline"))) and select(-any_of(c("name")))
-                    df_monthly = df_combined.drop("hba1c_baseline") if "hba1c_baseline" in df_combined.columns else df_combined
-                    patient_list_join = patient_list.drop("name") if "name" in patient_list.columns else patient_list
+                    df_monthly = (
+                        df_combined.drop("hba1c_baseline")
+                        if "hba1c_baseline" in df_combined.columns
+                        else df_combined
+                    )
+                    patient_list_join = (
+                        patient_list.drop("name")
+                        if "name" in patient_list.columns
+                        else patient_list
+                    )
 
                     df_combined = df_monthly.join(
-                        patient_list_join,
-                        on="patient_id",
-                        how="left",
-                        suffix=".static"
+                        patient_list_join, on="patient_id", how="left", suffix=".static"
                     )
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
-                    logger.warning("Patient List sheet has no 'patient_id' column after harmonization")
+                    logger.warning(
+                        "Patient List sheet has no 'patient_id' column after harmonization"
+                    )
             else:
                 logger.warning("Patient List sheet is empty")
         except Exception as e:
@@ -829,7 +848,9 @@ def read_all_patient_sheets(
         try:
             annual_data = extract_patient_data(tracker_file, "Annual", year)
             if not annual_data.is_empty():
-                annual_data = harmonize_patient_data_columns(annual_data, mapper=mapper, strict=False)
+                annual_data = harmonize_patient_data_columns(
+                    annual_data, mapper=mapper, strict=False
+                )
 
                 if "patient_id" in annual_data.columns:
                     # Filter out rows with missing patient_id
@@ -838,21 +859,22 @@ def read_all_patient_sheets(
                     # Filter out numeric zeros and Excel errors
                     if "name" in annual_data.columns:
                         annual_data = annual_data.filter(
-                            ~(pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"]) &
-                              pl.col("name").str.strip_chars().is_in(["0", "0.0"]))
+                            ~(
+                                pl.col("patient_id").str.strip_chars().is_in(["0", "0.0"])
+                                & pl.col("name").str.strip_chars().is_in(["0", "0.0"])
+                            )
                         )
 
                     annual_data = annual_data.filter(~pl.col("patient_id").str.starts_with("#"))
 
                     # R: select(-any_of(c("status", "name")))
                     cols_to_drop = [col for col in ["status", "name"] if col in annual_data.columns]
-                    annual_data_join = annual_data.drop(cols_to_drop) if cols_to_drop else annual_data
+                    annual_data_join = (
+                        annual_data.drop(cols_to_drop) if cols_to_drop else annual_data
+                    )
 
                     df_combined = df_combined.join(
-                        annual_data_join,
-                        on="patient_id",
-                        how="left",
-                        suffix=".annual"
+                        annual_data_join, on="patient_id", how="left", suffix=".annual"
                     )
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:

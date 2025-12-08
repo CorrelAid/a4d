@@ -94,7 +94,9 @@ class TestColumnMapper:
         assert "age" in mapper.synonyms
         assert "Age" in mapper.synonyms["age"]
         # After sanitization, some synonyms collapse (e.g., "Age" and "Age*" both become "age")
-        assert len(mapper._lookup) == 6  # Sanitized synonyms (age+ageonreporting+id+patientid+patientname+province)
+        assert (
+            len(mapper._lookup) == 6
+        )  # Sanitized synonyms (age+ageonreporting+id+patientid+patientname+province)
 
     def test_init_missing_file_raises_error(self):
         """Test that __init__ raises error for missing file."""
@@ -109,7 +111,9 @@ class TestColumnMapper:
         assert mapper._lookup["age"] == "age"  # "Age" and "Age*" both sanitize to "age"
         assert mapper._lookup["ageonreporting"] == "age"  # "age on reporting" → "ageonreporting"
         assert mapper._lookup["id"] == "patient_id"  # "ID" → "id"
-        assert mapper._lookup["patientid"] == "patient_id"  # "Patient ID" and "Patient ID*" → "patientid"
+        assert (
+            mapper._lookup["patientid"] == "patient_id"
+        )  # "Patient ID" and "Patient ID*" → "patientid"
 
     def test_build_lookup_handles_duplicates(self, duplicate_synonyms: Path):
         """Test that duplicate SANITIZED synonyms log warning and use last definition."""

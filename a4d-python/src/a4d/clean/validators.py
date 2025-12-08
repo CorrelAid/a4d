@@ -44,7 +44,7 @@ def sanitize_str(text: str) -> str:
     """
     if not isinstance(text, str):
         return text
-    return re.sub(r'[^a-z0-9]', '', text.lower())
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 def load_validation_rules() -> dict[str, Any]:
@@ -378,7 +378,11 @@ def fix_patient_id(
             return settings.error_val_character
 
     # Apply transformation
-    df = df.with_columns(pl.col(patient_id_col).map_elements(fix_single_id, return_dtype=pl.String).alias(patient_id_col))
+    df = df.with_columns(
+        pl.col(patient_id_col)
+        .map_elements(fix_single_id, return_dtype=pl.String)
+        .alias(patient_id_col)
+    )
 
     # Now collect errors for changed values
     for row in df.iter_rows(named=True):

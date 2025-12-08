@@ -22,10 +22,7 @@ def read_cleaned_patient_data(cleaned_files: list[Path]) -> pl.DataFrame:
     return pl.concat(dfs, how="vertical")
 
 
-def create_table_patient_data_static(
-    cleaned_files: list[Path],
-    output_dir: Path
-) -> Path:
+def create_table_patient_data_static(cleaned_files: list[Path], output_dir: Path) -> Path:
     """Create static patient data table.
 
     Reads all cleaned patient data and creates a single table with static columns
@@ -66,8 +63,7 @@ def create_table_patient_data_static(
     patient_data = read_cleaned_patient_data(cleaned_files)
 
     static_data = (
-        patient_data
-        .select(static_columns)
+        patient_data.select(static_columns)
         .sort(["patient_id", "tracker_year", "tracker_month"])
         .group_by("patient_id")
         .last()
@@ -83,10 +79,7 @@ def create_table_patient_data_static(
     return output_file
 
 
-def create_table_patient_data_monthly(
-    cleaned_files: list[Path],
-    output_dir: Path
-) -> Path:
+def create_table_patient_data_monthly(cleaned_files: list[Path], output_dir: Path) -> Path:
     """Create monthly patient data table.
 
     Reads all cleaned patient data and creates a single table with dynamic columns
@@ -136,10 +129,8 @@ def create_table_patient_data_monthly(
 
     patient_data = read_cleaned_patient_data(cleaned_files)
 
-    monthly_data = (
-        patient_data
-        .select(monthly_columns)
-        .sort(["tracker_year", "tracker_month", "patient_id"])
+    monthly_data = patient_data.select(monthly_columns).sort(
+        ["tracker_year", "tracker_month", "patient_id"]
     )
 
     logger.info(f"Monthly patient data dimensions: {monthly_data.shape}")
@@ -151,10 +142,7 @@ def create_table_patient_data_monthly(
     return output_file
 
 
-def create_table_patient_data_annual(
-    cleaned_files: list[Path],
-    output_dir: Path
-) -> Path:
+def create_table_patient_data_annual(cleaned_files: list[Path], output_dir: Path) -> Path:
     """Create annual patient data table.
 
     Reads all cleaned patient data and creates a single table with annual columns
@@ -208,8 +196,7 @@ def create_table_patient_data_annual(
     patient_data = read_cleaned_patient_data(cleaned_files)
 
     annual_data = (
-        patient_data
-        .select(annual_columns)
+        patient_data.select(annual_columns)
         .filter(pl.col("tracker_year") >= 2024)
         .sort(["patient_id", "tracker_year", "tracker_month"])
         .group_by(["patient_id", "tracker_year"])

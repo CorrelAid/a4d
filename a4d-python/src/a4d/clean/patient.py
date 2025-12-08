@@ -59,7 +59,9 @@ def clean_patient_data(
         >>> df_clean = clean_patient_data(df_raw, collector)
         >>> # df_clean has ALL schema columns, with consistent types
     """
-    logger.info(f"Starting patient data cleaning: {len(df_raw)} rows, {len(df_raw.columns)} columns")
+    logger.info(
+        f"Starting patient data cleaning: {len(df_raw)} rows, {len(df_raw.columns)} columns"
+    )
 
     # Step 1: Legacy format fixes
     df = _apply_legacy_fixes(df_raw)
@@ -139,12 +141,14 @@ def _extract_date_from_measurement(df: pl.DataFrame, col_name: str) -> pl.DataFr
 
     # Extract value before '(' and date between '(' and ')'
     # Using regex: everything before '(', then '(', then capture date, then optional ')'
-    df = df.with_columns([
-        # Extract value (everything before parenthesis, or entire value if no parenthesis)
-        pl.col(col_name).str.extract(r"^([^(]+)", 1).str.strip_chars().alias(col_name),
-        # Extract date (everything between parentheses, if present)
-        pl.col(col_name).str.extract(r"\(([^)]+)\)", 1).alias(date_col_name)
-    ])
+    df = df.with_columns(
+        [
+            # Extract value (everything before parenthesis, or entire value if no parenthesis)
+            pl.col(col_name).str.extract(r"^([^(]+)", 1).str.strip_chars().alias(col_name),
+            # Extract date (everything between parentheses, if present)
+            pl.col(col_name).str.extract(r"\(([^)]+)\)", 1).alias(date_col_name),
+        ]
+    )
 
     logger.debug(f"Extracted date from {col_name} into {date_col_name}")
 
@@ -251,15 +255,25 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     # Track HbA1c exceeds markers (> or <)
     if "hba1c_baseline" in df.columns:
         df = df.with_columns(
-            pl.col("hba1c_baseline").str.contains(r"[><]").fill_null(False).alias("hba1c_baseline_exceeds")
+            pl.col("hba1c_baseline")
+            .str.contains(r"[><]")
+            .fill_null(False)
+            .alias("hba1c_baseline_exceeds")
         )
-        df = df.with_columns(pl.col("hba1c_baseline").str.replace_all(r"[><]", "").alias("hba1c_baseline"))
+        df = df.with_columns(
+            pl.col("hba1c_baseline").str.replace_all(r"[><]", "").alias("hba1c_baseline")
+        )
 
     if "hba1c_updated" in df.columns:
         df = df.with_columns(
-            pl.col("hba1c_updated").str.contains(r"[><]").fill_null(False).alias("hba1c_updated_exceeds")
+            pl.col("hba1c_updated")
+            .str.contains(r"[><]")
+            .fill_null(False)
+            .alias("hba1c_updated_exceeds")
         )
-        df = df.with_columns(pl.col("hba1c_updated").str.replace_all(r"[><]", "").alias("hba1c_updated"))
+        df = df.with_columns(
+            pl.col("hba1c_updated").str.replace_all(r"[><]", "").alias("hba1c_updated")
+        )
 
     # Fix FBG text values (R: script2_helper_patient_data_fix.R:551-567)
     # Convert qualitative values to numeric: high→200, medium→170, low→140
@@ -342,7 +356,9 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
         pl.concat_list(
             [
-                pl.when(pl.col("human_insulin_pre_mixed") == "Y").then(pl.lit("pre-mixed")).otherwise(pl.lit(None)),
+                pl.when(pl.col("human_insulin_pre_mixed") == "Y")
+                .then(pl.lit("pre-mixed"))
+                .otherwise(pl.lit(None)),
                 pl.when(pl.col("human_insulin_short_acting") == "Y")
                 .then(pl.lit("short-acting"))
                 .otherwise(pl.lit(None)),
@@ -447,9 +463,7 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
         # Special handling for Date columns: use flexible date parser
         if target_type == pl.Date:
             # Strip time component if present (e.g., "2009-04-17 00:00:00" → "2009-04-17")
-            df = df.with_columns(
-                pl.col(col).cast(pl.Utf8).str.slice(0, 10).alias(col)
-            )
+            df = df.with_columns(pl.col(col).cast(pl.Utf8).str.slice(0, 10).alias(col))
             # Use custom date parser for flexibility (handles Mar-18, Excel serials, etc.)
             df = parse_date_column(df, col, error_collector)
         # Special handling for Int32: convert via Float64 first (handles "14.0" → 14.0 → 14)
@@ -483,6 +497,7 @@ def _calculate_bmi(df: pl.DataFrame) -> pl.DataFrame:
         DataFrame with calculated BMI column
     """
     from a4d.clean.transformers import fix_bmi
+
     return fix_bmi(df)
 
 
@@ -507,7 +522,10 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     # Height: convert cm to m if > 2.3 (likely in cm), then validate
     if "height" in df.columns:
         df = df.with_columns(
-            pl.when(pl.col("height") > 2.3).then(pl.col("height") / 100.0).otherwise(pl.col("height")).alias("height")
+            pl.when(pl.col("height") > 2.3)
+            .then(pl.col("height") / 100.0)
+            .otherwise(pl.col("height"))
+            .alias("height")
         )
         df = cut_numeric_value(df, "height", 0, 2.3, error_collector)
 
@@ -619,7 +637,8 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
     df = df.with_columns(
         pl.when(pl.col("dob").is_not_null())
         .then(
-            pl.col("tracker_year") - pl.col("dob").dt.year()
+            pl.col("tracker_year")
+            - pl.col("dob").dt.year()
             - pl.when(pl.col("tracker_month") < pl.col("dob").dt.month()).then(1).otherwise(0)
         )
         .otherwise(None)
@@ -653,7 +672,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
                 original_value=excel_age if excel_age is not None else "NULL",
                 error_message=f"Age missing, calculated from DOB as {calc_age}",
                 error_code="missing_value",
-                function_name="_fix_age_from_dob"
+                function_name="_fix_age_from_dob",
             )
             ages_missing += 1
         elif calc_age < 0:
@@ -668,7 +687,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
                 original_value=str(excel_age),
                 error_message=f"Calculated age is negative ({calc_age}), check DOB",
                 error_code="invalid_value",
-                function_name="_fix_age_from_dob"
+                function_name="_fix_age_from_dob",
             )
             ages_negative += 1
         else:
@@ -683,7 +702,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
                 original_value=str(excel_age),
                 error_message=f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age.",
                 error_code="invalid_value",
-                function_name="_fix_age_from_dob"
+                function_name="_fix_age_from_dob",
             )
             ages_fixed += 1
 
@@ -741,9 +760,7 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
 
         # Create a date representing end of tracker year (December 31)
         # Find invalid dates and log them
-        temp_df = df.with_columns(
-            pl.date(pl.col("tracker_year"), 12, 31).alias("_max_valid_date")
-        )
+        temp_df = df.with_columns(pl.date(pl.col("tracker_year"), 12, 31).alias("_max_valid_date"))
 
         invalid_dates = temp_df.filter(
             pl.col(col).is_not_null() & (pl.col(col) > pl.col("_max_valid_date"))
@@ -767,7 +784,7 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
                 original_value=str(original_date),
                 error_message=f"Date {original_date} is beyond tracker year {tracker_year}",
                 error_code="invalid_value",
-                function_name="_validate_dates"
+                function_name="_validate_dates",
             )
             dates_fixed += 1
 
@@ -798,12 +815,14 @@ def _add_tracker_date(df: pl.DataFrame) -> pl.DataFrame:
         # Parse year-month to date (first day of month)
         # Cast to string first since they're now Int32
         df = df.with_columns(
-            pl.concat_str([
-                pl.col("tracker_year").cast(pl.String),
-                pl.lit("-"),
-                pl.col("tracker_month").cast(pl.String),
-                pl.lit("-01")
-            ])
+            pl.concat_str(
+                [
+                    pl.col("tracker_year").cast(pl.String),
+                    pl.lit("-"),
+                    pl.col("tracker_month").cast(pl.String),
+                    pl.lit("-01"),
+                ]
+            )
             .str.to_date("%Y-%m-%d")
             .alias("tracker_date")
         )

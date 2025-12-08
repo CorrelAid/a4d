@@ -8,7 +8,9 @@ from pathlib import Path
 def verify_python_output():
     """Verify Python output has correct types and column ordering."""
 
-    python_file = Path("output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet")
+    python_file = Path(
+        "output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
+    )
 
     if not python_file.exists():
         print(f"❌ Python file not found: {python_file}")
@@ -45,7 +47,9 @@ def verify_python_output():
     print("-" * 80)
 
     dtypes = df.schema
-    non_string_cols = [(name, dtype) for name, dtype in dtypes.items() if str(dtype) not in ["String", "Utf8"]]
+    non_string_cols = [
+        (name, dtype) for name, dtype in dtypes.items() if str(dtype) not in ["String", "Utf8"]
+    ]
 
     if non_string_cols:
         print(f"❌ Found {len(non_string_cols)} non-String columns:")
@@ -112,5 +116,6 @@ def verify_python_output():
 
 if __name__ == "__main__":
     import sys
+
     success = verify_python_output()
     sys.exit(0 if success else 1)

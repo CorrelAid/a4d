@@ -11,10 +11,12 @@ class TestPatientIdNormalization:
 
     def test_normalize_transfer_patient_id(self):
         """Should normalize patient_id by removing transfer clinic suffix."""
-        df = pl.DataFrame({
-            "patient_id": ["MY_SM003_SB", "TH_BK001_PT", "LA_VT002_VP"],
-            "name": ["Patient A", "Patient B", "Patient C"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["MY_SM003_SB", "TH_BK001_PT", "LA_VT002_VP"],
+                "name": ["Patient A", "Patient B", "Patient C"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -22,10 +24,12 @@ class TestPatientIdNormalization:
 
     def test_preserve_normal_patient_id(self):
         """Should preserve patient_id without transfer suffix."""
-        df = pl.DataFrame({
-            "patient_id": ["MY_SB001", "TH_ST003", "LA_LFH042"],
-            "name": ["Patient A", "Patient B", "Patient C"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["MY_SB001", "TH_ST003", "LA_LFH042"],
+                "name": ["Patient A", "Patient B", "Patient C"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -34,15 +38,17 @@ class TestPatientIdNormalization:
 
     def test_mixed_patient_ids(self):
         """Should handle mix of normal and transfer patient IDs."""
-        df = pl.DataFrame({
-            "patient_id": [
-                "MY_SB001",       # Normal
-                "MY_SM003_SB",    # Transfer
-                "TH_ST003",       # Normal
-                "TH_BK001_PT",    # Transfer
-            ],
-            "name": ["A", "B", "C", "D"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": [
+                    "MY_SB001",  # Normal
+                    "MY_SM003_SB",  # Transfer
+                    "TH_ST003",  # Normal
+                    "TH_BK001_PT",  # Transfer
+                ],
+                "name": ["A", "B", "C", "D"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -55,10 +61,12 @@ class TestPatientIdNormalization:
 
     def test_multiple_underscores_keeps_only_first_two_parts(self):
         """Should keep only first two underscore-separated parts."""
-        df = pl.DataFrame({
-            "patient_id": ["MY_SM003_SB_EXTRA"],  # Three underscores
-            "name": ["Patient A"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["MY_SM003_SB_EXTRA"],  # Three underscores
+                "name": ["Patient A"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -67,10 +75,12 @@ class TestPatientIdNormalization:
 
     def test_patient_id_without_underscores(self):
         """Should preserve patient_id without underscores."""
-        df = pl.DataFrame({
-            "patient_id": ["MYID001", "NOMATCH"],
-            "name": ["Patient A", "Patient B"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["MYID001", "NOMATCH"],
+                "name": ["Patient A", "Patient B"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -79,10 +89,12 @@ class TestPatientIdNormalization:
 
     def test_null_patient_id_preserved(self):
         """Should preserve null patient_ids."""
-        df = pl.DataFrame({
-            "patient_id": [None, "MY_SB001", None],
-            "name": ["A", "B", "C"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": [None, "MY_SB001", None],
+                "name": ["A", "B", "C"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -96,10 +108,12 @@ class TestHbA1cPreprocessing:
 
     def test_hba1c_baseline_exceeds_marker(self):
         """Should extract > or < markers and remove them from value."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003"],
-            "hba1c_baseline": [">14", "<5.5", "7.2"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003"],
+                "hba1c_baseline": [">14", "<5.5", "7.2"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -108,10 +122,12 @@ class TestHbA1cPreprocessing:
 
     def test_hba1c_updated_exceeds_marker(self):
         """Should extract > or < markers from updated HbA1c."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001"],
-            "hba1c_updated": [">12.5"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001"],
+                "hba1c_updated": [">12.5"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -124,10 +140,12 @@ class TestFbgPreprocessing:
 
     def test_fbg_qualitative_to_numeric(self):
         """Should convert qualitative FBG values to numeric."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003", "XX_YY004"],
-            "fbg_updated_mg": ["high", "medium", "low", "150"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001", "XX_YY002", "XX_YY003", "XX_YY004"],
+                "fbg_updated_mg": ["high", "medium", "low", "150"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -136,10 +154,12 @@ class TestFbgPreprocessing:
 
     def test_fbg_removes_dka_marker(self):
         """Should attempt to remove (DKA) marker from FBG values."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001"],
-            "fbg_updated_mg": ["350 (DKA)"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001"],
+                "fbg_updated_mg": ["350 (DKA)"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -154,11 +174,13 @@ class TestYesNoHyphenReplacement:
 
     def test_replace_hyphen_in_insulin_columns(self):
         """Should replace '-' with 'N' in analog insulin columns (2024+ trackers)."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001"],
-            "analog_insulin_long_acting": ["-"],
-            "analog_insulin_rapid_acting": ["-"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001"],
+                "analog_insulin_long_acting": ["-"],
+                "analog_insulin_rapid_acting": ["-"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 
@@ -167,11 +189,13 @@ class TestYesNoHyphenReplacement:
 
     def test_preserve_hyphen_in_other_columns(self):
         """Should NOT replace '-' in non-insulin Y/N columns."""
-        df = pl.DataFrame({
-            "patient_id": ["XX_YY001"],
-            "clinic_visit": ["-"],
-            "active": ["-"],
-        })
+        df = pl.DataFrame(
+            {
+                "patient_id": ["XX_YY001"],
+                "clinic_visit": ["-"],
+                "active": ["-"],
+            }
+        )
 
         result = _apply_preprocessing(df)
 

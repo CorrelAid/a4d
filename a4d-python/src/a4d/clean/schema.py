@@ -6,10 +6,10 @@ from typing import Dict
 
 def get_patient_data_schema() -> Dict[str, pl.DataType]:
     """Get the complete meta schema for patient data.
-    
+
     This schema EXACTLY matches the R pipeline's schema in script2_process_patient_data.R.
     Column order matches R's alphabetical order.
-    
+
     Returns:
         Dictionary mapping column names to Polars data types
     """
@@ -102,32 +102,32 @@ def get_patient_data_schema() -> Dict[str, pl.DataType]:
 
 def apply_schema(df: pl.DataFrame) -> pl.DataFrame:
     """Apply the meta schema to a DataFrame.
-    
+
     This function:
     1. Adds missing columns with NULL values
     2. Casts existing columns to target types (if they exist)
     3. Reorders columns to match schema order
     4. Returns a DataFrame with the exact schema
-    
+
     Args:
         df: Input DataFrame (may be missing columns)
-        
+
     Returns:
         DataFrame with complete schema applied
     """
     schema = get_patient_data_schema()
-    
+
     # Start with existing columns
     df_result = df
-    
+
     # Add missing columns with NULL values
     missing_cols = set(schema.keys()) - set(df.columns)
     for col in missing_cols:
         df_result = df_result.with_columns(pl.lit(None, dtype=schema[col]).alias(col))
-    
+
     # Reorder columns to match schema order
     df_result = df_result.select(list(schema.keys()))
-    
+
     return df_result
 
 
@@ -135,7 +135,8 @@ def get_numeric_columns() -> list[str]:
     """Get list of numeric columns from schema."""
     schema = get_patient_data_schema()
     return [
-        col for col, dtype in schema.items()
+        col
+        for col, dtype in schema.items()
         if dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64)
     ]
 

@@ -98,7 +98,9 @@ def load_canonical_provinces() -> list[str]:
     for _, provinces in provinces_by_country.items():
         all_provinces.extend(provinces)
 
-    logger.info(f"Loaded {len(all_provinces)} canonical province names from {len(provinces_by_country)} countries")
+    logger.info(
+        f"Loaded {len(all_provinces)} canonical province names from {len(provinces_by_country)} countries"
+    )
 
     return all_provinces
 

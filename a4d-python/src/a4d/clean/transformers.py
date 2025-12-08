@@ -84,10 +84,7 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
 
     # Build expression using pl.when().then().when().then()... chain
     # Start with null/empty handling
-    expr = (
-        pl.when(pl.col(column).is_null() | (pl.col(column) == ""))
-        .then(None)
-    )
+    expr = pl.when(pl.col(column).is_null() | (pl.col(column) == "")).then(None)
 
     # Add female synonyms
     for synonym in synonyms_female:
@@ -311,7 +308,11 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
         return value
 
     # Apply transformation
-    df = df.with_columns(pl.col("testing_frequency").map_elements(fix_value, return_dtype=pl.String).alias("testing_frequency"))
+    df = df.with_columns(
+        pl.col("testing_frequency")
+        .map_elements(fix_value, return_dtype=pl.String)
+        .alias("testing_frequency")
+    )
 
     # Log warning if any ranges were found
     if has_ranges:
@@ -365,14 +366,8 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
 
     # Split the column
     df = df.with_columns(
-        pl.col("blood_pressure_mmhg")
-        .str.split("/")
-        .list.get(0)
-        .alias("blood_pressure_sys_mmhg"),
-        pl.col("blood_pressure_mmhg")
-        .str.split("/")
-        .list.get(1)
-        .alias("blood_pressure_dias_mmhg"),
+        pl.col("blood_pressure_mmhg").str.split("/").list.get(0).alias("blood_pressure_sys_mmhg"),
+        pl.col("blood_pressure_mmhg").str.split("/").list.get(1).alias("blood_pressure_dias_mmhg"),
     )
 
     # Drop the original combined column

@@ -13,9 +13,7 @@ from a4d.reference.synonyms import ColumnMapper
 
 
 def process_tracker_patient(
-    tracker_file: Path,
-    output_root: Path,
-    mapper: ColumnMapper | None = None
+    tracker_file: Path, output_root: Path, mapper: ColumnMapper | None = None
 ) -> TrackerResult:
     """Process single tracker file: extract + clean patient data.
 
@@ -66,17 +64,13 @@ def process_tracker_patient(
             error_collector = ErrorCollector()
 
             df_raw = read_all_patient_sheets(
-                tracker_file=tracker_file,
-                mapper=mapper,
-                error_collector=error_collector
+                tracker_file=tracker_file, mapper=mapper, error_collector=error_collector
             )
             logger.info(f"Extracted {len(df_raw)} rows")
 
             # Export raw parquet
             raw_output = export_patient_raw(
-                df=df_raw,
-                tracker_file=tracker_file,
-                output_dir=raw_dir
+                df=df_raw, tracker_file=tracker_file, output_dir=raw_dir
             )
             logger.info(f"Raw parquet saved: {raw_output}")
 
@@ -86,7 +80,7 @@ def process_tracker_patient(
             clean_patient_file(
                 raw_parquet_path=raw_output,
                 output_parquet_path=cleaned_output,
-                error_collector=error_collector
+                error_collector=error_collector,
             )
 
             error_count = len(error_collector)
@@ -104,7 +98,7 @@ def process_tracker_patient(
             success=True,
             error=None,
             cleaning_errors=error_count,
-            error_breakdown=error_breakdown if error_breakdown else None
+            error_breakdown=error_breakdown if error_breakdown else None,
         )
 
     except Exception as e:
@@ -115,5 +109,5 @@ def process_tracker_patient(
             raw_output=None,
             cleaned_output=None,
             success=False,
-            error=str(e)
+            error=str(e),
         )

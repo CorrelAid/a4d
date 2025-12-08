@@ -11,7 +11,9 @@ from rich.table import Table
 from a4d.pipeline.patient import process_patient_tables, run_patient_pipeline
 from a4d.tables.logs import create_table_logs
 
-app = typer.Typer(name="a4d", help="A4D medical tracker data processing pipeline", no_args_is_help=True)
+app = typer.Typer(
+    name="a4d", help="A4D medical tracker data processing pipeline", no_args_is_help=True
+)
 
 console = Console()
 
@@ -61,14 +63,20 @@ def process_patient_cmd(
     file: Annotated[
         Path | None,
         typer.Option(
-            "--file", "-f", help="Process specific tracker file (if not set, processes all files in data_root)"
+            "--file",
+            "-f",
+            help="Process specific tracker file (if not set, processes all files in data_root)",
         ),
     ] = None,
-    workers: Annotated[int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")] = 1,
+    workers: Annotated[
+        int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")
+    ] = 1,
     skip_tables: Annotated[
         bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
     ] = False,
-    force: Annotated[bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
+    ] = False,
     output_root: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
     ] = None,
@@ -174,7 +182,11 @@ def process_patient_cmd(
             console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
             # Sort by error count (descending) and take top 10
             files_by_errors = sorted(
-                [(tr.tracker_file.name, tr.cleaning_errors) for tr in result.tracker_results if tr.cleaning_errors > 0],
+                [
+                    (tr.tracker_file.name, tr.cleaning_errors)
+                    for tr in result.tracker_results
+                    if tr.cleaning_errors > 0
+                ],
                 key=lambda x: x[1],
                 reverse=True,
             )[:10]
@@ -196,7 +208,9 @@ def process_patient_cmd(
             console.print("\n[bold green]✓ Pipeline completed successfully![/bold green]\n")
             raise typer.Exit(0)
         else:
-            console.print(f"\n[bold red]✗ Pipeline completed with {result.failed_trackers} failures[/bold red]\n")
+            console.print(
+                f"\n[bold red]✗ Pipeline completed with {result.failed_trackers} failures[/bold red]\n"
+            )
             raise typer.Exit(1)
 
     except Exception as e:
@@ -206,9 +220,14 @@ def process_patient_cmd(
 
 @app.command("create-tables")
 def create_tables_cmd(
-    input_dir: Annotated[Path, typer.Option("--input", "-i", help="Directory containing cleaned parquet files")],
+    input_dir: Annotated[
+        Path, typer.Option("--input", "-i", help="Directory containing cleaned parquet files")
+    ],
     output_dir: Annotated[
-        Path | None, typer.Option("--output", "-o", help="Output directory for tables (default: input_dir/tables)")
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Output directory for tables (default: input_dir/tables)"
+        ),
     ] = None,
 ):
     """Create final tables from existing cleaned parquet files.
@@ -241,7 +260,9 @@ def create_tables_cmd(
     # Find cleaned parquet files
     cleaned_files = list(input_dir.glob("*_patient_cleaned.parquet"))
     if not cleaned_files:
-        console.print(f"[bold red]Error: No cleaned parquet files found in {input_dir}[/bold red]\n")
+        console.print(
+            f"[bold red]Error: No cleaned parquet files found in {input_dir}[/bold red]\n"
+        )
         raise typer.Exit(1)
 
     console.print(f"Found {len(cleaned_files)} cleaned parquet files\n")

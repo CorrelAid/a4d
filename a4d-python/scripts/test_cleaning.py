@@ -12,7 +12,9 @@ def test_cleaning():
     """Test cleaning on real tracker data."""
 
     # Read the raw parquet we generated in Phase 2
-    raw_path = Path("output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet")
+    raw_path = Path(
+        "output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
+    )
 
     if not raw_path.exists():
         print(f"❌ Raw parquet not found: {raw_path}")

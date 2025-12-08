@@ -4,7 +4,9 @@
 from pathlib import Path
 from a4d.pipeline.tracker import process_tracker_patient
 
-tracker_file = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Cambodia/CDA/2025_06_CDA A4D Tracker.xlsx")
+tracker_file = Path(
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Cambodia/CDA/2025_06_CDA A4D Tracker.xlsx"
+)
 output_root = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python")
 
 result = process_tracker_patient(tracker_file, output_root)

@@ -506,11 +506,11 @@ def test_read_all_patient_sheets_2017_mhs_complete():
     import calendar
 
     expected_counts = {
-        1: 6,   # Jan
-        2: 6,   # Feb
+        1: 6,  # Jan
+        2: 6,  # Feb
         # 3 is missing (March)
-        4: 6,   # Apr
-        5: 8,   # May
+        4: 6,  # Apr
+        5: 8,  # May
         6: 11,  # Jun
         7: 11,  # Jul
         8: 11,  # Aug
@@ -530,11 +530,12 @@ def test_read_all_patient_sheets_2017_mhs_complete():
 
     # Total patient count
     total_expected = sum(expected_counts.values())  # 109
-    assert len(df_all) == total_expected, f"Total patients: expected {total_expected}, got {len(df_all)}"
+    assert len(df_all) == total_expected, (
+        f"Total patients: expected {total_expected}, got {len(df_all)}"
+    )
 
     print(
-        f"\n✓ 2017 MHS Tracker: {len(df_all)} patients from 11 months "
-        f"(March missing as expected)"
+        f"\n✓ 2017 MHS Tracker: {len(df_all)} patients from 11 months (March missing as expected)"
     )
 
 
@@ -595,7 +596,9 @@ def test_read_all_patient_sheets_2025_mhs_with_patient_list():
 
     # Total patient count
     total_expected = sum(expected_counts.values())  # 583
-    assert len(df_all) == total_expected, f"Total patients: expected {total_expected}, got {len(df_all)}"
+    assert len(df_all) == total_expected, (
+        f"Total patients: expected {total_expected}, got {len(df_all)}"
+    )
 
     # Check that Patient List data was joined (should have columns from Patient List)
     # Note: The exact columns depend on what's in the Patient List sheet
