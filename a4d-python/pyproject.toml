@@ -77,5 +77,4 @@ addopts = [
     "--cov=src/a4d",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "-m", "not slow",  # Skip slow tests by default
 ]
