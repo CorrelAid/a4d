@@ -8,13 +8,21 @@ default:
 sync:
     uv sync --all-extras
 
-# Run tests with coverage
+# Run unit tests (skip slow/integration)
 test:
-    uv run pytest --cov --cov-report=term --cov-report=html
+    uv run pytest -m "not slow"
 
-# Run tests without coverage (faster)
+# Run all tests including slow/integration
+test-all:
+    uv run pytest
+
+# Run integration tests only
+test-integration:
+    uv run pytest -m integration
+
+# Run tests without coverage (faster, fail fast)
 test-fast:
-    uv run pytest -x
+    uv run pytest -m "not slow" --no-cov -x
 
 # Run type checking with ty
 check:
