@@ -34,7 +34,7 @@ def setup_logging(
     log_name: str,
     level: str = "INFO",
     console: bool = True,
-    console_level: str | None = None
+    console_level: str | None = None,
 ) -> None:
     """Configure loguru for pipeline-wide operational logging.
 

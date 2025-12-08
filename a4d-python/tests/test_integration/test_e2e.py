@@ -24,9 +24,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.integration, pytest.mark.e2e]
         ("tracker_2022_penang", 156, 2022, "2022 Penang - legacy format"),
     ],
 )
-def test_e2e_pipeline(
-    tracker_fixture, expected_rows, expected_year, description, request
-):
+def test_e2e_pipeline(tracker_fixture, expected_rows, expected_year, description, request):
     """Test full pipeline (extract + clean) on various tracker formats.
 
     This test validates that:
@@ -47,15 +45,11 @@ def test_e2e_pipeline(
     df_clean = clean_patient_data(df_raw, collector)
 
     # Validate final output
-    assert (
-        len(df_clean) == expected_rows
-    ), f"Cleaning changed row count for {description}"
-    assert (
-        len(df_clean.columns) == EXPECTED_SCHEMA_COLS
-    ), f"Schema incorrect for {description}"
-    assert (
-        df_clean["tracker_year"].unique().to_list() == [expected_year]
-    ), f"Year incorrect for {description}"
+    assert len(df_clean) == expected_rows, f"Cleaning changed row count for {description}"
+    assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS, f"Schema incorrect for {description}"
+    assert df_clean["tracker_year"].unique().to_list() == [expected_year], (
+        f"Year incorrect for {description}"
+    )
 
 
 class TestE2E2024Penang:
@@ -139,6 +133,4 @@ class TestE2ECrosYearConsistency:
         if len(column_names_per_tracker) > 1:
             first_columns = list(column_names_per_tracker.values())[0]
             for name, columns in column_names_per_tracker.items():
-                assert (
-                    columns == first_columns
-                ), f"{name} has different columns than others"
+                assert columns == first_columns, f"{name} has different columns than others"

@@ -54,9 +54,7 @@ class PipelineResult:
 
     @classmethod
     def from_tracker_results(
-        cls,
-        tracker_results: list[TrackerResult],
-        tables: dict[str, Path] | None = None
+        cls, tracker_results: list[TrackerResult], tables: dict[str, Path] | None = None
     ) -> "PipelineResult":
         """Create PipelineResult from tracker results.
 
@@ -76,5 +74,5 @@ class PipelineResult:
             total_trackers=len(tracker_results),
             successful_trackers=successful,
             failed_trackers=failed,
-            success=failed == 0
+            success=failed == 0,
         )

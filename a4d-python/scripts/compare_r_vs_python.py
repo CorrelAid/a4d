@@ -22,7 +22,9 @@ app = typer.Typer()
 
 # Fixed base directories for R and Python outputs
 R_OUTPUT_BASE = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned")
-PYTHON_OUTPUT_BASE = Path("/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/patient_data_cleaned")
+PYTHON_OUTPUT_BASE = Path(
+    "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/patient_data_cleaned"
+)
 
 
 def display_basic_stats(r_df: pl.DataFrame, py_df: pl.DataFrame, file_name: str):
@@ -46,7 +48,7 @@ def display_basic_stats(r_df: pl.DataFrame, py_df: pl.DataFrame, file_name: str)
         "Records",
         f"{r_count:,}",
         f"{py_count:,}",
-        f"[{diff_style}]{diff_count:+,} ({diff_pct:+.1f}%)[/{diff_style}]"
+        f"[{diff_style}]{diff_count:+,} ({diff_pct:+.1f}%)[/{diff_style}]",
     )
 
     # Column counts
@@ -56,10 +58,7 @@ def display_basic_stats(r_df: pl.DataFrame, py_df: pl.DataFrame, file_name: str)
     col_style = "green" if col_diff == 0 else "yellow"
 
     stats_table.add_row(
-        "Columns",
-        f"{r_cols:,}",
-        f"{py_cols:,}",
-        f"[{col_style}]{col_diff:+,}[/{col_style}]"
+        "Columns", f"{r_cols:,}", f"{py_cols:,}", f"[{col_style}]{col_diff:+,}[/{col_style}]"
     )
 
     console.print(stats_table)
@@ -144,8 +143,12 @@ def compare_metadata_fields(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
     # Key metadata fields that must be identical
     metadata_fields = [
-        "tracker_year", "tracker_month", "tracker_date",
-        "file_name", "sheet_name", "patient_id"
+        "tracker_year",
+        "tracker_month",
+        "tracker_date",
+        "file_name",
+        "sheet_name",
+        "patient_id",
     ]
 
     existing_fields = [f for f in metadata_fields if f in r_df.columns and f in py_df.columns]
@@ -211,8 +214,15 @@ def compare_patient_records(r_df: pl.DataFrame, py_df: pl.DataFrame, n_samples: 
         py_record = py_records.head(1).to_dicts()[0]
 
         comparison_fields = [
-            "tracker_year", "tracker_month", "tracker_date", "sheet_name",
-            "sex", "age", "dob", "status", "province"
+            "tracker_year",
+            "tracker_month",
+            "tracker_date",
+            "sheet_name",
+            "sex",
+            "age",
+            "dob",
+            "status",
+            "province",
         ]
 
         comp_table = Table(box=box.SIMPLE, show_header=False)
@@ -232,7 +242,7 @@ def compare_patient_records(r_df: pl.DataFrame, py_df: pl.DataFrame, n_samples: 
                     field,
                     str(r_val)[:25],
                     str(py_val)[:25],
-                    f"[{match_style}]{match}[/{match_style}]"
+                    f"[{match_style}]{match}[/{match_style}]",
                 )
 
         console.print(comp_table)
@@ -257,7 +267,9 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
     try:
         joined = r_df.join(py_df, on=join_keys, how="inner", suffix="_py")
-        console.print(f"[cyan]Analyzing {len(joined):,} common records (matched on {'+'.join(join_keys)})[/cyan]\n")
+        console.print(
+            f"[cyan]Analyzing {len(joined):,} common records (matched on {'+'.join(join_keys)})[/cyan]\n"
+        )
     except Exception as e:
         console.print(f"[red]Error joining datasets: {e}[/red]\n")
         return
@@ -278,31 +290,49 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
             try:
                 # Check if column is numeric (float or int)
                 col_dtype = joined[col].dtype
-                is_numeric = col_dtype in [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]
+                is_numeric = col_dtype in [
+                    pl.Float32,
+                    pl.Float64,
+                    pl.Int8,
+                    pl.Int16,
+                    pl.Int32,
+                    pl.Int64,
+                    pl.UInt8,
+                    pl.UInt16,
+                    pl.UInt32,
+                    pl.UInt64,
+                ]
 
                 if is_numeric:
                     # For numeric columns, use approximate comparison
                     # Two values are considered equal if |a - b| <= max(rel_tol * max(|a|, |b|), abs_tol)
 
                     # Add columns for comparison logic
-                    comparison_df = joined.with_columns([
-                        # Calculate absolute difference
-                        ((pl.col(col) - pl.col(col_py)).abs()).alias("_abs_diff"),
-                        # Calculate tolerance threshold
-                        pl.max_horizontal([
-                            FLOAT_REL_TOL * pl.max_horizontal([pl.col(col).abs(), pl.col(col_py).abs()]),
-                            pl.lit(FLOAT_ABS_TOL)
-                        ]).alias("_tolerance"),
-                        # Check null status
-                        pl.col(col).is_null().alias("_col_null"),
-                        pl.col(col_py).is_null().alias("_col_py_null"),
-                    ])
+                    comparison_df = joined.with_columns(
+                        [
+                            # Calculate absolute difference
+                            ((pl.col(col) - pl.col(col_py)).abs()).alias("_abs_diff"),
+                            # Calculate tolerance threshold
+                            pl.max_horizontal(
+                                [
+                                    FLOAT_REL_TOL
+                                    * pl.max_horizontal([pl.col(col).abs(), pl.col(col_py).abs()]),
+                                    pl.lit(FLOAT_ABS_TOL),
+                                ]
+                            ).alias("_tolerance"),
+                            # Check null status
+                            pl.col(col).is_null().alias("_col_null"),
+                            pl.col(col_py).is_null().alias("_col_py_null"),
+                        ]
+                    )
 
                     # Find mismatches
                     # Mismatch if: (1) null status differs OR (2) both not null and differ by more than tolerance
                     mismatched_rows = comparison_df.filter(
-                        (pl.col("_col_null") != pl.col("_col_py_null")) |  # Null mismatch
-                        ((~pl.col("_col_null")) & (pl.col("_abs_diff") > pl.col("_tolerance")))  # Value mismatch
+                        (pl.col("_col_null") != pl.col("_col_py_null"))  # Null mismatch
+                        | (
+                            (~pl.col("_col_null")) & (pl.col("_abs_diff") > pl.col("_tolerance"))
+                        )  # Value mismatch
                     )
                 else:
                     # For non-numeric columns, use exact comparison
@@ -313,12 +343,14 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
                 if mismatch_count > 0:
                     mismatch_pct = (mismatch_count / len(joined)) * 100
                     # Include patient_id and sheet_name in examples for debugging
-                    examples_with_ids = mismatched_rows.select(["patient_id", "sheet_name", col, col_py])
+                    examples_with_ids = mismatched_rows.select(
+                        ["patient_id", "sheet_name", col, col_py]
+                    )
                     mismatches[col] = {
                         "count": mismatch_count,
                         "percentage": mismatch_pct,
                         "examples": mismatched_rows.select([col, col_py]).head(3),
-                        "examples_with_ids": examples_with_ids
+                        "examples_with_ids": examples_with_ids,
                     }
             except Exception as e:
                 # Some columns might not support comparison
@@ -332,9 +364,18 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
         mismatch_table.add_column("%", justify="right")
         mismatch_table.add_column("Priority", justify="center")
 
-        for col, stats in sorted(mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True):
+        for col, stats in sorted(
+            mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True
+        ):
             # Determine priority
-            if col in ["patient_id", "tracker_year", "tracker_month", "tracker_date", "file_name", "sheet_name"]:
+            if col in [
+                "patient_id",
+                "tracker_year",
+                "tracker_month",
+                "tracker_date",
+                "file_name",
+                "sheet_name",
+            ]:
                 priority = "[red]HIGH[/red]"
             elif stats["percentage"] > 10:
                 priority = "[yellow]MEDIUM[/yellow]"
@@ -342,18 +383,19 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
                 priority = "[dim]LOW[/dim]"
 
             mismatch_table.add_row(
-                col,
-                f"{stats['count']:,}",
-                f"{stats['percentage']:.1f}%",
-                priority
+                col, f"{stats['count']:,}", f"{stats['percentage']:.1f}%", priority
             )
 
         console.print(mismatch_table)
 
         # Show ALL mismatched columns with patient_id and sheet_name
         console.print("\n[bold]Detailed Mismatches (showing ALL errors):[/bold]")
-        for col, stats in sorted(mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True):
-            console.print(f"\n[bold cyan]{col}:[/bold cyan] {stats['count']} mismatches ({stats['percentage']:.1f}%)")
+        for col, stats in sorted(
+            mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True
+        ):
+            console.print(
+                f"\n[bold cyan]{col}:[/bold cyan] {stats['count']} mismatches ({stats['percentage']:.1f}%)"
+            )
             # Include patient_id and sheet_name in examples
             examples_with_ids = stats["examples_with_ids"]
             console.print(examples_with_ids)
@@ -383,12 +425,20 @@ def display_summary(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
     # Record counts
     record_icon = "[green]✓[/green]" if record_match else "[red]✗[/red]"
-    record_detail = f"Both have {r_count:,} records" if record_match else f"R: {r_count:,}, Python: {py_count:,}"
+    record_detail = (
+        f"Both have {r_count:,} records"
+        if record_match
+        else f"R: {r_count:,}, Python: {py_count:,}"
+    )
     summary_table.add_row("Record counts", record_icon, record_detail)
 
     # Schema
     schema_icon = "[green]✓[/green]" if schema_match else "[yellow]⚠[/yellow]"
-    schema_detail = f"Both have {len(r_cols)} columns" if schema_match else f"R: {len(r_cols)}, Python: {len(py_cols)}"
+    schema_detail = (
+        f"Both have {len(r_cols)} columns"
+        if schema_match
+        else f"R: {len(r_cols)}, Python: {len(py_cols)}"
+    )
     summary_table.add_row("Schema match", schema_icon, schema_detail)
 
     console.print(summary_table)
@@ -414,7 +464,12 @@ def display_summary(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
 @app.command()
 def compare(
-    file_name: str = typer.Option(..., "--file", "-f", help="Parquet filename (e.g., '2018_CDA A4D Tracker_patient_cleaned.parquet')"),
+    file_name: str = typer.Option(
+        ...,
+        "--file",
+        "-f",
+        help="Parquet filename (e.g., '2018_CDA A4D Tracker_patient_cleaned.parquet')",
+    ),
 ):
     """Compare R vs Python cleaned patient data outputs.
 

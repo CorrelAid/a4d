@@ -9,7 +9,9 @@ def check_sheets():
     """Compare which sheets were processed."""
 
     r_file = Path("output/patient_data_raw/R/2024_Sibu Hospital A4D Tracker_patient_raw.parquet")
-    python_file = Path("output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet")
+    python_file = Path(
+        "output/patient_data_raw/Python/2024_Sibu Hospital A4D Tracker_patient_raw.parquet"
+    )
 
     df_r = pl.read_parquet(r_file)
     df_python = pl.read_parquet(python_file)

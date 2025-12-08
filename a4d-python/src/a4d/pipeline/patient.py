@@ -35,7 +35,7 @@ def _init_worker_logging(output_root: Path):
     setup_logging(
         output_root=output_root,
         log_name=f"worker_{timestamp}_pid{pid}",
-        console_level="ERROR"  # Quiet console
+        console_level="ERROR",  # Quiet console
     )
 
 
@@ -63,10 +63,7 @@ def discover_tracker_files(data_root: Path) -> list[Path]:
     return sorted(tracker_files)
 
 
-def process_patient_tables(
-    cleaned_dir: Path,
-    output_dir: Path
-) -> dict[str, Path]:
+def process_patient_tables(cleaned_dir: Path, output_dir: Path) -> dict[str, Path]:
     """Create final patient tables from cleaned parquets.
 
     Creates three main tables:
@@ -124,7 +121,7 @@ def run_patient_pipeline(
     force: bool = False,
     progress_callback: Callable[[str, bool], None] | None = None,
     show_progress: bool = False,
-    console_log_level: str | None = None
+    console_log_level: str | None = None,
 ) -> PipelineResult:
     """Run complete patient data pipeline.
 
@@ -179,7 +176,7 @@ def run_patient_pipeline(
     setup_logging(
         output_root,
         "pipeline_patient",
-        console_level=console_log_level if console_log_level else "INFO"
+        console_level=console_log_level if console_log_level else "INFO",
     )
     logger.info("Starting patient pipeline")
     logger.info(f"Output directory: {output_root}")
@@ -206,7 +203,11 @@ def run_patient_pipeline(
         logger.info("Processing trackers sequentially")
 
         # Use tqdm if requested
-        iterator = tqdm(tracker_files, desc="Processing trackers", unit="file") if show_progress else tracker_files
+        iterator = (
+            tqdm(tracker_files, desc="Processing trackers", unit="file")
+            if show_progress
+            else tracker_files
+        )
 
         for tracker_file in iterator:
             if show_progress:
@@ -215,7 +216,7 @@ def run_patient_pipeline(
             result = process_tracker_patient(
                 tracker_file=tracker_file,
                 output_root=output_root,
-                mapper=None  # Each tracker loads mapper if needed
+                mapper=None,  # Each tracker loads mapper if needed
             )
             tracker_results.append(result)
 
@@ -236,9 +237,7 @@ def run_patient_pipeline(
         # Parallel processing
         logger.info(f"Processing trackers in parallel ({max_workers} workers)")
         with ProcessPoolExecutor(
-            max_workers=max_workers,
-            initializer=_init_worker_logging,
-            initargs=(output_root,)
+            max_workers=max_workers, initializer=_init_worker_logging, initargs=(output_root,)
         ) as executor:
             # Submit all jobs
             futures = {
@@ -246,7 +245,7 @@ def run_patient_pipeline(
                     process_tracker_patient,
                     tracker_file,
                     output_root,
-                    None  # Each worker loads synonyms independently
+                    None,  # Each worker loads synonyms independently
                 ): tracker_file
                 for tracker_file in tracker_files
             }
@@ -254,7 +253,9 @@ def run_patient_pipeline(
             # Collect results as they complete
             futures_iterator = as_completed(futures)
             if show_progress:
-                futures_iterator = tqdm(futures_iterator, total=len(futures), desc="Processing trackers", unit="file")
+                futures_iterator = tqdm(
+                    futures_iterator, total=len(futures), desc="Processing trackers", unit="file"
+                )
 
             for future in futures_iterator:
                 tracker_file = futures[future]
@@ -278,12 +279,14 @@ def run_patient_pipeline(
                     logger.exception(f"Exception processing {tracker_file.name}")
                     if show_progress:
                         tqdm.write(f"✗ {tracker_file.name}: Exception - {str(e)}")
-                    tracker_results.append(TrackerResult(
-                        tracker_file=tracker_file,
-                        tracker_name=tracker_file.stem,
-                        success=False,
-                        error=str(e)
-                    ))
+                    tracker_results.append(
+                        TrackerResult(
+                            tracker_file=tracker_file,
+                            tracker_name=tracker_file.stem,
+                            success=False,
+                            error=str(e),
+                        )
+                    )
 
     # Summary
     successful = sum(1 for r in tracker_results if r.success)

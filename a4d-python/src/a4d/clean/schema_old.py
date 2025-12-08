@@ -36,7 +36,6 @@ def get_patient_data_schema() -> Dict[str, pl.DataType]:
         "sheet_name": pl.String,
         "patient_id": pl.String,
         "tracker_date": pl.Date,
-
         # Patient demographics
         "name": pl.String,
         "age": pl.Int32,
@@ -46,94 +45,76 @@ def get_patient_data_schema() -> Dict[str, pl.DataType]:
         "edu_occ": pl.String,
         "edu_occ_updated": pl.Date,
         "family_history": pl.String,
-
         # Patient status
         "status": pl.String,
         "status_out": pl.String,
         "patient_consent": pl.String,
         "recruitment_date": pl.Date,
         "lost_date": pl.Date,
-
         # Diagnosis
         "t1d_diagnosis_date": pl.Date,
         "t1d_diagnosis_age": pl.Int32,
         "t1d_diagnosis_with_dka": pl.String,
-
         # Physical measurements
         "height": pl.Float64,
         "weight": pl.Float64,
         "bmi": pl.Float64,
         "bmi_date": pl.Date,
-
         # Blood pressure
         "blood_pressure_sys_mmhg": pl.Int32,
         "blood_pressure_dias_mmhg": pl.Int32,
         "blood_pressure_updated": pl.Date,
-
         # HbA1c
         "hba1c_baseline": pl.Float64,
         "hba1c_baseline_exceeds": pl.Boolean,
         "hba1c_updated": pl.Float64,
         "hba1c_updated_exceeds": pl.Boolean,
         "hba1c_updated_date": pl.Date,
-
         # FBG (Fasting Blood Glucose)
         "fbg_baseline_mg": pl.Float64,
         "fbg_baseline_mmol": pl.Float64,
         "fbg_updated_mg": pl.Float64,
         "fbg_updated_mmol": pl.Float64,
         "fbg_updated_date": pl.Date,
-
         # Testing
         "testing_frequency": pl.Int32,
-
         # Insulin type and regimen
         "insulin_type": pl.String,
         "insulin_subtype": pl.String,
         "insulin_regimen": pl.String,
         "insulin_injections": pl.Float64,
         "insulin_total_units": pl.Float64,
-
         # Human insulin (2024+ trackers)
         "human_insulin_pre_mixed": pl.String,
         "human_insulin_short_acting": pl.String,
         "human_insulin_intermediate_acting": pl.String,
-
         # Analog insulin (2024+ trackers)
         "analog_insulin_rapid_acting": pl.String,
         "analog_insulin_long_acting": pl.String,
-
         # Support
         "support_level": pl.String,
-
         # Clinic visits
         "clinic_visit": pl.String,
         "last_clinic_visit_date": pl.Date,
         "remote_followup": pl.String,
         "last_remote_followup_date": pl.Date,
-
         # Hospitalisation
         "hospitalisation_cause": pl.String,
         "hospitalisation_date": pl.Date,
-
         # DM Complications
         "dm_complication_eye": pl.String,
         "dm_complication_kidney": pl.String,
         "dm_complication_others": pl.String,
         "dm_complication_remarks": pl.String,
-
         # Complication screening - Eye
         "complication_screening_eye_exam_date": pl.Date,
         "complication_screening_eye_exam_value": pl.String,
-
         # Complication screening - Foot
         "complication_screening_foot_exam_date": pl.Date,
         "complication_screening_foot_exam_value": pl.String,
-
         # Complication screening - Kidney
         "complication_screening_kidney_test_date": pl.Date,
         "complication_screening_kidney_test_value": pl.String,
-
         # Complication screening - Lipid profile
         "complication_screening_lipid_profile_date": pl.Date,
         "complication_screening_lipid_profile_cholesterol_value": pl.String,
@@ -142,19 +123,15 @@ def get_patient_data_schema() -> Dict[str, pl.DataType]:
         "complication_screening_lipid_profile_ldl_mmol_value": pl.Float64,
         "complication_screening_lipid_profile_ldl_mg_value": pl.Float64,
         "complication_screening_lipid_profile_triglycerides_value": pl.Float64,
-
         # Complication screening - Thyroid
         "complication_screening_thyroid_test_date": pl.Date,
         "complication_screening_thyroid_test_tsh_value": pl.Float64,
         "complication_screening_thyroid_test_ft4_pmol_value": pl.Float64,
         "complication_screening_thyroid_test_ft4_ng_value": pl.Float64,
-
         # Complication screening - General
         "complication_screening_remarks": pl.String,
-
         # Other
         "other_issues": pl.String,
-
         # Observations
         "observations_category": pl.String,
         "observations": pl.String,
@@ -201,7 +178,8 @@ def get_numeric_columns() -> list[str]:
     """Get list of numeric columns from schema."""
     schema = get_patient_data_schema()
     return [
-        col for col, dtype in schema.items()
+        col
+        for col, dtype in schema.items()
         if dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64)
     ]
 

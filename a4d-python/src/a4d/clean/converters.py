@@ -153,7 +153,9 @@ def parse_date_column(
     # with return_dtype=pl.Date fails when ALL values are None (all-NA columns like hospitalisation_date).
     # Explicit Series creation with dtype=pl.Date works because it doesn't require non-null values.
     column_values = df[column].cast(pl.Utf8).to_list()
-    parsed_dates = [parse_date_flexible(val, error_val=settings.error_val_date) for val in column_values]
+    parsed_dates = [
+        parse_date_flexible(val, error_val=settings.error_val_date) for val in column_values
+    ]
     parsed_series = pl.Series(f"_parsed_{column}", parsed_dates, dtype=pl.Date)
     df = df.with_columns(parsed_series)
 

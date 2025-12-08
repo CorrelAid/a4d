@@ -70,7 +70,12 @@ SKIP_COLUMNS_IN_COMPARISON = {
 FILE_COLUMN_EXCEPTIONS = {
     "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
         "reason": "Excel cells contain Unicode '≥15' (U+2265). R's readxl reads raw Unicode. Python's openpyxl (data_only=True) normalizes to ASCII '>15'. R's regex grepl('>|<') only matches ASCII, fails to parse '≥15', results in error value 999999. R needs update to handle Unicode comparison operators (≥, ≤).",
-        "skip_columns": ["hba1c_baseline", "hba1c_baseline_exceeds", "hba1c_updated", "hba1c_updated_exceeds"],
+        "skip_columns": [
+            "hba1c_baseline",
+            "hba1c_baseline_exceeds",
+            "hba1c_updated",
+            "hba1c_updated_exceeds",
+        ],
     },
     "2025_06_Kantha Bopha II Hospital A4D Tracker_patient_cleaned.parquet": {
         "reason": "R BUG: Sets province to 'Undefined' for Takéo, Tboung Khmum, and Preah Sihanouk despite these being in allowed_provinces.yaml. Python now correctly validates and preserves these province names using sanitize_str(). All three provinces are properly listed in the YAML with correct UTF-8 encoding (Takéo has é as U+00E9). R's sanitize_str() should handle this by removing accents, but validation fails. Needs investigation in R's check_allowed_values() or YAML loading.",
@@ -216,6 +221,7 @@ def get_all_tracker_files() -> list[tuple[str, Path, Path]]:
 
     return trackers
 
+
 @pytest.fixture(scope="module")
 def tracker_files():
     """Fixture providing list of all tracker files to validate."""
@@ -278,7 +284,9 @@ def test_record_count_matches(filename, r_path, py_path):
             )
     else:
         # Should match exactly
-        assert r_count == py_count, f"{filename}: Record count mismatch - R: {r_count}, Python: {py_count}"
+        assert r_count == py_count, (
+            f"{filename}: Record count mismatch - R: {r_count}, Python: {py_count}"
+        )
 
 
 @pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
@@ -388,7 +396,9 @@ def test_no_duplicate_records(filename, r_path, py_path):
 
     # Check for duplicates
     duplicates = (
-        df_py.group_by(["patient_id", "clinic_id", "tracker_month"]).agg(pl.len().alias("count")).filter(pl.col("count") > 1)
+        df_py.group_by(["patient_id", "clinic_id", "tracker_month"])
+        .agg(pl.len().alias("count"))
+        .filter(pl.col("count") > 1)
     )
 
     has_duplicates = len(duplicates) > 0
@@ -610,19 +620,32 @@ def test_data_values_match(filename, r_path, py_path):
                     & ((df_compare[r_col_for_comparison] - df_compare[py_col]).abs() > 1e-6)
                 )
                 # One null, other not null
-                | ((df_compare[r_col_for_comparison].is_null()) & (df_compare[py_col].is_not_null()))
-                | ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_null()))
+                | (
+                    (df_compare[r_col_for_comparison].is_null())
+                    & (df_compare[py_col].is_not_null())
+                )
+                | (
+                    (df_compare[r_col_for_comparison].is_not_null())
+                    & (df_compare[py_col].is_null())
+                )
             )
         elif is_string:
             # For strings, treat null and empty string as equivalent
             # Normalize: convert empty strings to null for comparison
             r_normalized = (
-                pl.when(df_compare[r_col_for_comparison] == "").then(None).otherwise(df_compare[r_col_for_comparison])
+                pl.when(df_compare[r_col_for_comparison] == "")
+                .then(None)
+                .otherwise(df_compare[r_col_for_comparison])
             )
-            py_normalized = pl.when(df_compare[py_col] == "").then(None).otherwise(df_compare[py_col])
+            py_normalized = (
+                pl.when(df_compare[py_col] == "").then(None).otherwise(df_compare[py_col])
+            )
 
             df_compare = df_compare.with_columns(
-                [r_normalized.alias(f"{r_col_for_comparison}_norm"), py_normalized.alias(f"{py_col}_norm")]
+                [
+                    r_normalized.alias(f"{r_col_for_comparison}_norm"),
+                    py_normalized.alias(f"{py_col}_norm"),
+                ]
             )
 
             diff_mask = (
@@ -652,8 +675,14 @@ def test_data_values_match(filename, r_path, py_path):
                     & (df_compare[r_col_for_comparison] != df_compare[py_col])
                 )
                 # One null, other not null
-                | ((df_compare[r_col_for_comparison].is_null()) & (df_compare[py_col].is_not_null()))
-                | ((df_compare[r_col_for_comparison].is_not_null()) & (df_compare[py_col].is_null()))
+                | (
+                    (df_compare[r_col_for_comparison].is_null())
+                    & (df_compare[py_col].is_not_null())
+                )
+                | (
+                    (df_compare[r_col_for_comparison].is_not_null())
+                    & (df_compare[py_col].is_null())
+                )
             )
 
         diff_records = df_compare.filter(diff_mask)
@@ -663,7 +692,9 @@ def test_data_values_match(filename, r_path, py_path):
                 {
                     "column": col,
                     "mismatches": len(diff_records),
-                    "sample_patients": diff_records.select(["patient_id", "tracker_month", r_col, py_col]).head(5),
+                    "sample_patients": diff_records.select(
+                        ["patient_id", "tracker_month", r_col, py_col]
+                    ).head(5),
                 }
             )
 
@@ -671,7 +702,9 @@ def test_data_values_match(filename, r_path, py_path):
         # Build detailed error message
         error_msg = f"{filename}: Found data mismatches in {len(mismatches)} columns\n"
         for mismatch in mismatches[:5]:  # Show first 5 columns with issues
-            error_msg += f"\nColumn '{mismatch['column']}': {mismatch['mismatches']} mismatching records\n"
+            error_msg += (
+                f"\nColumn '{mismatch['column']}': {mismatch['mismatches']} mismatching records\n"
+            )
             error_msg += "Sample differing records:\n"
             error_msg += str(mismatch["sample_patients"])
 

@@ -43,7 +43,11 @@ def parse_date_flexible(date_str: Optional[str], error_val: str = "9999-09-09") 
         Parsed date, None for NA/empty, or error date if parsing fails
     """
     # Handle None, empty, or NA strings
-    if date_str is None or date_str == "" or str(date_str).strip().lower() in ["na", "nan", "null", "none"]:
+    if (
+        date_str is None
+        or date_str == ""
+        or str(date_str).strip().lower() in ["na", "nan", "null", "none"]
+    ):
         return None
 
     date_str = str(date_str).strip()
