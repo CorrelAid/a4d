@@ -4,15 +4,15 @@ import polars as pl
 import pytest
 
 from a4d.clean.transformers import (
-    extract_regimen,
-    str_to_lower,
     apply_transformation,
     correct_decimal_sign_multiple,
-    fix_sex,
+    extract_regimen,
     fix_bmi,
-    replace_range_with_mean,
+    fix_sex,
     fix_testing_frequency,
+    replace_range_with_mean,
     split_bp_in_sys_and_dias,
+    str_to_lower,
 )
 from a4d.config import settings
 

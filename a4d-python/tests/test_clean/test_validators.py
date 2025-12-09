@@ -1,14 +1,13 @@
 """Tests for schema and validation utilities."""
 
 import polars as pl
-import pytest
 
 from a4d.clean.validators import (
+    fix_patient_id,
     load_validation_rules,
+    validate_all_columns,
     validate_allowed_values,
     validate_column_from_rules,
-    validate_all_columns,
-    fix_patient_id,
 )
 from a4d.config import settings
 from a4d.errors import ErrorCollector
