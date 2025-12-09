@@ -9,8 +9,10 @@ Tests extraction on real tracker files, validating:
 """
 
 import pytest
+
 from a4d.extract.patient import read_all_patient_sheets
-from .conftest import EXPECTED_SCHEMA_COLS, skip_if_missing
+
+from .conftest import skip_if_missing
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 

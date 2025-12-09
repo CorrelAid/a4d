@@ -8,9 +8,11 @@ Tests cleaning on real extracted data, validating:
 """
 
 import pytest
+
 from a4d.clean.patient import clean_patient_data
 from a4d.errors import ErrorCollector
 from a4d.extract.patient import read_all_patient_sheets
+
 from .conftest import EXPECTED_SCHEMA_COLS, skip_if_missing
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]

@@ -1,7 +1,6 @@
 """Unit tests for patient cleaning functions."""
 
 import polars as pl
-import pytest
 
 from a4d.clean.patient import _apply_preprocessing
 
