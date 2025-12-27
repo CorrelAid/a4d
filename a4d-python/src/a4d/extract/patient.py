@@ -193,88 +193,32 @@ def read_header_rows(ws, data_start_row: int, max_cols: int = 100) -> tuple[list
     return header_1, header_2
 
 
-def get_horizontal_merges(ws, header_rows: tuple[int, int]) -> dict[int, tuple[int, str]]:
-    """Get horizontal merge information for header rows.
-
-    Detects horizontally merged cells in the header rows and returns a map
-    indicating which columns are part of a horizontal merge.
-
-    Args:
-        ws: openpyxl worksheet (must be loaded with read_only=False)
-        header_rows: Tuple of (header_row_1, header_row_2) row numbers
-
-    Returns:
-        Dict mapping column index (1-based) to (start_col, value) for columns
-        that are part of a horizontal merge. The start_col is the leftmost
-        column of the merge, and value is the merge's value.
-
-    Example:
-        If cells V98:W98 are merged with value "Current Patient Observations":
-        Returns {22: (22, "Current Patient..."), 23: (22, "Current Patient...")}
-    """
-    header_row_1, header_row_2 = header_rows
-    merge_map = {}
-
-    try:
-        for merged_range in ws.merged_cells:
-            # Check if merge overlaps with EITHER header row and is horizontal
-            # header_row_2 is further from data (e.g., 98), header_row_1 is closer (e.g., 99)
-            overlaps_header = (
-                (merged_range.min_row <= header_row_1 <= merged_range.max_row) or
-                (merged_range.min_row <= header_row_2 <= merged_range.max_row)
-            )
-            is_horizontal = merged_range.min_col < merged_range.max_col
-
-            if overlaps_header and is_horizontal:
-
-                # Get value from top-left cell of merge
-                value = ws.cell(merged_range.min_row, merged_range.min_col).value
-
-                # Map all columns in the merge to the start column and value
-                for col in range(merged_range.min_col, merged_range.max_col + 1):
-                    merge_map[col] = (merged_range.min_col, value)
-
-    except AttributeError:
-        # read_only mode doesn't support merged_cells
-        logger.warning("Cannot detect merged cells in read_only mode")
-
-    return merge_map
-
-
 def merge_headers(
     header_1: list,
     header_2: list,
-    horizontal_merges: dict[int, tuple[int, str]] | None = None,
+    mapper: ColumnMapper | None = None,
 ) -> list[str | None]:
-    """Merge two header rows using actual Excel merge metadata.
+    """Merge two header rows using heuristic forward-fill with synonym validation.
 
-    Uses horizontal merge information from Excel to correctly handle:
-    1. Group headers spanning multiple columns (e.g., "Current Patient Observations"
-       spanning observations and category columns)
-    2. Standalone columns that happen to have h1 but no h2
+    When h2=None but h1 exists:
+    1. Try forward-fill: combine prev_h2 + h1
+    2. If mapper validates this as known column, use it
+    3. Otherwise, treat h1 as standalone column
+
+    This replaces Excel merge metadata detection with synonym-based validation,
+    eliminating the need for slow read_only=False workbook loading.
 
     Special case: If header_1 contains "Patient ID" (or known synonyms) and
     header_2 appears to be a title row (mostly None), use only header_1.
 
-    Logic:
-    - If column is part of horizontal merge: use merge value + h1 (if h1 exists)
-    - If both h1 and h2 exist: concatenate as "h2 h1"
-    - If only h2 exists: use h2
-    - If only h1 exists: use h1 (standalone column)
-    - If both None: append None
-
     Args:
         header_1: First header row (closer to data), 0-indexed
         header_2: Second header row (further from data), 0-indexed
-        horizontal_merges: Optional dict from get_horizontal_merges(), maps
-            1-based column index to (start_col, merge_value)
+        mapper: Optional ColumnMapper for validating forward-filled headers
 
     Returns:
         List of merged header strings with whitespace normalized
     """
-    if horizontal_merges is None:
-        horizontal_merges = {}
-
     patient_id_indicators = ["patient id", "patient.id"]
     has_patient_id_in_h1 = any(
         str(h1).strip().lower() in patient_id_indicators for h1 in header_1 if h1 is not None
@@ -291,39 +235,29 @@ def merge_headers(
         return headers
 
     headers = []
+    prev_h2 = None
 
-    for col_idx, (h1, h2) in enumerate(zip(header_1, header_2, strict=True)):
-        col_num = col_idx + 1  # Convert to 1-based for merge lookup
-
-        # Check if this column is part of a horizontal merge
-        if col_num in horizontal_merges:
-            start_col, merge_value = horizontal_merges[col_num]
-
-            # If this is NOT the first column of the merge, use merge value
-            if col_num > start_col and merge_value:
-                if h1:
-                    # Sub-column with label: "Group Header Sub-label"
-                    headers.append(f"{merge_value} {h1}".strip())
-                else:
-                    # Sub-column without label: use merge value
-                    headers.append(str(merge_value).strip())
-            elif h1 and h2:
-                headers.append(f"{h2} {h1}".strip())
-            elif h2:
-                headers.append(str(h2).strip())
-            elif h1:
-                headers.append(str(h1).strip())
-            else:
-                headers.append(None)
-        elif h1 and h2:
+    for h1, h2 in zip(header_1, header_2, strict=True):
+        if h1 and h2:
             headers.append(f"{h2} {h1}".strip())
+            prev_h2 = str(h2).strip()
         elif h2:
             headers.append(str(h2).strip())
+            prev_h2 = str(h2).strip()
         elif h1:
-            # Standalone column with header in row 1 only
-            headers.append(str(h1).strip())
+            # Try forward-fill with validation
+            if prev_h2:
+                candidate = f"{prev_h2} {h1}".strip()
+                if mapper and mapper.is_known_column(candidate):
+                    headers.append(candidate)
+                else:
+                    # Forward-fill not valid, use h1 standalone
+                    headers.append(str(h1).strip())
+            else:
+                headers.append(str(h1).strip())
         else:
             headers.append(None)
+            prev_h2 = None  # Reset on gap
 
     headers = [re.sub(r"\s+", " ", h.replace("\n", " ")) if h else None for h in headers]
 
@@ -516,24 +450,19 @@ def extract_patient_data(
     tracker_file: Path,
     sheet_name: str,
     year: int,
+    mapper: ColumnMapper | None = None,
+    workbook=None,
 ) -> pl.DataFrame:
     """Extract patient data from a single sheet.
 
-    Orchestrates the extraction process by:
-    1. Loading with read_only=False to get merge metadata (required for accurate headers)
-    2. Reading and merging header rows using Excel merge information
-    3. Reloading with read_only=True for fast data reading
-    4. Reading patient data rows using efficient iterator
-    5. Creating a Polars DataFrame
-
-    Uses hybrid loading strategy for performance:
-    - read_only=False: Fast metadata extraction only (merged_cells, headers)
-    - read_only=True: Fast iterator-based data reading
+    Uses single read_only=True load with synonym-validated header merging.
 
     Args:
         tracker_file: Path to the tracker Excel file
         sheet_name: Name of the sheet to extract
         year: Year of the tracker (currently unused, reserved for future use)
+        mapper: Optional ColumnMapper for validating forward-filled headers
+        workbook: Optional pre-loaded workbook for caching across sheets
 
     Returns:
         Polars DataFrame with patient data (all columns as strings)
@@ -549,51 +478,45 @@ def extract_patient_data(
         >>> "Patient ID*" in df.columns
         True
     """
-    # Phase 1: Load with read_only=False to access merge metadata
-    # This is required to match R's fillMergedCells=T behavior
-    wb_meta = load_workbook(
-        tracker_file,
-        read_only=False,  # Required for ws.merged_cells access
-        data_only=True,
-        keep_vba=False,
-        keep_links=False,
-    )
-    ws_meta = wb_meta[sheet_name]
+    if mapper is None:
+        mapper = load_patient_mapper()
 
-    data_start_row = find_data_start_row(ws_meta)
+    # Use cached workbook or load new one
+    close_wb = workbook is None
+    if workbook is None:
+        workbook = load_workbook(
+            tracker_file,
+            read_only=True,
+            data_only=True,
+            keep_vba=False,
+            keep_links=False,
+        )
+
+    ws = workbook[sheet_name]
+
+    data_start_row = find_data_start_row(ws)
     logger.debug(
-        f"Sheet '{sheet_name}': Patient data found in rows {data_start_row} to {ws_meta.max_row}"
+        f"Sheet '{sheet_name}': Patient data found in rows {data_start_row} to {ws.max_row}"
     )
 
     logger.info("Processing headers...")
-    header_1, header_2 = read_header_rows(ws_meta, data_start_row)
+    header_1, header_2 = read_header_rows(ws, data_start_row)
 
-    # Get horizontal merge information from Excel metadata
-    header_rows = (data_start_row - 1, data_start_row - 2)
-    horizontal_merges = get_horizontal_merges(ws_meta, header_rows)
-    if horizontal_merges:
-        logger.debug(f"Found {len(horizontal_merges)} columns with horizontal merges")
-
-    headers = merge_headers(header_1, header_2, horizontal_merges)
-    wb_meta.close()
+    # Use synonym-validated forward-fill instead of Excel merge metadata
+    headers = merge_headers(header_1, header_2, mapper=mapper)
 
     valid_cols = [(i, h) for i, h in enumerate(headers) if h]
 
     if not valid_cols:
+        if close_wb:
+            workbook.close()
         logger.warning(f"No valid headers found in sheet '{sheet_name}'")
         return pl.DataFrame()
 
-    # Phase 2: Load with read_only=True for fast data reading
-    wb_data = load_workbook(
-        tracker_file,
-        read_only=True,  # Fast iterator-based reading
-        data_only=True,
-        keep_vba=False,
-        keep_links=False,
-    )
-    ws_data = wb_data[sheet_name]
-    data = read_patient_rows(ws_data, data_start_row, len(headers))
-    wb_data.close()
+    data = read_patient_rows(ws, data_start_row, len(headers))
+
+    if close_wb:
+        workbook.close()
 
     valid_headers, filtered_data = filter_valid_columns(headers, data)
 
@@ -741,6 +664,11 @@ def read_all_patient_sheets(
     """
     logger.info(f"Reading all patient sheets from {tracker_file.name}")
 
+    # Load mapper once for all sheets
+    if mapper is None:
+        mapper = load_patient_mapper()
+
+    # Load workbook once and reuse across all sheets
     wb = load_workbook(
         tracker_file, read_only=True, data_only=True, keep_vba=False, keep_links=False
     )
@@ -753,14 +681,14 @@ def read_all_patient_sheets(
     year = get_tracker_year(tracker_file, month_sheets)
     logger.info(f"Processing {len(month_sheets)} month sheets for year {year}")
 
-    wb.close()
-
     all_sheets_data = []
 
     for sheet_name in month_sheets:
         logger.info(f"Processing sheet: {sheet_name}")
 
-        df_sheet = extract_patient_data(tracker_file, sheet_name, year)
+        df_sheet = extract_patient_data(
+            tracker_file, sheet_name, year, mapper=mapper, workbook=wb
+        )
 
         if df_sheet.is_empty():
             logger.warning(f"Sheet '{sheet_name}' has no data, skipping")
@@ -860,17 +788,16 @@ def read_all_patient_sheets(
 
     df_combined = clean_excel_errors(df_combined)
 
-    wb = load_workbook(
-        tracker_file, read_only=True, data_only=True, keep_vba=False, keep_links=False
-    )
+    # Use already-loaded workbook for sheet checking
     all_sheets = wb.sheetnames
-    wb.close()
 
     # Process Patient List sheet if it exists (R: lines 103-130)
     if "Patient List" in all_sheets:
         logger.info("Processing 'Patient List' sheet...")
         try:
-            patient_list = extract_patient_data(tracker_file, "Patient List", year)
+            patient_list = extract_patient_data(
+                tracker_file, "Patient List", year, mapper=mapper, workbook=wb
+            )
             if not patient_list.is_empty():
                 patient_list = harmonize_patient_data_columns(
                     patient_list, mapper=mapper, strict=False
@@ -920,7 +847,9 @@ def read_all_patient_sheets(
     if "Annual" in all_sheets:
         logger.info("Processing 'Annual' sheet...")
         try:
-            annual_data = extract_patient_data(tracker_file, "Annual", year)
+            annual_data = extract_patient_data(
+                tracker_file, "Annual", year, mapper=mapper, workbook=wb
+            )
             if not annual_data.is_empty():
                 annual_data = harmonize_patient_data_columns(
                     annual_data, mapper=mapper, strict=False
@@ -957,6 +886,9 @@ def read_all_patient_sheets(
                 logger.warning("Annual sheet is empty")
         except Exception as e:
             logger.warning(f"Could not process Annual sheet: {e}")
+
+    # Close workbook after all processing
+    wb.close()
 
     logger.info(
         f"Successfully extracted {len(df_combined)} total rows "

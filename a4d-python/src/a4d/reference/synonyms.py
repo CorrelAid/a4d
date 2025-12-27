@@ -148,6 +148,27 @@ class ColumnMapper:
         sanitized_col = sanitize_str(column)
         return self._lookup.get(sanitized_col, column)
 
+    def is_known_column(self, column: str) -> bool:
+        """Check if column name maps to a known standard name.
+
+        Used for validating forward-filled headers during Excel extraction.
+        Returns True if the column is either a known synonym or a standard name.
+
+        Args:
+            column: Column name to check
+
+        Returns:
+            True if column maps to a known standard name
+
+        Example:
+            >>> mapper.is_known_column("Current Patient Observations Category")
+            True  # Maps to observations_category
+            >>> mapper.is_known_column("Level of Support Status")
+            False  # No such column in synonyms
+        """
+        sanitized = sanitize_str(column)
+        return sanitized in self._lookup or column in self.synonyms
+
     def rename_columns(
         self,
         df: pl.DataFrame,
