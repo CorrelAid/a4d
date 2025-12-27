@@ -258,15 +258,16 @@ def merge_headers(header_1: list, header_2: list) -> list[str | None]:
             prev_h2 = h2
             prev_h1 = None
         elif h1:
-            # Only forward-fill if previous column also had h1 (true horizontal merge)
-            # If prev had h2 but no h1, it's a standalone vertical header
-            if prev_h2 and prev_h1:
+            # Forward-fill prev_h2 when current column has h1 but no h2
+            # This handles both true horizontal merges (prev had h1+h2) and
+            # group headers (prev had only h2, e.g., "Current Patient Observations"
+            # followed by sub-column "Category")
+            if prev_h2:
                 headers.append(f"{prev_h2} {h1}".strip())
                 prev_h1 = h1
             else:
                 headers.append(str(h1).strip())
                 prev_h1 = h1
-                prev_h2 = None
         else:
             headers.append(None)
             prev_h2 = None
