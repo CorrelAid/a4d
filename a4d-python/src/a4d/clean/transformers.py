@@ -110,6 +110,9 @@ def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
     - If weight or height is error value → BMI becomes error value
     - Otherwise: BMI = weight / height^2
 
+    Height is converted from cm to m if > 50 (R's transform_cm_to_m threshold).
+    This ensures correct BMI regardless of whether height is in cm or m.
+
     This calculation REPLACES any existing BMI value, matching R's behavior.
 
     Args:
@@ -121,9 +124,17 @@ def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
     Example:
         >>> df = fix_bmi(df)
         >>> # weight=70, height=1.75 → bmi=22.86
+        >>> # weight=30.7, height=135.5 (cm) → height_m=1.355, bmi=16.72
     """
     if "weight" not in df.columns or "height" not in df.columns:
         return df
+
+    # Convert height from cm to m if > 50 (R's transform_cm_to_m threshold)
+    height_m = (
+        pl.when(pl.col("height") > 50)
+        .then(pl.col("height") / 100.0)
+        .otherwise(pl.col("height"))
+    )
 
     # Calculate BMI: weight / height^2
     # Match R's case_when logic exactly
@@ -135,7 +146,7 @@ def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
             | (pl.col("height") == settings.error_val_numeric)
         )
         .then(pl.lit(settings.error_val_numeric))
-        .otherwise(pl.col("weight") / pl.col("height").pow(2))
+        .otherwise(pl.col("weight") / height_m.pow(2))
         .alias("bmi")
     )
 
