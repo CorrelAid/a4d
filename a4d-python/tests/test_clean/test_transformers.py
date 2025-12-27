@@ -556,6 +556,29 @@ def test_fix_bmi_matches_r_behavior():
     assert result["bmi"][4] == settings.error_val_numeric
 
 
+def test_fix_bmi_height_cm_conversion():
+    """Test that height in cm is converted to m before BMI calculation.
+
+    Matches R's transform_cm_to_m: if height > 50, divide by 100.
+    Real case: Lao Friends Hospital has height=135.5cm, weight=30.7kg.
+    """
+    df = pl.DataFrame(
+        {
+            "weight": [30.7, 70.0, 80.0],
+            "height": [135.5, 175.0, 1.80],  # cm, cm, m
+        }
+    )
+
+    result = fix_bmi(df)
+
+    # Row 0: 135.5cm → 1.355m → BMI = 30.7 / 1.355² = 16.72
+    assert result["bmi"][0] == pytest.approx(16.72, abs=0.01)
+    # Row 1: 175cm → 1.75m → BMI = 70 / 1.75² = 22.86
+    assert result["bmi"][1] == pytest.approx(22.86, abs=0.01)
+    # Row 2: 1.80m stays as-is → BMI = 80 / 1.80² = 24.69
+    assert result["bmi"][2] == pytest.approx(24.69, abs=0.01)
+
+
 # Tests for replace_range_with_mean
 
 
