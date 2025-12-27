@@ -33,6 +33,10 @@ ACCEPTABLE_DIFFERENCES = {
         "record_diff": 1,
         "reason": "Python correctly extracts LA-QA088 which is missing row number in Excel column A; R incorrectly drops it",
     },
+    "2022_Children's Hospital 2 A4D Tracker_patient_cleaned.parquet": {
+        "record_diff": -15,
+        "reason": "Excel data quality issue: Oct22 sheet has space instead of 1 in column A for first patient row, causing Python to misdetect headers and skip October (15 rows). R handles this differently.",
+    },
 }
 
 # Known issues in Python that need to be fixed
@@ -49,7 +53,7 @@ KNOWN_ISSUES = {
         "duplicate_records": "4 patients KH_QEH026, KH_QEH027, KH_QEH028, KH_QEH029 have incorrect patient_id in Sep23 and Oct23 and are truncated to KH_QEH02 causing duplicates",
     },
     "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet": {
-        "duplicate_records": "3 patients MM_QD97, MM_QD98, and MM_QD99 have too short patient_id which are replaced with Undefined causing duplicates",
+        "patient_id_format": "R replaces MM_QD097/098/099 with 'Undefined' due to format validation. Python correctly preserves original IDs.",
     },
 }
 
