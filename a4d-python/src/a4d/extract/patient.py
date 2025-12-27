@@ -18,7 +18,7 @@ from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
 # Suppress openpyxl warnings about unsupported Excel features
 # We only read data, so these warnings are not actionable
-warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+warnings.filterwarnings("ignore", category=UserWarning, module=r"openpyxl\..*")
 
 
 def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
