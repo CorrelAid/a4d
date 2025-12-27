@@ -318,12 +318,20 @@ class TestMergeHeaders:
     def test_horizontal_merge_forward_fill(self):
         """Test forward-fill for horizontally merged cells.
 
-        This is the critical case: when h2 is None but h1 exists,
-        and there's a previous h2 value, we fill forward.
+        Forward-fill now only happens when horizontal merge metadata is provided.
+        This simulates Excel merged cells spanning columns 1-2 and 3-4.
         """
         h1 = ["%", "(dd-mmm-yyyy)", "mmol/L", "(dd-mmm-yyyy)"]
         h2 = ["Updated HbA1c", None, "Updated FBG", None]
-        result = merge_headers(h1, h2)
+        # Simulate horizontal merges: cols 1-2 merged with "Updated HbA1c", cols 3-4 with "Updated FBG"
+        # horizontal_merges maps 1-based col index to (start_col, merge_value)
+        horizontal_merges = {
+            1: (1, "Updated HbA1c"),
+            2: (1, "Updated HbA1c"),
+            3: (3, "Updated FBG"),
+            4: (3, "Updated FBG"),
+        }
+        result = merge_headers(h1, h2, horizontal_merges)
         assert result == [
             "Updated HbA1c %",
             "Updated HbA1c (dd-mmm-yyyy)",
@@ -334,27 +342,43 @@ class TestMergeHeaders:
     def test_mixed_headers(self):
         """Test realistic mix of header patterns.
 
-        Note: When h2=None and h1 exists, forward-fill applies if there's
-        a previous h2 value. This is the expected behavior for horizontally
-        merged cells.
+        Forward-fill now only happens with explicit merge metadata.
+        Cols 1-2 merged ("Patient"), cols 3-4 merged ("HbA1c").
         """
         h1 = ["ID*", "Name", "%", "(date)", None, "kg"]
         h2 = ["Patient", None, "HbA1c", None, "Notes", "Weight"]
-        result = merge_headers(h1, h2)
+        # Simulate merges: Patient spans cols 1-2, HbA1c spans cols 3-4
+        horizontal_merges = {
+            1: (1, "Patient"),
+            2: (1, "Patient"),
+            3: (3, "HbA1c"),
+            4: (3, "HbA1c"),
+        }
+        result = merge_headers(h1, h2, horizontal_merges)
         assert result == [
             "Patient ID*",
-            "Patient Name",  # Forward-filled from "Patient"
+            "Patient Name",  # Forward-filled from "Patient" via merge metadata
             "HbA1c %",
-            "HbA1c (date)",  # Forward-filled from "HbA1c"
+            "HbA1c (date)",  # Forward-filled from "HbA1c" via merge metadata
             "Notes",
             "Weight kg",
         ]
 
     def test_none_values_reset_forward_fill(self):
-        """Test that None in both headers resets forward-fill."""
+        """Test that None in both headers doesn't get forward-filled.
+
+        Without merge metadata, columns with h1 but no h2 are standalone.
+        With merge metadata for cols 1-2, the merge applies, but col 3 (both None)
+        correctly results in None.
+        """
         h1 = ["%", "(date)", None, "kg"]
         h2 = ["HbA1c", None, None, "Weight"]
-        result = merge_headers(h1, h2)
+        # Simulate merge for cols 1-2 only
+        horizontal_merges = {
+            1: (1, "HbA1c"),
+            2: (1, "HbA1c"),
+        }
+        result = merge_headers(h1, h2, horizontal_merges)
         assert result == [
             "HbA1c %",
             "HbA1c (date)",
