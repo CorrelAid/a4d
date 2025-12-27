@@ -1,6 +1,7 @@
 """Unit tests for patient extraction helper functions."""
 
 import random
+from unittest.mock import Mock
 
 import pytest
 from openpyxl import Workbook
@@ -11,6 +12,13 @@ from a4d.extract.patient import (
     merge_headers,
     read_header_rows,
 )
+
+
+def create_mock_mapper(known_columns: set[str]):
+    """Create a mock ColumnMapper that validates specific column names."""
+    mapper = Mock()
+    mapper.is_known_column = lambda col: col in known_columns
+    return mapper
 
 
 class TestFindDataStartRow:
@@ -316,22 +324,20 @@ class TestMergeHeaders:
         assert result == ["Patient ID", "Name", "Age"]
 
     def test_horizontal_merge_forward_fill(self):
-        """Test forward-fill for horizontally merged cells.
+        """Test forward-fill with synonym validation.
 
-        Forward-fill now only happens when horizontal merge metadata is provided.
-        This simulates Excel merged cells spanning columns 1-2 and 3-4.
+        Forward-fill happens when mapper validates the combined header.
         """
         h1 = ["%", "(dd-mmm-yyyy)", "mmol/L", "(dd-mmm-yyyy)"]
         h2 = ["Updated HbA1c", None, "Updated FBG", None]
-        # Simulate horizontal merges: cols 1-2 merged with "Updated HbA1c", cols 3-4 with "Updated FBG"
-        # horizontal_merges maps 1-based col index to (start_col, merge_value)
-        horizontal_merges = {
-            1: (1, "Updated HbA1c"),
-            2: (1, "Updated HbA1c"),
-            3: (3, "Updated FBG"),
-            4: (3, "Updated FBG"),
-        }
-        result = merge_headers(h1, h2, horizontal_merges)
+        # Mock mapper that knows these forward-filled patterns
+        mapper = create_mock_mapper({
+            "Updated HbA1c %",
+            "Updated HbA1c (dd-mmm-yyyy)",
+            "Updated FBG mmol/L",
+            "Updated FBG (dd-mmm-yyyy)",
+        })
+        result = merge_headers(h1, h2, mapper)
         assert result == [
             "Updated HbA1c %",
             "Updated HbA1c (dd-mmm-yyyy)",
@@ -342,43 +348,40 @@ class TestMergeHeaders:
     def test_mixed_headers(self):
         """Test realistic mix of header patterns.
 
-        Forward-fill now only happens with explicit merge metadata.
-        Cols 1-2 merged ("Patient"), cols 3-4 merged ("HbA1c").
+        Forward-fill happens when mapper validates the combined header.
         """
         h1 = ["ID*", "Name", "%", "(date)", None, "kg"]
         h2 = ["Patient", None, "HbA1c", None, "Notes", "Weight"]
-        # Simulate merges: Patient spans cols 1-2, HbA1c spans cols 3-4
-        horizontal_merges = {
-            1: (1, "Patient"),
-            2: (1, "Patient"),
-            3: (3, "HbA1c"),
-            4: (3, "HbA1c"),
-        }
-        result = merge_headers(h1, h2, horizontal_merges)
+        # Mock mapper that validates these forward-fills
+        mapper = create_mock_mapper({
+            "Patient ID*",
+            "Patient Name",
+            "HbA1c %",
+            "HbA1c (date)",
+        })
+        result = merge_headers(h1, h2, mapper)
         assert result == [
             "Patient ID*",
-            "Patient Name",  # Forward-filled from "Patient" via merge metadata
+            "Patient Name",  # Forward-filled and validated
             "HbA1c %",
-            "HbA1c (date)",  # Forward-filled from "HbA1c" via merge metadata
+            "HbA1c (date)",  # Forward-filled and validated
             "Notes",
             "Weight kg",
         ]
 
     def test_none_values_reset_forward_fill(self):
-        """Test that None in both headers doesn't get forward-filled.
+        """Test that None in both headers results in None.
 
-        Without merge metadata, columns with h1 but no h2 are standalone.
-        With merge metadata for cols 1-2, the merge applies, but col 3 (both None)
-        correctly results in None.
+        Forward-fill only happens when h1 exists and mapper validates.
         """
         h1 = ["%", "(date)", None, "kg"]
         h2 = ["HbA1c", None, None, "Weight"]
-        # Simulate merge for cols 1-2 only
-        horizontal_merges = {
-            1: (1, "HbA1c"),
-            2: (1, "HbA1c"),
-        }
-        result = merge_headers(h1, h2, horizontal_merges)
+        # Mock mapper that validates HbA1c forward-fills
+        mapper = create_mock_mapper({
+            "HbA1c %",
+            "HbA1c (date)",
+        })
+        result = merge_headers(h1, h2, mapper)
         assert result == [
             "HbA1c %",
             "HbA1c (date)",
