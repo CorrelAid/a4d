@@ -85,6 +85,10 @@ FILE_COLUMN_EXCEPTIONS = {
         "reason": "R BUG: Sets province to 'Undefined' for Takéo, Tboung Khmum, and Preah Sihanouk despite these being in allowed_provinces.yaml. Python now correctly validates and preserves these province names using sanitize_str(). All three provinces are properly listed in the YAML with correct UTF-8 encoding (Takéo has é as U+00E9). R's sanitize_str() should handle this by removing accents, but validation fails. Needs investigation in R's check_allowed_values() or YAML loading.",
         "skip_columns": ["province"],
     },
+    "2025_06_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
+        "reason": "Patient LA_MH054 has invalid insulin_regimen value 'nph' (lowercase). R uppercases to 'NPH', Python preserves original. Both should reject as invalid.",
+        "skip_columns": ["insulin_regimen"],
+    },
 }
 
 # Columns that should never be null/empty - critical data integrity check
