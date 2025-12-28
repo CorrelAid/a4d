@@ -89,6 +89,33 @@ FILE_COLUMN_EXCEPTIONS = {
         "reason": "Patient LA_MH054 has invalid insulin_regimen value 'nph' (lowercase). R uppercases to 'NPH', Python preserves original. Both should reject as invalid.",
         "skip_columns": ["insulin_regimen"],
     },
+    "2025_06_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
+        "reason": "R has systematic extraction errors - sets error values (999999 or 9999-09-09) for most columns. Python correctly extracts data.",
+        "skip_columns": [
+            "age",
+            "blood_pressure_updated",
+            "bmi_date",
+            "dob",
+            "fbg_updated_date",
+            "hba1c_updated_date",
+            "hospitalisation_date",
+            "last_clinic_visit_date",
+            "last_remote_followup_date",
+            "lost_date",
+            "recruitment_date",
+            "t1d_diagnosis_age",
+            "t1d_diagnosis_date",
+            "complication_screening_eye_exam_date",
+            "complication_screening_foot_exam_date",
+            "complication_screening_kidney_test_date",
+            "complication_screening_lipid_profile_date",
+            "complication_screening_thyroid_test_date",
+        ],
+    },
+    "2025_06_Mandalay General Hospital A4D Tracker_patient_cleaned.parquet": {
+        "reason": "R sets error value 999999 for t1d_diagnosis_age. Python correctly extracts values.",
+        "skip_columns": ["t1d_diagnosis_age"],
+    },
 }
 
 # Columns that should never be null/empty - critical data integrity check
