@@ -116,6 +116,24 @@ FILE_COLUMN_EXCEPTIONS = {
         "reason": "R sets error value 999999 for t1d_diagnosis_age. Python correctly extracts values.",
         "skip_columns": ["t1d_diagnosis_age"],
     },
+    "2025_06_NPH A4D Tracker_patient_cleaned.parquet": {
+        "reason": "R sets error values for dates/age. Python correctly extracts data.",
+        "skip_columns": [
+            "age",
+            "blood_pressure_updated",
+            "bmi_date",
+            "dob",
+            "fbg_updated_date",
+            "hba1c_updated_date",
+            "insulin_regimen",
+            "insulin_type",
+            "last_clinic_visit_date",
+            "lost_date",
+            "recruitment_date",
+            "t1d_diagnosis_age",
+            "t1d_diagnosis_date",
+        ],
+    },
 }
 
 # Columns that should never be null/empty - critical data integrity check
