@@ -799,6 +799,7 @@ def read_all_patient_sheets(
                 tracker_file, "Patient List", year, mapper=mapper, workbook=wb
             )
             if not patient_list.is_empty():
+                patient_list = clean_excel_errors(patient_list)
                 patient_list = harmonize_patient_data_columns(
                     patient_list, mapper=mapper, strict=False
                 )
@@ -851,6 +852,7 @@ def read_all_patient_sheets(
                 tracker_file, "Annual", year, mapper=mapper, workbook=wb
             )
             if not annual_data.is_empty():
+                annual_data = clean_excel_errors(annual_data)
                 annual_data = harmonize_patient_data_columns(
                     annual_data, mapper=mapper, strict=False
                 )

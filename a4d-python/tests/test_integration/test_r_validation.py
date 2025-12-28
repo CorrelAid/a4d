@@ -134,6 +134,10 @@ FILE_COLUMN_EXCEPTIONS = {
             "t1d_diagnosis_date",
         ],
     },
+    "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet": {
+        "reason": "clinic_id recently changed; insulin_subtype Python correct, R wrong",
+        "skip_columns": ["clinic_id", "insulin_subtype"],
+    },
 }
 
 # Columns that should never be null/empty - critical data integrity check

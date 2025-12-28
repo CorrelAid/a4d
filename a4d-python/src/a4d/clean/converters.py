@@ -71,6 +71,22 @@ def safe_convert_column(
     if column not in df.columns:
         return df
 
+    # Normalize empty/whitespace/missing-value strings to null BEFORE conversion
+    # This ensures missing data stays null rather than becoming error values
+    # Matches R behavior where these values → NA (not conversion error)
+    if df[column].dtype in (pl.Utf8, pl.String):
+        # Common missing value representations to treat as null
+        missing_values = ["", "N/A", "NA", "n/a", "na", "-", ".", "None", "none", "NULL", "null"]
+        df = df.with_columns(
+            pl.when(
+                pl.col(column).str.strip_chars().is_in(missing_values)
+                | (pl.col(column).str.strip_chars().str.len_chars() == 0)
+            )
+            .then(None)
+            .otherwise(pl.col(column))
+            .alias(column)
+        )
+
     # Store original values for error reporting
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
 
