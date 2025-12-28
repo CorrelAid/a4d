@@ -463,7 +463,10 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
         # Special handling for Date columns: use flexible date parser
         if target_type == pl.Date:
             # Strip time component if present (e.g., "2009-04-17 00:00:00" → "2009-04-17")
-            df = df.with_columns(pl.col(col).cast(pl.Utf8).str.slice(0, 10).alias(col))
+            # Use split on space instead of slice(0,10) to handle "dd-Mon-yyyy" format (11 chars)
+            df = df.with_columns(
+                pl.col(col).cast(pl.Utf8).str.split(" ").list.first().alias(col)
+            )
             # Use custom date parser for flexibility (handles Mar-18, Excel serials, etc.)
             df = parse_date_column(df, col, error_collector)
         # Special handling for Int32: convert via Float64 first (handles "14.0" → 14.0 → 14)
