@@ -52,8 +52,8 @@ class TestClean2024Penang:
         # Check derived columns exist
         assert "insulin_type" in df_clean.columns
         assert "insulin_subtype" in df_clean.columns
-        assert "systolic_bp" in df_clean.columns
-        assert "diastolic_bp" in df_clean.columns
+        assert "blood_pressure_sys_mmhg" in df_clean.columns
+        assert "blood_pressure_dias_mmhg" in df_clean.columns
 
     def test_clean_tracks_errors(self, tracker_2024_penang):
         """Should track data quality errors in ErrorCollector."""

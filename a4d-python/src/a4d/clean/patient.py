@@ -84,6 +84,10 @@ def clean_patient_data(
     # Must happen before range validation so validated age is correct
     df = _fix_age_from_dob(df, error_collector)
 
+    # Step 5.5b: Calculate t1d_diagnosis_age from dob and t1d_diagnosis_date
+    # Replaces any existing value (including Excel errors like #NUM!)
+    df = _fix_t1d_diagnosis_age(df)
+
     # Step 5.6: Validate dates (replace future dates with error value)
     # Must happen after type conversions so dates are proper date types
     df = _validate_dates(df, error_collector)
@@ -634,11 +638,16 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
 
     logger.info("Fixing age values from DOB (matching R pipeline logic)")
 
+    error_date = pl.lit(settings.error_val_date).str.to_date()
+
+    # Only calculate if dob is valid (not null, not error date)
+    valid_dob = pl.col("dob").is_not_null() & (pl.col("dob") != error_date)
+
     # Calculate age from DOB
     # calc_age = tracker_year - year(dob)
     # if tracker_month < month(dob): calc_age -= 1
     df = df.with_columns(
-        pl.when(pl.col("dob").is_not_null())
+        pl.when(valid_dob)
         .then(
             pl.col("tracker_year")
             - pl.col("dob").dt.year()
@@ -730,6 +739,49 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         logger.info(
             f"Age fixes applied: {ages_fixed} corrected, {ages_missing} filled from DOB, {ages_negative} negative (set to error)"
         )
+
+    return df
+
+
+def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
+    """Calculate t1d_diagnosis_age from dob and t1d_diagnosis_date.
+
+    If both dates are valid (not null, not error date), calculates age at diagnosis.
+    If either date is missing or is error date, result is null.
+
+    Args:
+        df: DataFrame with dob, t1d_diagnosis_date, t1d_diagnosis_age columns
+
+    Returns:
+        DataFrame with calculated t1d_diagnosis_age
+    """
+    required_cols = ["dob", "t1d_diagnosis_date", "t1d_diagnosis_age"]
+    if not all(col in df.columns for col in required_cols):
+        return df
+
+    error_date = pl.lit(settings.error_val_date).str.to_date()
+
+    # Only calculate if both dates are valid (not null, not error date)
+    valid_dob = pl.col("dob").is_not_null() & (pl.col("dob") != error_date)
+    valid_diagnosis = pl.col("t1d_diagnosis_date").is_not_null() & (
+        pl.col("t1d_diagnosis_date") != error_date
+    )
+
+    # Calculate age at diagnosis: year(diagnosis_date) - year(dob)
+    # Adjust if birthday hasn't occurred yet in diagnosis year
+    df = df.with_columns(
+        pl.when(valid_dob & valid_diagnosis)
+        .then(
+            pl.col("t1d_diagnosis_date").dt.year()
+            - pl.col("dob").dt.year()
+            - pl.when(pl.col("t1d_diagnosis_date").dt.month() < pl.col("dob").dt.month())
+            .then(1)
+            .otherwise(0)
+        )
+        .otherwise(None)
+        .cast(pl.Int32)
+        .alias("t1d_diagnosis_age")
+    )
 
     return df
 

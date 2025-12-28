@@ -86,22 +86,31 @@ class TestE2E2024Penang:
         # Validate clinic_id
         assert df_clean["clinic_id"].unique().to_list() == ["PNG"]
 
-    def test_e2e_key_columns_populated(self, tracker_2024_penang):
-        """Validate that key columns have data after pipeline."""
+    def test_e2e_critical_columns_populated(self, tracker_2024_penang):
+        """Validate that critical columns are fully populated after pipeline."""
         skip_if_missing(tracker_2024_penang)
 
-        # Full pipeline
         df_raw = read_all_patient_sheets(tracker_2024_penang)
         collector = ErrorCollector()
         df_clean = clean_patient_data(df_raw, collector)
 
-        # Check that insulin_type has some non-null values
-        insulin_type_count = df_clean["insulin_type"].is_not_null().sum()
-        assert insulin_type_count > 0, "insulin_type should have some values"
+        # These columns must be 100% populated for every row
+        required_full = [
+            "patient_id",
+            "status",
+            "clinic_id",
+            "tracker_year",
+            "tracker_month",
+        ]
+        for col in required_full:
+            null_count = df_clean[col].is_null().sum()
+            assert null_count == 0, f"{col} has {null_count} null values, expected 0"
 
-        # Check that insulin_total_units has some non-null values
-        insulin_total_count = df_clean["insulin_total_units"].is_not_null().sum()
-        assert insulin_total_count > 0, "insulin_total_units should have some values"
+        # These columns should have high population (allow some nulls)
+        required_partial = ["age", "last_clinic_visit_date"]
+        for col in required_partial:
+            non_null = df_clean[col].is_not_null().sum()
+            assert non_null > len(df_clean) * 0.9, f"{col} has <90% population"
 
 
 class TestE2ECrosYearConsistency:

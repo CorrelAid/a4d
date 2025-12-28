@@ -1,8 +1,16 @@
 """Unit tests for patient cleaning functions."""
 
+from datetime import date
+
 import polars as pl
 
-from a4d.clean.patient import _apply_preprocessing
+from a4d.clean.patient import (
+    _apply_preprocessing,
+    _fix_age_from_dob,
+    _fix_t1d_diagnosis_age,
+)
+from a4d.config import settings
+from a4d.errors import ErrorCollector
 
 
 class TestPatientIdNormalization:
@@ -201,3 +209,210 @@ class TestYesNoHyphenReplacement:
         # These columns are not in the insulin list, so '-' is preserved
         assert result["clinic_visit"][0] == "-"
         assert result["active"][0] == "-"
+
+
+class TestFixAgeFromDob:
+    """Tests for age calculation from DOB."""
+
+    def test_calculates_age_from_dob(self):
+        """Should calculate age from DOB and tracker date."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "age": [None],
+                "dob": [date(2010, 6, 15)],
+                "tracker_year": [2025],
+                "tracker_month": [1],
+            }
+        )
+        collector = ErrorCollector()
+
+        result = _fix_age_from_dob(df, collector)
+
+        # 2025 - 2010 = 15, but Jan < June so 15 - 1 = 14
+        assert result["age"][0] == 14
+
+    def test_birthday_already_passed(self):
+        """Should not subtract 1 if birthday already passed in tracker year."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "age": [None],
+                "dob": [date(2010, 3, 15)],
+                "tracker_year": [2025],
+                "tracker_month": [6],
+            }
+        )
+        collector = ErrorCollector()
+
+        result = _fix_age_from_dob(df, collector)
+
+        # 2025 - 2010 = 15, June > March so no adjustment
+        assert result["age"][0] == 15
+
+    def test_missing_dob_keeps_null(self):
+        """Should keep null age if DOB is missing."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "age": [None],
+                "dob": pl.Series([None], dtype=pl.Date),
+                "tracker_year": [2025],
+                "tracker_month": [1],
+            }
+        )
+        collector = ErrorCollector()
+
+        result = _fix_age_from_dob(df, collector)
+
+        assert result["age"][0] is None
+
+    def test_error_date_dob_keeps_null(self):
+        """Should keep null age if DOB is error date."""
+        error_date = date.fromisoformat(settings.error_val_date)
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "age": [None],
+                "dob": [error_date],
+                "tracker_year": [2025],
+                "tracker_month": [1],
+            }
+        )
+        collector = ErrorCollector()
+
+        result = _fix_age_from_dob(df, collector)
+
+        assert result["age"][0] is None
+
+    def test_corrects_wrong_excel_age(self):
+        """Should replace wrong Excel age with calculated age."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "age": [99.0],  # Wrong value from Excel
+                "dob": [date(2010, 6, 15)],
+                "tracker_year": [2025],
+                "tracker_month": [8],
+            }
+        )
+        collector = ErrorCollector()
+
+        result = _fix_age_from_dob(df, collector)
+
+        # Should be corrected to 15
+        assert result["age"][0] == 15
+
+
+class TestFixT1dDiagnosisAge:
+    """Tests for t1d_diagnosis_age calculation from DOB and diagnosis date."""
+
+    def test_calculates_diagnosis_age(self):
+        """Should calculate age at diagnosis from DOB and diagnosis date."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 8, 20)],
+                "t1d_diagnosis_date": [date(2020, 3, 15)],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        # 2020 - 2005 = 15, but March < August so 15 - 1 = 14
+        assert result["t1d_diagnosis_age"][0] == 14
+
+    def test_birthday_passed_before_diagnosis(self):
+        """Should not subtract 1 if birthday passed before diagnosis."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 3, 20)],
+                "t1d_diagnosis_date": [date(2020, 8, 15)],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        # 2020 - 2005 = 15, August > March so no adjustment
+        assert result["t1d_diagnosis_age"][0] == 15
+
+    def test_missing_dob_returns_null(self):
+        """Should return null if DOB is missing."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": pl.Series([None], dtype=pl.Date),
+                "t1d_diagnosis_date": [date(2020, 3, 15)],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] is None
+
+    def test_missing_diagnosis_date_returns_null(self):
+        """Should return null if diagnosis date is missing."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 8, 20)],
+                "t1d_diagnosis_date": pl.Series([None], dtype=pl.Date),
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] is None
+
+    def test_error_date_dob_returns_null(self):
+        """Should return null if DOB is error date."""
+        error_date = date.fromisoformat(settings.error_val_date)
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [error_date],
+                "t1d_diagnosis_date": [date(2020, 3, 15)],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] is None
+
+    def test_error_date_diagnosis_returns_null(self):
+        """Should return null if diagnosis date is error date."""
+        error_date = date.fromisoformat(settings.error_val_date)
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 8, 20)],
+                "t1d_diagnosis_date": [error_date],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] is None
+
+    def test_replaces_excel_error_value(self):
+        """Should replace Excel error (#NUM!) that became 999999 with calculated value."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 8, 20)],
+                "t1d_diagnosis_date": [date(2020, 3, 15)],
+                "t1d_diagnosis_age": [999999],  # Error value from Excel
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        # Should be calculated as 14
+        assert result["t1d_diagnosis_age"][0] == 14
