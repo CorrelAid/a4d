@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Extended end-to-end tests on older tracker files (2018-2021)."""
 
-from pathlib import Path
-from a4d.extract.patient import read_all_patient_sheets
-from a4d.clean.patient import clean_patient_data
-from a4d.errors import ErrorCollector
-import sys
-
 # Disable logging for clean output
 import logging
+import sys
+from pathlib import Path
+
+from a4d.clean.patient import clean_patient_data
+from a4d.errors import ErrorCollector
+from a4d.extract.patient import read_all_patient_sheets
 
 logging.disable(logging.CRITICAL)
 
@@ -16,37 +16,37 @@ test_files = [
     (
         "2021_Siriraj_Thailand",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Thailand/SRJ/2021_Siriraj Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Thailand/SRJ/2021_Siriraj Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2021_UdonThani_Thailand",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Thailand/UTH/2021_Udon Thani Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Thailand/UTH/2021_Udon Thani Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2020_VNC_Vietnam",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Vietnam/VNC/2020_Vietnam National Children's Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Vietnam/VNC/2020_Vietnam National Children's Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2019_Penang_Malaysia",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2019_Penang General Hospital A4D Tracker_DC.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2019_Penang General Hospital A4D Tracker_DC.xlsx"  # noqa: E501
         ),
     ),
     (
         "2019_Mandalay_Myanmar",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Myanmar/MCH/2019_Mandalay Children's Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Myanmar/MCH/2019_Mandalay Children's Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2018_Yangon_Myanmar",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Myanmar/YCH/2018_Yangon Children's Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Myanmar/YCH/2018_Yangon Children's Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
 ]
@@ -83,7 +83,8 @@ for name, tracker_path in test_files:
         )
 
         print(
-            f"  ✅ EXTRACTION: {len(df_raw)} rows, {len(df_raw.columns)} cols, year={year}, months={months}"
+            f"  ✅ EXTRACTION: {len(df_raw)} rows, "
+            f"{len(df_raw.columns)} cols, year={year}, months={months}"
         )
 
         # Clean
@@ -105,7 +106,8 @@ for name, tracker_path in test_files:
         }
 
         print(
-            f"  ✅ CLEANING: {len(df_clean)} rows, {len(df_clean.columns)} cols, {len(collector)} errors"
+            f"  ✅ CLEANING: {len(df_clean)} rows, "
+            f"{len(df_clean.columns)} cols, {len(collector)} errors"
         )
         print(
             f"     Key columns: insulin_type={stats['insulin_type']}/{len(df_clean)}, "

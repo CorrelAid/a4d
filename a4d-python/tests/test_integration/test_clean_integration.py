@@ -61,7 +61,7 @@ class TestClean2024Penang:
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
         collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        clean_patient_data(df_raw, collector)
 
         # Should have some errors (type conversions, invalid values, etc.)
         # Exact count varies, but should be non-zero for this tracker

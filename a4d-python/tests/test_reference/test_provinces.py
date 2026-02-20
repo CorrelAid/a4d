@@ -68,7 +68,7 @@ class TestLoadProvincesByCountry:
         """Test that all provinces are lowercased."""
         provinces_by_country = load_provinces_by_country()
 
-        for country, provinces in provinces_by_country.items():
+        for _country, provinces in provinces_by_country.items():
             assert all(p == p.lower() for p in provinces)
 
     def test_includes_expected_countries(self):
@@ -232,7 +232,7 @@ class TestIntegrationWithActualData:
         provinces_by_country = load_provinces_by_country()
 
         # Get a few provinces from the data
-        thailand = provinces_by_country["THAILAND"]
+        provinces_by_country["THAILAND"]
         vietnam = provinces_by_country["VIETNAM"]
 
         # Test that both original case and variations work

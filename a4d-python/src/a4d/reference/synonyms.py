@@ -205,7 +205,8 @@ class ColumnMapper:
         if unmapped_columns:
             if strict:
                 raise ValueError(
-                    f"Unmapped columns found: {unmapped_columns}. These columns do not appear in the synonym file."
+                    f"Unmapped columns found: {unmapped_columns}. "
+                    "These columns do not appear in the synonym file."
                 )
             else:
                 logger.warning(
@@ -222,7 +223,8 @@ class ColumnMapper:
             duplicates = {t: c for t, c in target_counts.items() if c > 1}
             logger.warning(
                 f"Multiple source columns map to same target name: {duplicates}. "
-                f"Keeping first occurrence only. This is an edge case from discontinued 2023 format."
+                "Keeping first occurrence only. "
+                "This is an edge case from discontinued 2023 format."
             )
 
             # Keep only first occurrence of each target

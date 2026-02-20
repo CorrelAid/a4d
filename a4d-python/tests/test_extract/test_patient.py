@@ -160,7 +160,7 @@ TRACKER_TEST_CASES = [
     reason="Tracker files not available",
 )
 @pytest.mark.parametrize(
-    "tracker_file,sheet_name,year,expected_patients,expected_cols,notes",
+    ("tracker_file", "sheet_name", "year", "expected_patients", "expected_cols", "notes"),
     TRACKER_TEST_CASES,
     ids=lambda params: f"{params[1] if isinstance(params, tuple) and len(params) > 1 else params}",
 )
