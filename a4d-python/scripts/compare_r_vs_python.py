@@ -5,17 +5,20 @@ This script performs detailed comparison of cleaned patient data from
 R and Python pipelines to verify the migration produces equivalent results.
 
 Usage:
-    uv run python scripts/compare_r_vs_python.py --file "2018_CDA A4D Tracker_patient_cleaned.parquet"
-    uv run python scripts/compare_r_vs_python.py -f "2018_CDA A4D Tracker_patient_cleaned.parquet"
+    uv run python scripts/compare_r_vs_python.py \
+        --file "2018_CDA A4D Tracker_patient_cleaned.parquet"
+    uv run python scripts/compare_r_vs_python.py \
+        -f "2018_CDA A4D Tracker_patient_cleaned.parquet"
 """
+
+from pathlib import Path
 
 import polars as pl
 import typer
-from pathlib import Path
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 app = typer.Typer()
@@ -169,7 +172,7 @@ def compare_metadata_fields(r_df: pl.DataFrame, py_df: pl.DataFrame):
             sample = r_unique.head(3).to_list()
             console.print(f"    Sample: {sample}")
         else:
-            console.print(f"  [red]✗ Mismatch![/red]")
+            console.print("  [red]✗ Mismatch![/red]")
             console.print(f"    R has {len(r_unique):,} unique values")
             console.print(f"    Python has {len(py_unique):,} unique values")
 
@@ -268,7 +271,8 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
     try:
         joined = r_df.join(py_df, on=join_keys, how="inner", suffix="_py")
         console.print(
-            f"[cyan]Analyzing {len(joined):,} common records (matched on {'+'.join(join_keys)})[/cyan]\n"
+            f"[cyan]Analyzing {len(joined):,} common records "
+            f"(matched on {'+'.join(join_keys)})[/cyan]\n"
         )
     except Exception as e:
         console.print(f"[red]Error joining datasets: {e}[/red]\n")
@@ -281,8 +285,8 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
     # Tolerance for floating point comparisons
     # Use relative tolerance of 1e-9 (about 9 decimal places)
-    FLOAT_REL_TOL = 1e-9
-    FLOAT_ABS_TOL = 1e-12
+    float_rel_tol = 1e-9
+    float_abs_tol = 1e-12
 
     for col in sorted(common_cols):
         col_py = f"{col}_py"
@@ -305,7 +309,8 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
 
                 if is_numeric:
                     # For numeric columns, use approximate comparison
-                    # Two values are considered equal if |a - b| <= max(rel_tol * max(|a|, |b|), abs_tol)
+                    # Two values are equal if:
+                    # |a - b| <= max(rel_tol * max(|a|, |b|), abs_tol)
 
                     # Add columns for comparison logic
                     comparison_df = joined.with_columns(
@@ -315,9 +320,9 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
                             # Calculate tolerance threshold
                             pl.max_horizontal(
                                 [
-                                    FLOAT_REL_TOL
+                                    float_rel_tol
                                     * pl.max_horizontal([pl.col(col).abs(), pl.col(col_py).abs()]),
-                                    pl.lit(FLOAT_ABS_TOL),
+                                    pl.lit(float_abs_tol),
                                 ]
                             ).alias("_tolerance"),
                             # Check null status
@@ -327,7 +332,8 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
                     )
 
                     # Find mismatches
-                    # Mismatch if: (1) null status differs OR (2) both not null and differ by more than tolerance
+                    # Mismatch if: (1) null status differs OR
+                    # (2) both not null and differ by more than tolerance
                     mismatched_rows = comparison_df.filter(
                         (pl.col("_col_null") != pl.col("_col_py_null"))  # Null mismatch
                         | (
@@ -394,7 +400,8 @@ def find_value_mismatches(r_df: pl.DataFrame, py_df: pl.DataFrame):
             mismatches.items(), key=lambda x: x[1]["percentage"], reverse=True
         ):
             console.print(
-                f"\n[bold cyan]{col}:[/bold cyan] {stats['count']} mismatches ({stats['percentage']:.1f}%)"
+                f"\n[bold cyan]{col}:[/bold cyan] "
+                f"{stats['count']} mismatches ({stats['percentage']:.1f}%)"
             )
             # Include patient_id and sheet_name in examples
             examples_with_ids = stats["examples_with_ids"]
@@ -496,14 +503,14 @@ def compare(
         console.print(f"  ✓ R output: {len(r_df):,} records, {len(r_df.columns)} columns")
     except Exception as e:
         console.print(f"[red]  ✗ Failed to read R parquet: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     try:
         py_df = pl.read_parquet(python_parquet)
         console.print(f"  ✓ Python output: {len(py_df):,} records, {len(py_df.columns)} columns")
     except Exception as e:
         console.print(f"[red]  ✗ Failed to read Python parquet: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     console.print()
 

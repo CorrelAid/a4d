@@ -11,7 +11,6 @@ Handles various date formats found in legacy trackers including:
 
 import re
 from datetime import date, datetime, timedelta
-from typing import Optional
 
 from dateutil import parser as date_parser
 from loguru import logger
@@ -20,7 +19,7 @@ from loguru import logger
 EXCEL_EPOCH = date(1899, 12, 30)
 
 
-def parse_date_flexible(date_str: Optional[str], error_val: str = "9999-09-09") -> Optional[date]:
+def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> date | None:
     """Parse date strings flexibly using Python's dateutil.parser.
 
     Handles common edge cases from A4D tracker data:

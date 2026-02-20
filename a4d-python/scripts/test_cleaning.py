@@ -2,6 +2,7 @@
 """Test cleaning pipeline on Sibu Hospital 2024 tracker."""
 
 from pathlib import Path
+
 import polars as pl
 
 from a4d.clean.patient import clean_patient_data
@@ -27,7 +28,7 @@ def test_cleaning():
 
     # Read raw data
     df_raw = pl.read_parquet(raw_path)
-    print(f"\n📥 Raw data loaded:")
+    print("\n📥 Raw data loaded:")
     print(f"   Rows: {len(df_raw)}")
     print(f"   Columns: {len(df_raw.columns)}")
     print(f"   Columns: {df_raw.columns[:10]}...")
@@ -36,15 +37,15 @@ def test_cleaning():
     collector = ErrorCollector()
 
     # Clean data
-    print(f"\n🧹 Cleaning data...")
+    print("\n🧹 Cleaning data...")
     df_clean = clean_patient_data(df_raw, collector)
 
-    print(f"\n📤 Cleaned data:")
+    print("\n📤 Cleaned data:")
     print(f"   Rows: {len(df_clean)}")
     print(f"   Columns: {len(df_clean.columns)}")
 
     # Show schema
-    print(f"\n📋 Schema (first 20 columns):")
+    print("\n📋 Schema (first 20 columns):")
     for i, (col, dtype) in enumerate(df_clean.schema.items()):
         if i < 20:
             null_count = df_clean[col].null_count()
@@ -55,12 +56,12 @@ def test_cleaning():
     print(f"\n⚠️  Errors collected: {len(collector)}")
     if len(collector) > 0:
         errors_df = collector.to_dataframe()
-        print(f"\n   Error breakdown by column:")
+        print("\n   Error breakdown by column:")
         error_counts = errors_df.group_by("column").count().sort("count", descending=True)
         for row in error_counts.iter_rows(named=True):
             print(f"      {row['column']:40s}: {row['count']:3d} errors")
 
-        print(f"\n   First 5 errors:")
+        print("\n   First 5 errors:")
         print(errors_df.head(5))
 
     # Write output
@@ -72,7 +73,7 @@ def test_cleaning():
     print(f"\n✅ Cleaned data written to: {output_path}")
 
     # Sample data check
-    print(f"\n🔍 Sample row (first non-null patient):")
+    print("\n🔍 Sample row (first non-null patient):")
     sample = df_clean.filter(pl.col("patient_id").is_not_null()).head(1)
     for col in sample.columns[:15]:
         print(f"   {col:40s}: {sample[col][0]}")

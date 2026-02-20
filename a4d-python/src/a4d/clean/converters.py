@@ -165,9 +165,11 @@ def parse_date_column(
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
 
     # Apply parse_date_flexible to each value
-    # NOTE: Using list-based approach instead of map_elements() because map_elements()
-    # with return_dtype=pl.Date fails when ALL values are None (all-NA columns like hospitalisation_date).
-    # Explicit Series creation with dtype=pl.Date works because it doesn't require non-null values.
+    # NOTE: Using list-based approach instead of map_elements() because
+    # map_elements() with return_dtype=pl.Date fails when ALL values are None
+    # (all-NA columns like hospitalisation_date).
+    # Explicit Series creation with dtype=pl.Date works because it doesn't
+    # require non-null values.
     column_values = df[column].cast(pl.Utf8).to_list()
     parsed_dates = [
         parse_date_flexible(val, error_val=settings.error_val_date) for val in column_values

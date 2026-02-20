@@ -25,10 +25,9 @@ from a4d.clean.converters import (
 from a4d.clean.schema import (
     apply_schema,
     get_date_columns,
-    get_numeric_columns,
     get_patient_data_schema,
 )
-from a4d.clean.transformers import extract_regimen, str_to_lower
+from a4d.clean.transformers import extract_regimen
 from a4d.clean.validators import validate_all_columns
 from a4d.config import settings
 from a4d.errors import ErrorCollector
@@ -319,7 +318,8 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     For 2024+ trackers:
     - insulin_type: "human insulin" if any human column is Y, else "analog insulin"
     - insulin_subtype: Comma-separated list like "pre-mixed,rapid-acting,long-acting"
-      (will be replaced with "Undefined" by validation since comma-separated values aren't in allowed_values)
+      (will be replaced with "Undefined" by validation since
+      comma-separated values aren't in allowed_values)
 
     NOTE: Python is CORRECT here. Comparison with R will show differences because R has a typo.
 
@@ -704,7 +704,8 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
             ages_negative += 1
         else:
             logger.warning(
-                f"Patient {patient_id}: age {excel_age} is different from calculated age {calc_age}. "
+                f"Patient {patient_id}: age {excel_age} is different "
+                f"from calculated age {calc_age}. "
                 f"Using calculated age instead of original age."
             )
             error_collector.add_error(
@@ -712,7 +713,10 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
                 patient_id=patient_id,
                 column="age",
                 original_value=str(excel_age),
-                error_message=f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age.",
+                error_message=(
+                    f"Age mismatch: Excel={excel_age}, "
+                    f"Calculated={calc_age}. Using calculated age."
+                ),
                 error_code="invalid_value",
                 function_name="_fix_age_from_dob",
             )
@@ -737,7 +741,9 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
 
     if ages_fixed > 0 or ages_missing > 0 or ages_negative > 0:
         logger.info(
-            f"Age fixes applied: {ages_fixed} corrected, {ages_missing} filled from DOB, {ages_negative} negative (set to error)"
+            f"Age fixes applied: {ages_fixed} corrected, "
+            f"{ages_missing} filled from DOB, "
+            f"{ages_negative} negative (set to error)"
         )
 
     return df
@@ -829,7 +835,8 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
             tracker_year = row.get("tracker_year")
 
             logger.warning(
-                f"Patient {patient_id}: {col} = {original_date} is beyond tracker year {tracker_year}. "
+                f"Patient {patient_id}: {col} = {original_date} "
+                f"is beyond tracker year {tracker_year}. "
                 f"Replacing with error date."
             )
             error_collector.add_error(

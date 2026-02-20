@@ -7,8 +7,8 @@ Transformations are referenced in reference_data/data_cleaning.yaml with
 type: basic_function.
 """
 
+
 import polars as pl
-import re
 
 from a4d.config import settings
 
@@ -371,7 +371,8 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
 
     if has_errors:
         logger.warning(
-            f"Found invalid values for column blood_pressure_mmhg that do not follow the format X/Y. "
+            "Found invalid values for column blood_pressure_mmhg "
+            f"that do not follow the format X/Y. "
             f"Values were replaced with {error_val_int}."
         )
 

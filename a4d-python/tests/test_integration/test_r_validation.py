@@ -4,8 +4,10 @@ Tests that verify Python implementation matches R implementation by comparing
 the final cleaned parquet files for all 174 trackers.
 
 These tests require:
-- R pipeline outputs in: /Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned/
-- Python pipeline outputs in: /Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output/patient_data_cleaned/
+- R pipeline outputs in:
+  /Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/patient_data_cleaned/
+- Python pipeline outputs in:
+  /Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output/patient_data_cleaned/
 
 Run with: uv run pytest tests/test_integration/test_r_validation.py -v -m slow
 """
@@ -31,11 +33,18 @@ ACCEPTABLE_DIFFERENCES = {
     },
     "2024_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
         "record_diff": 1,
-        "reason": "Python correctly extracts LA-MH088 which is missing row number in Excel column A; R incorrectly drops it",
+        "reason": (
+            "Python correctly extracts LA-MH088 which is missing row number "
+            "in Excel column A; R incorrectly drops it"
+        ),
     },
     "2022_Children's Hospital 2 A4D Tracker_patient_cleaned.parquet": {
         "record_diff": -15,
-        "reason": "Excel data quality issue: Oct22 sheet has space instead of 1 in column A for first patient row, causing Python to misdetect headers and skip October (15 rows). R handles this differently.",
+        "reason": (
+            "Excel data quality issue: Oct22 sheet has space instead of 1 "
+            "in column A for first patient row, causing Python to misdetect "
+            "headers and skip October (15 rows). R handles this differently."
+        ),
     },
 }
 
@@ -44,22 +53,37 @@ ACCEPTABLE_DIFFERENCES = {
 # If the issue is fixed, the test will FAIL with a message to remove it from this dict
 KNOWN_ISSUES = {
     "2018_Penang General Hospital A4D Tracker_DC_patient_cleaned.parquet": {
-        "duplicate_records": "Excel has duplicate patient_id MY_PN004 in Oct18 sheet that needs to be fixed",
+        "duplicate_records": (
+            "Excel has duplicate patient_id MY_PN004 in Oct18 sheet "
+            "that needs to be fixed"
+        ),
     },
     "2023_Vietnam National Children's Hospital A4D Tracker_patient_cleaned.parquet": {
-        "duplicate_records": "Excel has duplicate patient_id VN_VC026 in Aug23 sheet that needs to be fixed",
+        "duplicate_records": (
+            "Excel has duplicate patient_id VN_VC026 in Aug23 sheet "
+            "that needs to be fixed"
+        ),
     },
     "2023_NPH A4D Tracker_patient_cleaned.parquet": {
-        "duplicate_records": "4 patients KH_NPH026, KH_NPH027, KH_NPH028, KH_NPH029 have incorrect patient_id in Sep23 and Oct23 and are truncated to KH_NPH02 causing duplicates",
+        "duplicate_records": (
+            "4 patients KH_NPH026, KH_NPH027, KH_NPH028, KH_NPH029 have "
+            "incorrect patient_id in Sep23 and Oct23 and are truncated to "
+            "KH_NPH02 causing duplicates"
+        ),
     },
     "2025_06_North Okkalapa General Hospital A4D Tracker_patient_cleaned.parquet": {
-        "patient_id_format": "R replaces MM_NO097/098/099 with 'Undefined' due to format validation. Python correctly preserves original IDs.",
+        "patient_id_format": (
+            "R replaces MM_NO097/098/099 with 'Undefined' due to format "
+            "validation. Python correctly preserves original IDs."
+        ),
     },
 }
 
 # Trackers to skip due to data quality issues in source Excel files
 SKIP_VALIDATION = {
-    "2024_Vietnam National Children Hospital A4D Tracker_patient_cleaned.parquet": "Excel has duplicate patient rows with conflicting data in Jul24",
+    "2024_Vietnam National Children Hospital A4D Tracker_patient_cleaned.parquet": (
+        "Excel has duplicate patient rows with conflicting data in Jul24"
+    ),
 }
 
 # Columns to skip in data value comparison due to known extraction/processing differences
@@ -73,7 +97,13 @@ SKIP_COLUMNS_IN_COMPARISON = {
 # Use this when R has errors affecting many/all patients in specific columns for a file
 FILE_COLUMN_EXCEPTIONS = {
     "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "Excel cells contain Unicode '≥15' (U+2265). R's readxl reads raw Unicode. Python's openpyxl (data_only=True) normalizes to ASCII '>15'. R's regex grepl('>|<') only matches ASCII, fails to parse '≥15', results in error value 999999. R needs update to handle Unicode comparison operators (≥, ≤).",
+        "reason": (
+            "Excel cells contain Unicode '≥15' (U+2265). R's readxl reads "
+            "raw Unicode. Python's openpyxl (data_only=True) normalizes to "
+            "ASCII '>15'. R's regex grepl('>|<') only matches ASCII, fails "
+            "to parse '≥15', results in error value 999999. R needs update "
+            "to handle Unicode comparison operators (≥, ≤)."
+        ),
         "skip_columns": [
             "hba1c_baseline",
             "hba1c_baseline_exceeds",
@@ -82,15 +112,32 @@ FILE_COLUMN_EXCEPTIONS = {
         ],
     },
     "2025_06_Kantha Bopha II Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "R BUG: Sets province to 'Undefined' for Takéo, Tboung Khmum, and Preah Sihanouk despite these being in allowed_provinces.yaml. Python now correctly validates and preserves these province names using sanitize_str(). All three provinces are properly listed in the YAML with correct UTF-8 encoding (Takéo has é as U+00E9). R's sanitize_str() should handle this by removing accents, but validation fails. Needs investigation in R's check_allowed_values() or YAML loading.",
+        "reason": (
+            "R BUG: Sets province to 'Undefined' for Takéo, Tboung Khmum, "
+            "and Preah Sihanouk despite these being in "
+            "allowed_provinces.yaml. Python now correctly validates and "
+            "preserves these province names using sanitize_str(). All three "
+            "provinces are properly listed in the YAML with correct UTF-8 "
+            "encoding (Takéo has é as U+00E9). R's sanitize_str() should "
+            "handle this by removing accents, but validation fails. Needs "
+            "investigation in R's check_allowed_values() or YAML loading."
+        ),
         "skip_columns": ["province"],
     },
     "2025_06_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "Patient LA_MH054 has invalid insulin_regimen value 'nph' (lowercase). R uppercases to 'NPH', Python preserves original. Both should reject as invalid.",
+        "reason": (
+            "Patient LA_MH054 has invalid insulin_regimen value 'nph' "
+            "(lowercase). R uppercases to 'NPH', Python preserves original. "
+            "Both should reject as invalid."
+        ),
         "skip_columns": ["insulin_regimen"],
     },
     "2025_06_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "R has systematic extraction errors - sets error values (999999 or 9999-09-09) for most columns. Python correctly extracts data.",
+        "reason": (
+            "R has systematic extraction errors - sets error values "
+            "(999999 or 9999-09-09) for most columns. "
+            "Python correctly extracts data."
+        ),
         "skip_columns": [
             "age",
             "blood_pressure_updated",
@@ -113,7 +160,10 @@ FILE_COLUMN_EXCEPTIONS = {
         ],
     },
     "2025_06_Mandalay General Hospital A4D Tracker_patient_cleaned.parquet": {
-        "reason": "R sets error value 999999 for t1d_diagnosis_age. Python correctly extracts values.",
+        "reason": (
+            "R sets error value 999999 for t1d_diagnosis_age. "
+            "Python correctly extracts values."
+        ),
         "skip_columns": ["t1d_diagnosis_age"],
     },
     "2025_06_NPH A4D Tracker_patient_cleaned.parquet": {
@@ -150,7 +200,8 @@ REQUIRED_COLUMNS = {
     "status",
 }
 
-# Exceptions for required column validation - files where specific required columns have known null values
+# Exceptions for required column validation
+# Files where specific required columns have known null values
 # Format: {filename: {column: reason}}
 REQUIRED_COLUMN_EXCEPTIONS = {
     "2017_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
@@ -163,7 +214,10 @@ REQUIRED_COLUMN_EXCEPTIONS = {
         "status": "Patient KH_CD008 has missing status in April 2019 in source Excel file",
     },
     "2019_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
-        "status": "Patient LA_MH005 has missing status in January and February 2019 in source Excel file",
+        "status": (
+            "Patient LA_MH005 has missing status in January and "
+            "February 2019 in source Excel file"
+        ),
     },
     "2019_Preah Kossamak Hospital A4D Tracker_patient_cleaned.parquet": {
         "status": "Patient KH_PK022 has missing status in August 2019 in source Excel file",
@@ -178,7 +232,10 @@ REQUIRED_COLUMN_EXCEPTIONS = {
         "status": "Patient KH_KB017_PK has missing status in source Excel file",
     },
     "2022_Chiang Mai Maharaj Nakorn A4D Tracker_patient_cleaned.parquet": {
-        "status": "Patients TH_CP027, TH_CP028, TH_CP029, TH_CP030 have missing status in source Excel file",
+        "status": (
+            "Patients TH_CP027, TH_CP028, TH_CP029, TH_CP030 "
+            "have missing status in source Excel file"
+        ),
     },
     "2022_Chulalongkorn Hospital A4D Tracker_patient_cleaned.parquet": {
         "status": "Patients TH_CH006, TH_CH007, TH_CH008 have missing status in source Excel file",
@@ -190,7 +247,11 @@ REQUIRED_COLUMN_EXCEPTIONS = {
         "status": "Patient MY_LW013 has missing status in source Excel file",
     },
     "2022_Mandalay Children's Hospital A4D Tracker_patient_cleaned.parquet": {
-        "status": "Patients MM_MD078, MM_MD079, MM_MD080, MM_MD081, MM_MD082, MM_MD083 have missing status in source Excel file",
+        "status": (
+            "Patients MM_MD078, MM_MD079, MM_MD080, MM_MD081, "
+            "MM_MD082, MM_MD083 have missing status in "
+            "source Excel file"
+        ),
     },
     "2022_Penang General Hospital A4D Tracker_patient_cleaned.parquet": {
         "status": "Patient MY_PN013 has missing status in source Excel file",
@@ -240,27 +301,42 @@ VALUE_MAPPINGS = {
 PATIENT_LEVEL_EXCEPTIONS = {
     "2025_06_CDA A4D Tracker_patient_cleaned.parquet": {
         "KH_CD018": {
-            "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
+            "reason": (
+                "R extraction error: missing 'Analog Insulin' value "
+                "that Python correctly extracts"
+            ),
             "skip_columns": ["insulin_type"],
         },
     },
     "2025_06_Jayavarman VII Hospital A4D Tracker_patient_cleaned.parquet": {
         "KH_JV078": {
-            "reason": "R sets error date '9999-09-09' for lost_date when Excel cell is empty. Python correctly extracts null.",
+            "reason": (
+                "R sets error date '9999-09-09' for lost_date when "
+                "Excel cell is empty. Python correctly extracts null."
+            ),
             "skip_columns": ["lost_date"],
         },
     },
     "2025_06_Kantha Bopha II Hospital A4D Tracker_patient_cleaned.parquet": {
         "KH_KB023": {
-            "reason": "R extraction error: sex should be 'F' but R sets 'Undefined'. Python correctly extracts 'F'.",
+            "reason": (
+                "R extraction error: sex should be 'F' but R sets "
+                "'Undefined'. Python correctly extracts 'F'."
+            ),
             "skip_columns": ["sex"],
         },
         "KH_KB073": {
-            "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
+            "reason": (
+                "R extraction error: missing 'Analog Insulin' value "
+                "that Python correctly extracts"
+            ),
             "skip_columns": ["insulin_type"],
         },
         "KH_KB139": {
-            "reason": "R extraction error: missing 'Analog Insulin' value that Python correctly extracts",
+            "reason": (
+                "R extraction error: missing 'Analog Insulin' value "
+                "that Python correctly extracts"
+            ),
             "skip_columns": ["insulin_type"],
         },
     },
@@ -300,7 +376,7 @@ def test_output_directories_exist():
     assert PY_OUTPUT_DIR.exists(), f"Python output directory not found: {PY_OUTPUT_DIR}"
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_record_count_matches(filename, r_path, py_path):
     """Test that record counts match between R and Python for each tracker.
 
@@ -352,7 +428,7 @@ def test_record_count_matches(filename, r_path, py_path):
         )
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_schema_matches(filename, r_path, py_path):
     """Test that column schemas match between R and Python for each tracker.
 
@@ -380,7 +456,7 @@ def test_schema_matches(filename, r_path, py_path):
     assert not extra_in_py, f"{filename}: Extra columns in Python: {extra_in_py}"
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_patient_ids_match(filename, r_path, py_path):
     """Test that unique patient IDs match between R and Python for each tracker.
 
@@ -440,7 +516,7 @@ def test_patient_ids_match(filename, r_path, py_path):
     assert not extra_in_py, f"{filename}: Extra patient_ids in Python: {extra_in_py}"
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_no_duplicate_records(filename, r_path, py_path):
     """Test that there are no duplicate (patient_id, tracker_month) combinations.
 
@@ -478,11 +554,12 @@ def test_no_duplicate_records(filename, r_path, py_path):
             )
 
     assert len(duplicates) == 0, (
-        f"{filename}: Found {len(duplicates)} duplicate (patient_id, clinic_id, tracker_month) combinations"
+        f"{filename}: Found {len(duplicates)} duplicate "
+        f"(patient_id, clinic_id, tracker_month) combinations"
     )
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_required_columns_not_null(filename, r_path, py_path):
     """Test that required columns are never null/empty in Python output.
 
@@ -502,7 +579,7 @@ def test_required_columns_not_null(filename, r_path, py_path):
 
     # First, check if exceptions are still valid (alert if fixed)
     if filename in REQUIRED_COLUMN_EXCEPTIONS:
-        for col, reason in REQUIRED_COLUMN_EXCEPTIONS[filename].items():
+        for col, _reason in REQUIRED_COLUMN_EXCEPTIONS[filename].items():
             if col in df_py.columns:
                 null_count = df_py[col].null_count()
                 if null_count == 0:
@@ -545,7 +622,7 @@ class TestValidationSummary:
         missing_py = 0
         available = 0
 
-        for filename, r_path, py_path in tracker_files:
+        for filename, _r_path, py_path in tracker_files:
             if filename in SKIP_VALIDATION:
                 skipped += 1
             elif not py_path.exists():
@@ -566,7 +643,7 @@ class TestValidationSummary:
         # Just report, don't assert - this is informational only
 
 
-@pytest.mark.parametrize("filename, r_path, py_path", get_all_tracker_files())
+@pytest.mark.parametrize(("filename", "r_path", "py_path"), get_all_tracker_files())
 def test_data_values_match(filename, r_path, py_path):
     """Test that data values match between R and Python for matching patients.
 
@@ -597,7 +674,8 @@ def test_data_values_match(filename, r_path, py_path):
     common_cols = sorted(r_cols & py_cols)
 
     # Must have at least patient_id and tracker_month
-    assert "patient_id" in common_cols and "tracker_month" in common_cols
+    assert "patient_id" in common_cols
+    assert "tracker_month" in common_cols
 
     # Join on patient_id and tracker_month to compare matching records
     # Use inner join to only compare patients that exist in both

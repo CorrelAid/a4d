@@ -70,7 +70,11 @@ def setup_logging(
             sys.stdout,
             level=console_log_level,
             colorize=True,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+            format=(
+                "<green>{time:HH:mm:ss}</green> | "
+                "<level>{level: <8}</level> | "
+                "<level>{message}</level>"
+            ),
         )
 
     # File handler: JSON output for BigQuery upload

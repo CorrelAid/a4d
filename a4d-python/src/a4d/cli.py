@@ -209,7 +209,8 @@ def process_patient_cmd(
             raise typer.Exit(0)
         else:
             console.print(
-                f"\n[bold red]✗ Pipeline completed with {result.failed_trackers} failures[/bold red]\n"
+                f"\n[bold red]✗ Pipeline completed with "
+                f"{result.failed_trackers} failures[/bold red]\n"
             )
             raise typer.Exit(1)
 
