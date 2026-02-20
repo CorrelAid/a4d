@@ -30,7 +30,8 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
-# Maps the pipeline output file names to BigQuery table names
+# Maps the pipeline output file names to BigQuery table names.
+# Note: table_logs.parquet uses this name from create_table_logs() in tables/logs.py.
 PARQUET_TO_TABLE: dict[str, str] = {
     "patient_data_static.parquet": "patient_data_static",
     "patient_data_monthly.parquet": "patient_data_monthly",
