@@ -12,6 +12,11 @@ from a4d.gcp.bigquery import (
 )
 
 
+def _get_job_config(mock_client):
+    """Extract job_config from mock client's load_table_from_file call."""
+    return mock_client.load_table_from_file.call_args.kwargs["job_config"]
+
+
 class TestTableConfigs:
     """Test that table configurations match the R pipeline."""
 
@@ -47,7 +52,6 @@ class TestLoadTable:
 
     @patch("a4d.gcp.bigquery.get_bigquery_client")
     def test_load_table_with_replace(self, mock_get_client, tmp_path):
-        # Create a dummy parquet file
         parquet_file = tmp_path / "test.parquet"
         parquet_file.write_bytes(b"fake parquet data")
 
@@ -60,9 +64,7 @@ class TestLoadTable:
         load_table(parquet_file, "patient_data_monthly", client=mock_client)
 
         mock_client.load_table_from_file.assert_called_once()
-        call_args = mock_client.load_table_from_file.call_args
-        job_config = call_args[1]["job_config"] if "job_config" in call_args[1] else call_args[0][2]
-
+        job_config = _get_job_config(mock_client)
         assert job_config.clustering_fields == ["clinic_id", "patient_id", "tracker_date"]
         mock_job.result.assert_called_once()
 
@@ -78,8 +80,7 @@ class TestLoadTable:
 
         load_table(parquet_file, "patient_data_monthly", client=mock_client, replace=False)
 
-        call_args = mock_client.load_table_from_file.call_args
-        job_config = call_args[1]["job_config"] if "job_config" in call_args[1] else call_args[0][2]
+        job_config = _get_job_config(mock_client)
         assert job_config.write_disposition == "WRITE_APPEND"
 
     @patch("a4d.gcp.bigquery.get_bigquery_client")
@@ -100,8 +101,7 @@ class TestLoadTable:
             project_id="test_project",
         )
 
-        call_args = mock_client.load_table_from_file.call_args
-        table_ref = call_args[0][1]
+        table_ref = mock_client.load_table_from_file.call_args.args[1]
         assert table_ref == "test_project.test_dataset.patient_data_static"
 
 
