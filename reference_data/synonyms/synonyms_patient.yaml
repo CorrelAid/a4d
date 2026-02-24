@@ -74,6 +74,7 @@ complication_screening_kidney_test_date:
 - Kidney Function Test Date (dd-mmm-yyyy)
 complication_screening_kidney_test_value:
 - Kidney Function Test UACR (mg/mmol)
+- Kidney Function Test UACR (mg/g)
 complication_screening_lipid_profile_cholesterol_value:
 - Lipid Profile Cholesterol
 complication_screening_lipid_profile_date:

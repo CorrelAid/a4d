@@ -1,0 +1,138 @@
+# Python Pipeline Validation Rules
+#
+# This file defines allowed values for data validation in the Python pipeline.
+# It is separate from data_cleaning.yaml (used by R pipeline) to allow
+# independent evolution of the two pipelines.
+#
+# Structure:
+#   column_name:
+#     allowed_values: [list of valid values]
+#     replace_invalid: true/false (whether to replace with error value)
+#
+# Note: Data transformations are hardcoded in src/a4d/clean/transformers.py,
+# not defined in YAML.
+
+analog_insulin_long_acting:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+analog_insulin_rapid_acting:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+clinic_visit:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+complication_screening_eye_exam_value:
+  allowed_values: ["Normal", "Abnormal"]
+  replace_invalid: true
+
+complication_screening_foot_exam_value:
+  allowed_values: ["Normal", "Abnormal"]
+  replace_invalid: true
+
+dm_complication_eye:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+dm_complication_kidney:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+dm_complication_others:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+hospitalisation_cause:
+  allowed_values: ["DKA", "HYPO", "HYPER", "OTHER"]
+  replace_invalid: true
+
+human_insulin_intermediate_acting:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+human_insulin_pre_mixed:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+human_insulin_short_acting:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+insulin_regimen:
+  # Note: Values are transformed by extract_regimen() in transformers.py first
+  allowed_values:
+    - "Basal-bolus (MDI)"
+    - "Premixed 30/70 BD"
+    - "Self-mixed BD"
+    - "Modified conventional TID"
+  replace_invalid: false  # Don't replace - these are post-transformation values
+
+insulin_type:
+  allowed_values: ["Human Insulin", "Analog Insulin"]
+  replace_invalid: true
+
+insulin_subtype:
+  # Note: R derives "rapic-acting" (typo) but validates against "Rapid-acting" (correct)
+  # This causes ALL derived values to become "Undefined" because:
+  # 1. Single values like "rapic-acting" don't match "Rapid-acting"
+  # 2. Comma-separated values like "rapic-acting,long-acting" don't match any single allowed value
+  allowed_values:
+    - "Pre-mixed"
+    - "Short-acting"
+    - "Intermediate-acting"
+    - "Rapid-acting"  # R expects this, but derives "rapic-acting" (typo)
+    - "Long-acting"
+  replace_invalid: true
+
+observations_category:
+  allowed_values:
+    - "Status IN"
+    - "Status OUT"
+    - "Clinic Follow Up"
+    - "Hospitalisation"
+    - "Support"
+    - "DM Complication"
+    - "Insulin Regimen"
+    - "Other"
+  replace_invalid: false
+
+patient_consent:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+remote_followup:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true
+
+status:
+  # Canonical values in Title Case. Validation is case-insensitive.
+  # If matched, returns the canonical value (e.g., "active" → "Active")
+  allowed_values:
+    - "Active"
+    - "Active - Remote"
+    - "Active Remote"
+    - "Active Monitoring"
+    - "Query"
+    - "Inactive"
+    - "Transferred"
+    - "Lost Follow Up"
+    - "Deceased"
+    - "Discontinued"
+  replace_invalid: true
+
+support_level:
+  allowed_values:
+    - "Standard"
+    - "Partial"
+    - "Partial - A"
+    - "Partial - B"
+    - "Semi-Partial"
+    - "SAC"
+    - "Monitoring"
+  replace_invalid: true
+
+t1d_diagnosis_with_dka:
+  allowed_values: ["N", "Y"]
+  replace_invalid: true

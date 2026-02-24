@@ -1,0 +1,9 @@
+{
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.cwd": "${workspaceFolder}/a4d-python",
+    "python.testing.pytestArgs": [
+        "${workspaceFolder}/a4d-python/tests"
+    ],
+    "python.defaultInterpreterPath": "${workspaceFolder}/a4d-python/.venv/bin/python"
+}
