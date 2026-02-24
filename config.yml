@@ -8,3 +8,6 @@ default:
 
 production:
     data_root: "/home/rstudio/data"
+
+cloud-run:
+    data_root: "/workspace/data"
