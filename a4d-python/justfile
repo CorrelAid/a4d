@@ -1,0 +1,114 @@
+# a4d Python Pipeline - Development Commands
+
+# Default recipe (show available commands)
+default:
+    @just --list
+
+# Install dependencies and sync environment
+sync:
+    uv sync --all-extras
+
+# Run unit tests (skip slow/integration)
+test:
+    uv run pytest -m "not slow"
+
+# Run all tests including slow/integration
+test-all:
+    uv run pytest
+
+# Run integration tests only
+test-integration:
+    uv run pytest -m integration
+
+# Run tests without coverage (faster, fail fast)
+test-fast:
+    uv run pytest -m "not slow" --no-cov -x
+
+# Run type checking with ty
+check:
+    uv run ty check src/
+
+# Run ruff linting
+lint:
+    uv run ruff check .
+
+# Format code with ruff
+format:
+    uv run ruff format .
+
+# Auto-fix linting issues
+fix:
+    uv run ruff check --fix .
+
+# Check code formatting without modifying files
+format-check:
+    uv run ruff format --check .
+
+# Run all CI checks (format, lint, type, test)
+ci: format-check lint check test
+
+# Clean cache and build artifacts
+clean:
+    rm -rf .ruff_cache
+    rm -rf .pytest_cache
+    rm -rf htmlcov
+    rm -rf .coverage
+    rm -rf dist
+    rm -rf build
+    rm -rf src/*.egg-info
+    find . -type d -name __pycache__ -exec rm -rf {} +
+    find . -type f -name "*.pyc" -delete
+
+# Run full pipeline (extract + clean + tables)
+run *ARGS:
+    uv run a4d process-patient {{ARGS}}
+
+# Run pipeline with 8 workers (parallel processing)
+run-parallel:
+    uv run a4d process-patient --workers 8
+
+# Extract and clean only (skip table creation)
+run-clean:
+    uv run a4d process-patient --workers 8 --skip-tables
+
+# Force reprocess all files (ignore existing outputs)
+run-force:
+    uv run a4d process-patient --workers 8 --force
+
+# Create tables from existing cleaned parquet files
+create-tables INPUT:
+    uv run a4d create-tables --input {{INPUT}}
+
+# Process a single tracker file
+run-file FILE:
+    uv run a4d process-patient --file {{FILE}}
+
+# Build Docker image
+docker-build:
+    docker build -t a4d-python:latest .
+
+# Run Docker container locally
+docker-run:
+    docker run --rm \
+        --env-file .env \
+        -v $(pwd)/output:/app/output \
+        a4d-python:latest
+
+# Install pre-commit hooks
+hooks:
+    uv run pre-commit install
+
+# Run pre-commit on all files
+hooks-run:
+    uv run pre-commit run --all-files
+
+# Update dependencies
+update:
+    uv lock --upgrade
+
+# Show project info
+info:
+    @echo "Python version:"
+    @uv run python --version
+    @echo "\nInstalled packages:"
+    @uv pip list
