@@ -1,0 +1,11 @@
+.git
+.github
+.Rproj.user
+.Rhistory
+.RData
+*.Rproj
+data/
+renv/library/
+renv/local/
+renv/staging/
+secrets/
