@@ -18,7 +18,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.integration, pytest.mark.e2e]
 
 
 @pytest.mark.parametrize(
-    "tracker_fixture,expected_rows,expected_year,description",
+    ("tracker_fixture", "expected_rows", "expected_year", "description"),
     [
         ("tracker_2024_penang", 174, 2024, "2024 Penang - Annual + Patient List"),
         ("tracker_2024_isdfi", 70, 2024, "2024 ISDFI Philippines"),

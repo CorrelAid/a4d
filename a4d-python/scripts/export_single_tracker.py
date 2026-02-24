@@ -5,8 +5,10 @@ Usage:
     uv run python scripts/export_single_tracker.py <tracker_file> <output_dir>
 
 Example:
-    uv run python scripts/export_single_tracker.py \
-        "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/a4dphase2_upload/Malaysia/SBU/2024_Sibu Hospital A4D Tracker.xlsx" \
+    uv run python scripts/export_single_tracker.py \\
+        "/Volumes/USB SanDisk 3.2Gen1 Media/A4D/data/\\
+        a4dphase2_upload/Malaysia/SBU/\\
+        2024_Sibu Hospital A4D Tracker.xlsx" \\
         output/patient_data_raw
 """
 

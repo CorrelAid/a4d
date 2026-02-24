@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check which sheets are being processed by R vs Python."""
 
-import polars as pl
 from pathlib import Path
+
+import polars as pl
 
 
 def check_sheets():

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Test extraction + cleaning on multiple trackers for end-to-end validation."""
 
-from pathlib import Path
-from a4d.extract.patient import read_all_patient_sheets
-from a4d.clean.patient import clean_patient_data
-from a4d.errors import ErrorCollector
-import sys
-
 # Disable logging for clean output
 import logging
+import sys
+from pathlib import Path
+
+from a4d.clean.patient import clean_patient_data
+from a4d.errors import ErrorCollector
+from a4d.extract.patient import read_all_patient_sheets
 
 logging.disable(logging.CRITICAL)
 
@@ -16,25 +16,25 @@ test_files = [
     (
         "2024_ISDFI",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Philippines/ISD/2024_ISDFI A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Philippines/ISD/2024_ISDFI A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2024_Penang",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2024_Penang General Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2024_Penang General Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2023_Sibu",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/SBU/2023_Sibu Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/SBU/2023_Sibu Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
     (
         "2022_Penang",
         Path(
-            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2022_Penang General Hospital A4D Tracker.xlsx"
+            "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/Malaysia/PNG/2022_Penang General Hospital A4D Tracker.xlsx"  # noqa: E501
         ),
     ),
 ]
@@ -72,7 +72,8 @@ for name, tracker_path in test_files:
         )
 
         print(
-            f"  ✅ EXTRACTION: {len(df_raw)} rows, {len(df_raw.columns)} cols, year={year}, months={months}"
+            f"  ✅ EXTRACTION: {len(df_raw)} rows, "
+            f"{len(df_raw.columns)} cols, year={year}, months={months}"
         )
 
         # Clean
