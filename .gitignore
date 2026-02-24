@@ -11,3 +11,9 @@ rsconnect
 
 data/output
 data/mapping_table.csv
+
+# Serena (MCP server state)
+.serena/
+
+# Secrets (GCP service accounts, etc.)
+secrets/
