@@ -1,0 +1,80 @@
+[project]
+name = "a4d"
+version = "2.0.0"
+description = "A4D Medical Tracker Data Processing Pipeline (Python)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Michael Aydinbas", email = "michael.aydinbas@gmail.com"}
+]
+license = {text = "MIT"}
+
+dependencies = [
+    "polars>=0.20.0",
+    "duckdb>=0.10.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pandera[polars]>=0.18.0",
+    "loguru>=0.7.0",
+    "openpyxl>=3.1.0",
+    "google-cloud-bigquery>=3.17.0",
+    "google-cloud-storage>=2.14.0",
+    "pyyaml>=6.0",
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+    "tqdm>=4.66.0",
+    "python-dateutil>=2.8.0",
+    "fastexcel>=0.16.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.14.1",
+    "ty>=0.0.1a23",
+]
+
+[project.scripts]
+a4d = "a4d.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+lint.select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "PT",  # flake8-pytest-style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselected by default)",
+    "integration: marks tests as integration tests requiring real tracker files",
+    "e2e: marks tests as end-to-end tests (extraction + cleaning)",
+]
+addopts = [
+    "--cov=src/a4d",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]

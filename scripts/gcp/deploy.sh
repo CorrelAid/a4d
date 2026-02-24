@@ -1,6 +1,9 @@
 #!/bin/bash
 # Build the Docker image, push it to Artifact Registry, and deploy the A4D
-# pipeline as a Cloud Run Job that can be triggered manually.
+# Python pipeline as a Cloud Run Job that can be triggered manually.
+#
+# The Docker image is built from the repo root (to include reference_data/)
+# using a4d-python/Dockerfile as the build file.
 #
 # Prerequisites:
 #   - gcloud CLI authenticated with sufficient permissions
@@ -10,11 +13,11 @@
 #       roles/storage.objectCreator      (write output files to GCS)
 #       roles/bigquery.dataEditor        (write tables to BigQuery)
 #       roles/bigquery.jobUser           (run BigQuery load jobs)
-#       roles/secretmanager.secretAccessor (access the SA key secret)
-#   - Secret "a4d-gcp-sa" created in Secret Manager containing the service
-#     account JSON key used to authenticate googlesheets4/googledrive
 #
-# Usage:
+#   Authentication inside the container uses Workload Identity / ADC via the
+#   Cloud Run service account — no JSON key file is required.
+#
+# Usage (run from the repo root):
 #   PROJECT_ID=my-project SERVICE_ACCOUNT=sa@my-project.iam.gserviceaccount.com \
 #     bash scripts/gcp/deploy.sh
 #
@@ -43,7 +46,12 @@ gcloud artifacts repositories create "${REPOSITORY}" \
     --quiet 2>/dev/null || true
 
 echo "==> Building Docker image: ${IMAGE_URI}"
-docker build --cache-from "${IMAGE_URI}" -t "${IMAGE_URI}" .
+# Build context is the repo root so that reference_data/ can be copied into the image.
+docker build \
+    --cache-from "${IMAGE_URI}" \
+    -f a4d-python/Dockerfile \
+    -t "${IMAGE_URI}" \
+    .
 
 echo "==> Pushing Docker image to Artifact Registry..."
 docker push "${IMAGE_URI}"
@@ -58,7 +66,7 @@ gcloud run jobs deploy "${JOB_NAME}" \
     --cpu=4 \
     --max-retries=0 \
     --task-timeout=3h \
-    --set-secrets="/workspace/secrets/a4d-gcp-sa.json=a4d-gcp-sa:latest"
+    --set-env-vars="A4D_PROJECT_ID=${PROJECT_ID},A4D_ENVIRONMENT=production,A4D_DATA_ROOT=/workspace/data"
 
 echo ""
 echo "==> Deployment complete."
@@ -66,3 +74,4 @@ echo ""
 echo "To run the pipeline manually, execute:"
 echo "  gcloud run jobs execute ${JOB_NAME} \\"
 echo "    --region=${REGION} --project=${PROJECT_ID} --wait"
+

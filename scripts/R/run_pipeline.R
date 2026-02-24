@@ -31,19 +31,21 @@ upload_data <- function(bucket, data_dir) {
     print("Finished uploading data to GCP Storage")
 }
 
-ingest_data <- function(project_id, cluster_fields, dataset, table, source) {
-    print("Deleting old table in GCP Big Query")
-    command <- paste(
-        "bq rm",
-        "-f",
-        "-t",
-        paste0(project_id, ":", dataset, ".", table)
-    )
-    cat(command)
-    exit_code <- system(command)
-    if (exit_code != 0) {
-        paste("Error while executing", command)
-        stop("Error during ingesting data")
+ingest_data <- function(project_id, cluster_fields, dataset, table, source, delete=T) {
+    if (delete) {
+        print("Deleting old table in GCP Big Query")
+        command <- paste(
+            "bq rm",
+            "-f",
+            "-t",
+            paste0(project_id, ":", dataset, ".", table)
+        )
+        cat(command)
+        exit_code <- system(command)
+        if (exit_code != 0) {
+            paste("Error while executing", command)
+            stop("Error during ingesting data")
+        }
     }
 
     print("Ingesting data to GCP Big Query")
