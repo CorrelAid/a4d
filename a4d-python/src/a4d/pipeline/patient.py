@@ -1,10 +1,10 @@
 """Main patient pipeline orchestration."""
 
 import os
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from loguru import logger
 from tqdm import tqdm
@@ -312,7 +312,7 @@ def run_patient_pipeline(
                 logger.info(f"Logs table created: {logs_table_path}")
 
             logger.info(f"Created {len(tables)} tables total")
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to create tables")
             # Don't fail entire pipeline if table creation fails
     else:

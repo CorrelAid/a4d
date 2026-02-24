@@ -209,7 +209,8 @@ def process_patient_cmd(
             raise typer.Exit(0)
         else:
             console.print(
-                f"\n[bold red]✗ Pipeline completed with {result.failed_trackers} failures[/bold red]\n"
+                f"\n[bold red]✗ Pipeline completed with "
+                f"{result.failed_trackers} failures[/bold red]\n"
             )
             raise typer.Exit(1)
 
@@ -288,6 +289,160 @@ def create_tables_cmd(
 
     except Exception as e:
         console.print(f"\n[bold red]Error creating tables: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@app.command("upload-tables")
+def upload_tables_cmd(
+    tables_dir: Annotated[
+        Path,
+        typer.Option("--tables-dir", "-t", help="Directory containing parquet table files"),
+    ],
+    dataset: Annotated[
+        str | None,
+        typer.Option("--dataset", "-d", help="BigQuery dataset name (default: from config)"),
+    ] = None,
+    project_id: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="GCP project ID (default: from config)"),
+    ] = None,
+    append: Annotated[
+        bool,
+        typer.Option("--append", help="Append to existing tables instead of replacing"),
+    ] = False,
+):
+    """Upload pipeline output tables to BigQuery.
+
+    Loads parquet files from the tables directory into the configured
+    BigQuery dataset. By default, existing tables are replaced (matching
+    the R pipeline behavior).
+
+    \b
+    Examples:
+        # Upload tables from default output directory
+        uv run a4d upload-tables --tables-dir output/tables
+
+        # Upload to a specific dataset
+        uv run a4d upload-tables --tables-dir output/tables --dataset tracker_dev
+
+        # Append instead of replace
+        uv run a4d upload-tables --tables-dir output/tables --append
+    """
+    from a4d.gcp.bigquery import load_pipeline_tables
+
+    console.print("\n[bold blue]A4D BigQuery Upload[/bold blue]\n")
+    console.print(f"Tables directory: {tables_dir}")
+
+    if not tables_dir.exists():
+        console.print(f"[bold red]Error: Directory not found: {tables_dir}[/bold red]\n")
+        raise typer.Exit(1)
+
+    try:
+        results = load_pipeline_tables(
+            tables_dir=tables_dir,
+            dataset=dataset,
+            project_id=project_id,
+            replace=not append,
+        )
+
+        if results:
+            result_table = Table(title="Uploaded Tables")
+            result_table.add_column("Table", style="cyan")
+            result_table.add_column("Rows", justify="right", style="green")
+            result_table.add_column("Status", style="green")
+
+            for table_name, job in results.items():
+                result_table.add_row(
+                    table_name,
+                    f"{job.output_rows:,}" if job.output_rows else "?",
+                    "✓",
+                )
+
+            console.print(result_table)
+            console.print(
+                f"\n[bold green]✓ Uploaded {len(results)} tables to BigQuery[/bold green]\n"
+            )
+        else:
+            console.print("[bold yellow]No tables found to upload[/bold yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@app.command("download-trackers")
+def download_trackers_cmd(
+    destination: Annotated[
+        Path,
+        typer.Option("--destination", "-d", help="Local directory to download files to"),
+    ],
+    bucket: Annotated[
+        str | None,
+        typer.Option("--bucket", "-b", help="GCS bucket name (default: from config)"),
+    ] = None,
+):
+    """Download tracker files from Google Cloud Storage.
+
+    \b
+    Examples:
+        # Download to local directory
+        uv run a4d download-trackers --destination /data/trackers
+
+        # Download from specific bucket
+        uv run a4d download-trackers --destination /data/trackers --bucket my-bucket
+    """
+    from a4d.gcp.storage import download_tracker_files
+
+    console.print("\n[bold blue]A4D Tracker Download[/bold blue]\n")
+    console.print(f"Destination: {destination}")
+
+    try:
+        downloaded = download_tracker_files(destination=destination, bucket_name=bucket)
+        console.print(f"\n[bold green]✓ Downloaded {len(downloaded)} files[/bold green]\n")
+    except Exception as e:
+        console.print(f"\n[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@app.command("upload-output")
+def upload_output_cmd(
+    source_dir: Annotated[
+        Path,
+        typer.Option("--source", "-s", help="Output directory to upload"),
+    ],
+    bucket: Annotated[
+        str | None,
+        typer.Option("--bucket", "-b", help="GCS bucket name (default: from config)"),
+    ] = None,
+    prefix: Annotated[
+        str,
+        typer.Option("--prefix", help="Prefix for uploaded blob names"),
+    ] = "",
+):
+    """Upload pipeline output to Google Cloud Storage.
+
+    \b
+    Examples:
+        # Upload output directory
+        uv run a4d upload-output --source output/
+
+        # Upload with prefix
+        uv run a4d upload-output --source output/ --prefix 2024-01
+    """
+    from a4d.gcp.storage import upload_output
+
+    console.print("\n[bold blue]A4D Output Upload[/bold blue]\n")
+    console.print(f"Source: {source_dir}")
+
+    if not source_dir.exists():
+        console.print(f"[bold red]Error: Directory not found: {source_dir}[/bold red]\n")
+        raise typer.Exit(1)
+
+    try:
+        uploaded = upload_output(source_dir=source_dir, bucket_name=bucket, prefix=prefix)
+        console.print(f"\n[bold green]✓ Uploaded {len(uploaded)} files to GCS[/bold green]\n")
+    except Exception as e:
+        console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
 
 

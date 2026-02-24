@@ -407,7 +407,7 @@ def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
         >>> clean_df["bmi"].to_list()
         ['17.5', None, '18.2']
     """
-    EXCEL_ERRORS = [
+    excel_errors = [
         "#DIV/0!",
         "#VALUE!",
         "#REF!",
@@ -432,12 +432,12 @@ def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
 
     df = df.with_columns(
         [
-            pl.when(pl.col(col).is_in(EXCEL_ERRORS)).then(None).otherwise(pl.col(col)).alias(col)
+            pl.when(pl.col(col).is_in(excel_errors)).then(None).otherwise(pl.col(col)).alias(col)
             for col in data_cols
         ]
     )
 
-    for error in EXCEL_ERRORS:
+    for error in excel_errors:
         for col in data_cols:
             count = (df[col] == error).sum()
             if count > 0:
@@ -752,7 +752,10 @@ def read_all_patient_sheets(
                     patient_id="MISSING",
                     column="patient_id",
                     original_value=None,
-                    error_message=f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})",
+                    error_message=(
+                        f"Row in sheet '{sheet_name}' has missing "
+                        f"patient_id (name: {name_value})"
+                    ),
                     error_code="missing_required_field",
                     script="extract",
                     function_name="read_all_patient_sheets",
@@ -761,7 +764,8 @@ def read_all_patient_sheets(
     # Filter out ALL rows with missing patient_id
     df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
 
-    # Filter out empty rows (both patient_id and name are null/empty) - this is redundant now but kept for clarity
+    # Filter out empty rows (both patient_id and name are null/empty)
+    # This is redundant now but kept for clarity
     if "name" in df_combined.columns:
         df_combined = df_combined.filter(
             ~(
@@ -897,7 +901,8 @@ def read_all_patient_sheets(
         f"from {len(all_sheets_data)} month sheets"
     )
 
-    # Reorder: metadata first (tracker_year, tracker_month, clinic_id, patient_id), then patient data
+    # Reorder: metadata first, then patient data
+    # (tracker_year, tracker_month, clinic_id, patient_id)
     priority_cols = ["tracker_year", "tracker_month", "clinic_id", "patient_id"]
     existing_priority = [c for c in priority_cols if c in df_combined.columns]
     other_cols = [c for c in df_combined.columns if c not in priority_cols]

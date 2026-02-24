@@ -9,11 +9,11 @@ where a complete schema is defined upfront, and only columns that exist in the
 raw data are processed - the rest are left empty.
 """
 
+
 import polars as pl
-from typing import Dict
 
 
-def get_patient_data_schema() -> Dict[str, pl.DataType]:
+def get_patient_data_schema() -> dict[str, pl.DataType]:
     """Get the complete meta schema for patient data.
 
     This schema defines ALL columns that should exist in the final

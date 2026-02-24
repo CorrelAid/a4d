@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Verify that the Python fixes are working correctly by analyzing the output."""
 
-import polars as pl
 from pathlib import Path
+
+import polars as pl
 
 
 def verify_python_output():

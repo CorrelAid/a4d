@@ -13,13 +13,14 @@ Note: Data transformations are NOT in the YAML - they are hardcoded in
 transformers.py for better type safety and maintainability.
 """
 
-import polars as pl
-from typing import Any
 import re
+from typing import Any
+
+import polars as pl
 
 from a4d.config import settings
 from a4d.errors import ErrorCollector
-from a4d.reference.loaders import load_yaml, get_reference_data_path
+from a4d.reference.loaders import get_reference_data_path, load_yaml
 
 
 def sanitize_str(text: str) -> str:
@@ -402,7 +403,7 @@ def fix_patient_id(
                         patient_id=original,
                         column=patient_id_col,
                         original_value=original,
-                        error_message=f"Patient ID truncated (length > 8)",
+                        error_message="Patient ID truncated (length > 8)",
                         error_code="invalid_value",
                     )
                 else:
@@ -412,7 +413,7 @@ def fix_patient_id(
                         patient_id=original,
                         column=patient_id_col,
                         original_value=original,
-                        error_message=f"Invalid patient ID format (expected XX_YY###)",
+                        error_message="Invalid patient ID format (expected XX_YY###)",
                         error_code="invalid_value",
                     )
 
