@@ -109,13 +109,14 @@ ingest_data(
     table = "patient_data_hba1c",
     source = file.path(table_dir, "longitudinal_data_hba1c.parquet")
 )
-ingest_data(
-    project_id = config$project_id,
-    cluster_fields = "clinic_id,product_released_to,product_table_year,product_table_month",
-    dataset = config$dataset,
-    table = "product_data",
-    source = file.path(table_dir, "product_data.parquet")
-)
+# NOTE: product data ingestion is deliberately skipped until the product pipeline is finalized
+# ingest_data(
+#     project_id = config$project_id,
+#     cluster_fields = "clinic_id,product_released_to,product_table_year,product_table_month",
+#     dataset = config$dataset,
+#     table = "product_data",
+#     source = file.path(table_dir, "product_data.parquet")
+# )
 ingest_data(
     project_id = config$project_id,
     cluster_fields = "clinic_id",

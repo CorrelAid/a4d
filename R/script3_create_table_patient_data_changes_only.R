@@ -43,12 +43,11 @@ create_table_longitudinal_data <-
                 "patient_id",
                 "sheet_name",
                 "status",
-                "support_from_a4d",
+                "support_level",
                 "testing_frequency",
                 "tracker_date",
                 "tracker_month",
                 "tracker_year",
-                "updated_2022_date",
                 "weight"
             )
 
