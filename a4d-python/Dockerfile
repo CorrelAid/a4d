@@ -1,7 +1,7 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     curl \
@@ -13,23 +13,22 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Copy dependency files first to leverage Docker layer caching
+COPY a4d-python/pyproject.toml a4d-python/uv.lock ./
 
-# Install dependencies
-RUN uv sync --frozen
+# Install production dependencies only
+RUN uv sync --frozen --no-dev
 
 # Copy application code
-COPY src/ src/
-COPY scripts/ scripts/
+COPY a4d-python/src/ src/
 
-# Copy reference data from parent directory
-# (This will be mounted or copied during build)
-COPY ../reference_data/ reference_data/
+# Copy reference data from the repo root
+COPY reference_data/ reference_data/
 
 # Set environment
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
+ENV A4D_DATA_ROOT=/workspace/data
 
-# Default command
-CMD ["uv", "run", "python", "scripts/run_pipeline.py"]
+# Run the full pipeline: download → process → upload to GCS → ingest into BigQuery
+CMD ["uv", "run", "a4d", "run-pipeline"]

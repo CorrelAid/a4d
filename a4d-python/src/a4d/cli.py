@@ -446,8 +446,124 @@ def upload_output_cmd(
         raise typer.Exit(1) from e
 
 
-@app.command("version")
-def version_cmd():
+@app.command("run-pipeline")
+def run_pipeline_cmd(
+    workers: Annotated[
+        int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")
+    ] = 4,
+    force: Annotated[
+        bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
+    ] = False,
+    skip_upload: Annotated[
+        bool,
+        typer.Option("--skip-upload", help="Skip GCS and BigQuery uploads (local testing)"),
+    ] = False,
+):
+    """Run the full end-to-end A4D pipeline.
+
+    Executes all pipeline stages in sequence:
+      1. Download tracker files from Google Cloud Storage
+      2. Extract and clean all tracker files
+      3. Create final tables (static, monthly, annual)
+      4. Upload output files to Google Cloud Storage
+      5. Ingest tables into BigQuery
+
+    All configuration is read from environment variables (A4D_*) or a .env file.
+
+    \b
+    Examples:
+        # Full pipeline with 4 workers
+        uv run a4d run-pipeline
+
+        # Force reprocess all files
+        uv run a4d run-pipeline --force
+
+        # Local testing without GCS/BigQuery uploads
+        uv run a4d run-pipeline --skip-upload
+    """
+    from a4d.config import settings
+    from a4d.gcp.bigquery import load_pipeline_tables
+    from a4d.gcp.storage import download_tracker_files, upload_output
+
+    console.print("\n[bold blue]A4D Full Pipeline[/bold blue]\n")
+    console.print(f"Data root:   {settings.data_root}")
+    console.print(f"Output root: {settings.output_root}")
+    console.print(f"Workers:     {workers}")
+    console.print(f"Project:     {settings.project_id}")
+    console.print(f"Dataset:     {settings.dataset}\n")
+
+    # Step 1 – Download tracker files from GCS
+    if not skip_upload:
+        console.print("[bold]Step 1/5:[/bold] Downloading tracker files from GCS...")
+        try:
+            downloaded = download_tracker_files(destination=settings.data_root)
+            console.print(f"  ✓ Downloaded {len(downloaded)} files\n")
+        except Exception as e:
+            console.print(f"\n[bold red]Error during download: {e}[/bold red]\n")
+            raise typer.Exit(1) from e
+    else:
+        console.print("[bold]Step 1/5:[/bold] Skipping GCS download (--skip-upload)\n")
+
+    # Step 2+3 – Extract, clean and build tables
+    console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
+    try:
+        result = run_patient_pipeline(
+            max_workers=workers,
+            force=force,
+            show_progress=True,
+            console_log_level="WARNING",
+        )
+
+        console.print(
+            f"  ✓ Processed {result.total_trackers} trackers "
+            f"({result.successful_trackers} ok, {result.failed_trackers} failed)\n"
+        )
+
+        if result.failed_trackers > 0:
+            console.print("[bold yellow]Failed trackers:[/bold yellow]")
+            for tr in result.tracker_results:
+                if not tr.success:
+                    console.print(f"  • {tr.tracker_file.name}: {tr.error}")
+            console.print()
+
+        if not result.success:
+            console.print("[bold red]✗ Pipeline failed – aborting upload steps[/bold red]\n")
+            raise typer.Exit(1)
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error during processing: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+    tables_dir = settings.output_root / "tables"
+
+    # Step 4 – Upload output to GCS
+    if not skip_upload:
+        console.print("[bold]Step 4/5:[/bold] Uploading output files to GCS...")
+        try:
+            uploaded = upload_output(source_dir=settings.output_root)
+            console.print(f"  ✓ Uploaded {len(uploaded)} files\n")
+        except Exception as e:
+            console.print(f"\n[bold red]Error during GCS upload: {e}[/bold red]\n")
+            raise typer.Exit(1) from e
+    else:
+        console.print("[bold]Step 4/5:[/bold] Skipping GCS upload (--skip-upload)\n")
+
+    # Step 5 – Ingest tables into BigQuery
+    if not skip_upload:
+        console.print("[bold]Step 5/5:[/bold] Ingesting tables into BigQuery...")
+        try:
+            bq_results = load_pipeline_tables(tables_dir=tables_dir)
+            console.print(f"  ✓ Loaded {len(bq_results)} tables into BigQuery\n")
+        except Exception as e:
+            console.print(f"\n[bold red]Error during BigQuery upload: {e}[/bold red]\n")
+            raise typer.Exit(1) from e
+    else:
+        console.print("[bold]Step 5/5:[/bold] Skipping BigQuery upload (--skip-upload)\n")
+
+    console.print("[bold green]✓ Full pipeline completed successfully![/bold green]\n")
+
+
+
     """Show version information."""
     console.print("[bold cyan]A4D Pipeline v0.1.0[/bold cyan]")
     console.print("Python implementation of the A4D medical tracker processing pipeline")
