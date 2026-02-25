@@ -113,110 +113,109 @@ def process_patient_cmd(
             show_progress=True,  # Show tqdm progress bar
             console_log_level="ERROR",  # Only show errors in console
         )
-
-        # Display results
-        console.print("\n[bold]Pipeline Results[/bold]\n")
-
-        # Calculate error statistics
-        total_errors = sum(tr.cleaning_errors for tr in result.tracker_results)
-        files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
-
-        summary_table = Table(title="Summary")
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="green")
-
-        summary_table.add_row("Total Trackers", str(result.total_trackers))
-        summary_table.add_row("Successful", str(result.successful_trackers))
-        summary_table.add_row("Failed", str(result.failed_trackers))
-        summary_table.add_row("Tables Created", str(len(result.tables)))
-        summary_table.add_row("", "")  # Spacer
-        summary_table.add_row("Data Quality Errors", f"{total_errors:,}")
-        summary_table.add_row("Files with Errors", str(files_with_errors))
-
-        console.print(summary_table)
-
-        # Show error type breakdown if there are errors
-        if total_errors > 0:
-            console.print("\n[bold yellow]Error Type Breakdown:[/bold yellow]")
-
-            # Aggregate error types across all trackers
-            error_type_totals: dict[str, int] = {}
-            for tr in result.tracker_results:
-                if tr.error_breakdown:
-                    for error_type, count in tr.error_breakdown.items():
-                        error_type_totals[error_type] = error_type_totals.get(error_type, 0) + count
-
-            # Create frequency table
-            error_type_table = Table()
-            error_type_table.add_column("Error Type", style="yellow")
-            error_type_table.add_column("Count", justify="right", style="red")
-            error_type_table.add_column("Percentage", justify="right", style="cyan")
-
-            # Sort by count (descending)
-            sorted_error_types = sorted(error_type_totals.items(), key=lambda x: x[1], reverse=True)
-
-            for error_type, count in sorted_error_types:
-                percentage = (count / total_errors) * 100
-                error_type_table.add_row(error_type, f"{count:,}", f"{percentage:.1f}%")
-
-            console.print(error_type_table)
-
-        # Show failed trackers if any
-        if result.failed_trackers > 0:
-            console.print("\n[bold yellow]Failed Trackers:[/bold yellow]")
-            failed_table = Table()
-            failed_table.add_column("File", style="red")
-            failed_table.add_column("Error")
-
-            for tr in result.tracker_results:
-                if not tr.success:
-                    failed_table.add_row(
-                        tr.tracker_file.name,
-                        str(tr.error)[:100],  # Truncate long errors
-                    )
-
-            console.print(failed_table)
-
-        # Show top files with most data quality errors (if any)
-        if total_errors > 0:
-            console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
-            # Sort by error count (descending) and take top 10
-            files_by_errors = sorted(
-                [
-                    (tr.tracker_file.name, tr.cleaning_errors)
-                    for tr in result.tracker_results
-                    if tr.cleaning_errors > 0
-                ],
-                key=lambda x: x[1],
-                reverse=True,
-            )[:10]
-
-            errors_table = Table()
-            errors_table.add_column("File", style="yellow")
-            errors_table.add_column("Errors", justify="right", style="red")
-
-            for filename, error_count in files_by_errors:
-                errors_table.add_row(filename, f"{error_count:,}")
-
-            console.print(errors_table)
-
-        # Show created tables
-        _display_tables_summary(result.tables)
-
-        # Exit status
-        if result.success:
-            console.print("\n[bold green]✓ Pipeline completed successfully![/bold green]\n")
-            raise typer.Exit(0)
-        else:
-            console.print(
-                f"\n[bold red]✗ Pipeline completed with "
-                f"{result.failed_trackers} failures[/bold red]\n"
-            )
-            raise typer.Exit(1)
-
     except Exception as e:
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
+
+    # Display results
+    console.print("\n[bold]Pipeline Results[/bold]\n")
+
+    # Calculate error statistics
+    total_errors = sum(tr.cleaning_errors for tr in result.tracker_results)
+    files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
+
+    summary_table = Table(title="Summary")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+
+    summary_table.add_row("Total Trackers", str(result.total_trackers))
+    summary_table.add_row("Successful", str(result.successful_trackers))
+    summary_table.add_row("Failed", str(result.failed_trackers))
+    summary_table.add_row("Tables Created", str(len(result.tables)))
+    summary_table.add_row("", "")  # Spacer
+    summary_table.add_row("Data Quality Errors", f"{total_errors:,}")
+    summary_table.add_row("Files with Errors", str(files_with_errors))
+
+    console.print(summary_table)
+
+    # Show error type breakdown if there are errors
+    if total_errors > 0:
+        console.print("\n[bold yellow]Error Type Breakdown:[/bold yellow]")
+
+        # Aggregate error types across all trackers
+        error_type_totals: dict[str, int] = {}
+        for tr in result.tracker_results:
+            if tr.error_breakdown:
+                for error_type, count in tr.error_breakdown.items():
+                    error_type_totals[error_type] = error_type_totals.get(error_type, 0) + count
+
+        # Create frequency table
+        error_type_table = Table()
+        error_type_table.add_column("Error Type", style="yellow")
+        error_type_table.add_column("Count", justify="right", style="red")
+        error_type_table.add_column("Percentage", justify="right", style="cyan")
+
+        # Sort by count (descending)
+        sorted_error_types = sorted(error_type_totals.items(), key=lambda x: x[1], reverse=True)
+
+        for error_type, count in sorted_error_types:
+            percentage = (count / total_errors) * 100
+            error_type_table.add_row(error_type, f"{count:,}", f"{percentage:.1f}%")
+
+        console.print(error_type_table)
+
+    # Show failed trackers if any
+    if result.failed_trackers > 0:
+        console.print("\n[bold yellow]Failed Trackers:[/bold yellow]")
+        failed_table = Table()
+        failed_table.add_column("File", style="red")
+        failed_table.add_column("Error")
+
+        for tr in result.tracker_results:
+            if not tr.success:
+                failed_table.add_row(
+                    tr.tracker_file.name,
+                    str(tr.error)[:100],  # Truncate long errors
+                )
+
+        console.print(failed_table)
+
+    # Show top files with most data quality errors (if any)
+    if total_errors > 0:
+        console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
+        # Sort by error count (descending) and take top 10
+        files_by_errors = sorted(
+            [
+                (tr.tracker_file.name, tr.cleaning_errors)
+                for tr in result.tracker_results
+                if tr.cleaning_errors > 0
+            ],
+            key=lambda x: x[1],
+            reverse=True,
+        )[:10]
+
+        errors_table = Table()
+        errors_table.add_column("File", style="yellow")
+        errors_table.add_column("Errors", justify="right", style="red")
+
+        for filename, error_count in files_by_errors:
+            errors_table.add_row(filename, f"{error_count:,}")
+
+        console.print(errors_table)
+
+    # Show created tables
+    _display_tables_summary(result.tables)
+
+    # Exit status
+    if result.success:
+        console.print("\n[bold green]✓ Pipeline completed successfully![/bold green]\n")
+        raise typer.Exit(0)
+    else:
+        console.print(
+            f"\n[bold red]✗ Pipeline completed with "
+            f"{result.failed_trackers} failures[/bold red]\n"
+        )
+        raise typer.Exit(1)
 
 
 @app.command("create-tables")
@@ -561,12 +560,6 @@ def run_pipeline_cmd(
         console.print("[bold]Step 5/5:[/bold] Skipping BigQuery upload (--skip-upload)\n")
 
     console.print("[bold green]✓ Full pipeline completed successfully![/bold green]\n")
-
-
-
-    """Show version information."""
-    console.print("[bold cyan]A4D Pipeline v0.1.0[/bold cyan]")
-    console.print("Python implementation of the A4D medical tracker processing pipeline")
 
 
 def main():

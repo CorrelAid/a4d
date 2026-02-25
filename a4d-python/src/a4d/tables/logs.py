@@ -206,7 +206,7 @@ def create_table_logs(logs_dir: Path, output_dir: Path) -> Path:
     logger.info(f"Date range: {logs_table['timestamp'].min()} to {logs_table['timestamp'].max()}")
 
     # Log summary by level
-    level_counts = logs_table.group_by("level").agg(pl.count()).sort("level")
+    level_counts = logs_table.group_by("level").agg(pl.len()).sort("level")
     logger.info(f"Log level distribution: {level_counts.to_dict(as_series=False)}")
 
     # Write to parquet

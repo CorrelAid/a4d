@@ -18,7 +18,6 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     "patient_data_monthly": ["clinic_id", "patient_id", "tracker_date"],
     "patient_data_annual": ["patient_id", "tracker_date"],
     "patient_data_static": ["clinic_id", "patient_id", "tracker_date"],
-    "patient_data_hba1c": ["clinic_id", "patient_id", "tracker_date"],
     "product_data": [
         "clinic_id",
         "product_released_to",
