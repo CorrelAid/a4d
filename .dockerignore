@@ -1,0 +1,13 @@
+.git
+.github
+.Rproj.user
+.Rhistory
+.RData
+*.Rproj
+a4d-python/.pytest_cache
+a4d-python/.ruff_cache
+a4d-python/htmlcov
+a4d-python/.coverage
+a4d-python/profiling/*.prof
+data/
+secrets/
