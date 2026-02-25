@@ -91,7 +91,7 @@ insulin_regimen:
       type: basic_function
     - allowed_values:
         - "Basal-bolus (MDI)"
-        - "Premixed 30/70 DB"
+        - "Premixed 30/70 BD"
         - "Self-mixed BD"
         - "Modified conventional TID"
       replace_invalid: false
