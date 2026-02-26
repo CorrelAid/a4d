@@ -43,6 +43,7 @@ class TestHelp:
     def test_run_pipeline_help(self):
         result = runner.invoke(app, ["run-pipeline", "--help"])
         assert result.exit_code == 0
+        assert "--skip-download" in result.output
         assert "--skip-upload" in result.output
 
 
@@ -92,6 +93,7 @@ class TestRunPipeline:
         mock_settings.output_root = tmp_path / "output"
         mock_settings.project_id = "test-project"
         mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
 
         (tmp_path / "data").mkdir()
         (tmp_path / "output").mkdir()
@@ -105,7 +107,7 @@ class TestRunPipeline:
         mock_result.tables = {}
         mock_run_pipeline.return_value = mock_result
 
-        result = runner.invoke(app, ["run-pipeline", "--skip-upload"])
+        result = runner.invoke(app, ["run-pipeline", "--skip-download", "--skip-upload"])
 
         mock_run_pipeline.assert_called_once()
         assert result.exit_code == 0
@@ -117,6 +119,7 @@ class TestRunPipeline:
         mock_settings.output_root = tmp_path / "output"
         mock_settings.project_id = "test-project"
         mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
 
         (tmp_path / "data").mkdir()
         (tmp_path / "output").mkdir()
@@ -132,7 +135,7 @@ class TestRunPipeline:
         mock_result.tables = {}
         mock_run_pipeline.return_value = mock_result
 
-        result = runner.invoke(app, ["run-pipeline", "--skip-upload"])
+        result = runner.invoke(app, ["run-pipeline", "--skip-download", "--skip-upload"])
 
         assert result.exit_code == 1
 

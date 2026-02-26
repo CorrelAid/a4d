@@ -59,29 +59,26 @@ clean:
     find . -type d -name __pycache__ -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 
-# Run full pipeline (extract + clean + tables)
+# Full pipeline: download from GCS, process, upload to GCS + BigQuery
 run *ARGS:
+    uv run a4d run-pipeline {{ARGS}}
+
+# Download from GCS, process locally, no upload
+run-download *ARGS:
+    uv run a4d run-pipeline --skip-upload {{ARGS}}
+
+# Process local files only, no GCS (use files already in data_root)
+# Optionally pass a path: just run-local --data-root /path/to/trackers
+run-local *ARGS:
     uv run a4d process-patient {{ARGS}}
-
-# Run pipeline with 8 workers (parallel processing)
-run-parallel:
-    uv run a4d process-patient --workers 8
-
-# Extract and clean only (skip table creation)
-run-clean:
-    uv run a4d process-patient --workers 8 --skip-tables
-
-# Force reprocess all files (ignore existing outputs)
-run-force:
-    uv run a4d process-patient --workers 8 --force
-
-# Create tables from existing cleaned parquet files
-create-tables INPUT:
-    uv run a4d create-tables --input "{{INPUT}}"
 
 # Process a single tracker file
 run-file FILE:
     uv run a4d process-patient --file "{{FILE}}"
+
+# Create tables from existing cleaned parquet files
+create-tables INPUT:
+    uv run a4d create-tables --input "{{INPUT}}"
 
 # Build Docker image
 docker-build:
