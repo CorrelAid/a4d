@@ -72,9 +72,7 @@ class TestUploadTablesErrors:
 
     def test_missing_dir_exits_nonzero(self, tmp_path):
         missing = tmp_path / "nonexistent_tables"
-        result = runner.invoke(
-            app, ["upload-tables", "--tables-dir", str(missing)]
-        )
+        result = runner.invoke(app, ["upload-tables", "--tables-dir", str(missing)])
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
 
@@ -155,8 +153,10 @@ class TestProcessPatientE2E:
             app,
             [
                 "process-patient",
-                "--file", str(dummy_tracker),
-                "--output", str(output_dir),
+                "--file",
+                str(dummy_tracker),
+                "--output",
+                str(output_dir),
             ],
         )
 
@@ -191,8 +191,10 @@ class TestProcessPatientE2E:
             app,
             [
                 "process-patient",
-                "--file", str(dummy_tracker),
-                "--output", str(output_dir),
+                "--file",
+                str(dummy_tracker),
+                "--output",
+                str(output_dir),
             ],
         )
 
@@ -210,8 +212,10 @@ class TestProcessPatientE2E:
             app,
             [
                 "process-patient",
-                "--file", str(dummy_tracker),
-                "--output", str(output_dir),
+                "--file",
+                str(dummy_tracker),
+                "--output",
+                str(output_dir),
                 "--skip-tables",
             ],
         )

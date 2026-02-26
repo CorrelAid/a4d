@@ -54,14 +54,12 @@ ACCEPTABLE_DIFFERENCES = {
 KNOWN_ISSUES = {
     "2018_Penang General Hospital A4D Tracker_DC_patient_cleaned.parquet": {
         "duplicate_records": (
-            "Excel has duplicate patient_id MY_QF004 in Oct18 sheet "
-            "that needs to be fixed"
+            "Excel has duplicate patient_id MY_QF004 in Oct18 sheet that needs to be fixed"
         ),
     },
     "2023_Vietnam National Children's Hospital A4D Tracker_patient_cleaned.parquet": {
         "duplicate_records": (
-            "Excel has duplicate patient_id VN_QC026 in Aug23 sheet "
-            "that needs to be fixed"
+            "Excel has duplicate patient_id VN_QC026 in Aug23 sheet that needs to be fixed"
         ),
     },
     "2023_NPH A4D Tracker_patient_cleaned.parquet": {
@@ -161,8 +159,7 @@ FILE_COLUMN_EXCEPTIONS = {
     },
     "2025_06_Mandalay General Hospital A4D Tracker_patient_cleaned.parquet": {
         "reason": (
-            "R sets error value 999999 for t1d_diagnosis_age. "
-            "Python correctly extracts values."
+            "R sets error value 999999 for t1d_diagnosis_age. Python correctly extracts values."
         ),
         "skip_columns": ["t1d_diagnosis_age"],
     },
@@ -215,8 +212,7 @@ REQUIRED_COLUMN_EXCEPTIONS = {
     },
     "2019_Mahosot Hospital A4D Tracker_patient_cleaned.parquet": {
         "status": (
-            "Patient LA_QA005 has missing status in January and "
-            "February 2019 in source Excel file"
+            "Patient LA_QA005 has missing status in January and February 2019 in source Excel file"
         ),
     },
     "2019_Preah Kossamak Hospital A4D Tracker_patient_cleaned.parquet": {
@@ -302,8 +298,7 @@ PATIENT_LEVEL_EXCEPTIONS = {
     "2025_06_CDA A4D Tracker_patient_cleaned.parquet": {
         "KH_QA018": {
             "reason": (
-                "R extraction error: missing 'Analog Insulin' value "
-                "that Python correctly extracts"
+                "R extraction error: missing 'Analog Insulin' value that Python correctly extracts"
             ),
             "skip_columns": ["insulin_type"],
         },
@@ -327,15 +322,13 @@ PATIENT_LEVEL_EXCEPTIONS = {
         },
         "KH_QD073": {
             "reason": (
-                "R extraction error: missing 'Analog Insulin' value "
-                "that Python correctly extracts"
+                "R extraction error: missing 'Analog Insulin' value that Python correctly extracts"
             ),
             "skip_columns": ["insulin_type"],
         },
         "KH_QD139": {
             "reason": (
-                "R extraction error: missing 'Analog Insulin' value "
-                "that Python correctly extracts"
+                "R extraction error: missing 'Analog Insulin' value that Python correctly extracts"
             ),
             "skip_columns": ["insulin_type"],
         },

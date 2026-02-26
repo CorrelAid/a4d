@@ -7,7 +7,6 @@ Transformations are referenced in reference_data/data_cleaning.yaml with
 type: basic_function.
 """
 
-
 import polars as pl
 
 from a4d.config import settings
@@ -131,9 +130,7 @@ def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
 
     # Convert height from cm to m if > 50 (R's transform_cm_to_m threshold)
     height_m = (
-        pl.when(pl.col("height") > 50)
-        .then(pl.col("height") / 100.0)
-        .otherwise(pl.col("height"))
+        pl.when(pl.col("height") > 50).then(pl.col("height") / 100.0).otherwise(pl.col("height"))
     )
 
     # Calculate BMI: weight / height^2

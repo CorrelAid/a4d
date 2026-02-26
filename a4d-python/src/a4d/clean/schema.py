@@ -1,6 +1,5 @@
 """Meta schema definition for patient data - matches R pipeline exactly."""
 
-
 import polars as pl
 
 
