@@ -77,6 +77,10 @@ def process_patient_cmd(
     force: Annotated[
         bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
     ] = False,
+    clean: Annotated[
+        bool,
+        typer.Option("--clean", help="Wipe output directory before running (default when --file is used)"),
+    ] = False,
     output_root: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
     ] = None,
@@ -88,7 +92,7 @@ def process_patient_cmd(
         # Process all trackers in data_root
         uv run a4d process-patient
 
-        # Process specific file
+        # Process specific file (output is always cleaned first)
         uv run a4d process-patient --file /path/to/tracker.xlsx
 
         # Parallel processing with 8 workers
@@ -102,20 +106,52 @@ def process_patient_cmd(
     # Prepare tracker files list
     tracker_files = [file] if file else None
 
-    # Run pipeline with progress bar and minimal console logging
+    # Single-file mode always cleans first — there's no reason to keep stale
+    # outputs from previous runs when testing a specific file.
+    clean_output = clean or (file is not None)
+
+    # Step 1: Extract + clean (table creation handled below for visible progress)
+    console.print("[bold]Step 1/3:[/bold] Extracting and cleaning tracker files...")
     try:
         result = run_patient_pipeline(
             tracker_files=tracker_files,
             max_workers=workers,
             output_root=output_root,
-            skip_tables=skip_tables,
+            skip_tables=True,  # tables created below with console feedback
             force=force,
-            show_progress=True,  # Show tqdm progress bar
-            console_log_level="ERROR",  # Only show errors in console
+            clean_output=clean_output,
+            show_progress=True,
+            console_log_level="ERROR",
         )
     except Exception as e:
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
+
+    # Step 2+3: Table and log creation with console feedback
+    tables: dict[str, Path] = {}
+    if not skip_tables and result.successful_trackers > 0:
+        from a4d.config import settings as _settings
+
+        _output_root = output_root or _settings.output_root
+        cleaned_dir = _output_root / "patient_data_cleaned"
+        tables_dir = _output_root / "tables"
+        logs_dir = _output_root / "logs"
+
+        console.print("[bold]Step 2/3:[/bold] Creating patient tables...")
+        try:
+            tables = process_patient_tables(cleaned_dir, tables_dir)
+        except Exception as e:
+            console.print(f"[bold red]Error creating tables: {e}[/bold red]")
+
+        if logs_dir.exists():
+            console.print("[bold]Step 3/3:[/bold] Creating logs table...")
+            try:
+                logs_table_path = create_table_logs(logs_dir, tables_dir)
+                tables["logs"] = logs_table_path
+            except Exception as e:
+                console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
+    elif skip_tables:
+        console.print("[dim]Steps 2–3: Skipped (--skip-tables)[/dim]")
 
     # Display results
     console.print("\n[bold]Pipeline Results[/bold]\n")
@@ -131,7 +167,7 @@ def process_patient_cmd(
     summary_table.add_row("Total Trackers", str(result.total_trackers))
     summary_table.add_row("Successful", str(result.successful_trackers))
     summary_table.add_row("Failed", str(result.failed_trackers))
-    summary_table.add_row("Tables Created", str(len(result.tables)))
+    summary_table.add_row("Tables Created", str(len(tables)))
     summary_table.add_row("", "")  # Spacer
     summary_table.add_row("Data Quality Errors", f"{total_errors:,}")
     summary_table.add_row("Files with Errors", str(files_with_errors))
@@ -204,7 +240,7 @@ def process_patient_cmd(
         console.print(errors_table)
 
     # Show created tables
-    _display_tables_summary(result.tables)
+    _display_tables_summary(tables)
 
     # Exit status
     if result.success:

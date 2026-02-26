@@ -189,17 +189,20 @@ just info
 ## Technology Stack
 
 ### Astral Toolchain
+
 - **uv** - Fast dependency management
 - **ruff** - Linting and formatting
 - **ty** - Type checking
 
 ### Data Processing
+
 - **Polars** - Fast dataframe operations (10-100x faster than pandas)
 - **DuckDB** - Complex SQL aggregations
 - **Pydantic** - Type-safe configuration
 - **Pandera** - DataFrame validation
 
 ### Infrastructure
+
 - **loguru** - Structured JSON logging
 - **Google Cloud SDK** - BigQuery & GCS integration
 - **pytest** - Testing framework
@@ -208,6 +211,7 @@ just info
 ## Migration from R
 
 This project is a complete rewrite of the R pipeline with:
+
 - 2-5x performance improvement
 - Incremental processing (only changed files)
 - Better error tracking and logging
