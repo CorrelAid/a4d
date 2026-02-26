@@ -686,9 +686,7 @@ def read_all_patient_sheets(
     for sheet_name in month_sheets:
         logger.info(f"Processing sheet: {sheet_name}")
 
-        df_sheet = extract_patient_data(
-            tracker_file, sheet_name, year, mapper=mapper, workbook=wb
-        )
+        df_sheet = extract_patient_data(tracker_file, sheet_name, year, mapper=mapper, workbook=wb)
 
         if df_sheet.is_empty():
             logger.warning(f"Sheet '{sheet_name}' has no data, skipping")
@@ -753,8 +751,7 @@ def read_all_patient_sheets(
                     column="patient_id",
                     original_value=None,
                     error_message=(
-                        f"Row in sheet '{sheet_name}' has missing "
-                        f"patient_id (name: {name_value})"
+                        f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})"
                     ),
                     error_code="missing_required_field",
                     script="extract",

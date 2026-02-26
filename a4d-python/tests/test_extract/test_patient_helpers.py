@@ -331,12 +331,14 @@ class TestMergeHeaders:
         h1 = ["%", "(dd-mmm-yyyy)", "mmol/L", "(dd-mmm-yyyy)"]
         h2 = ["Updated HbA1c", None, "Updated FBG", None]
         # Mock mapper that knows these forward-filled patterns
-        mapper = create_mock_mapper({
-            "Updated HbA1c %",
-            "Updated HbA1c (dd-mmm-yyyy)",
-            "Updated FBG mmol/L",
-            "Updated FBG (dd-mmm-yyyy)",
-        })
+        mapper = create_mock_mapper(
+            {
+                "Updated HbA1c %",
+                "Updated HbA1c (dd-mmm-yyyy)",
+                "Updated FBG mmol/L",
+                "Updated FBG (dd-mmm-yyyy)",
+            }
+        )
         result = merge_headers(h1, h2, mapper)
         assert result == [
             "Updated HbA1c %",
@@ -353,12 +355,14 @@ class TestMergeHeaders:
         h1 = ["ID*", "Name", "%", "(date)", None, "kg"]
         h2 = ["Patient", None, "HbA1c", None, "Notes", "Weight"]
         # Mock mapper that validates these forward-fills
-        mapper = create_mock_mapper({
-            "Patient ID*",
-            "Patient Name",
-            "HbA1c %",
-            "HbA1c (date)",
-        })
+        mapper = create_mock_mapper(
+            {
+                "Patient ID*",
+                "Patient Name",
+                "HbA1c %",
+                "HbA1c (date)",
+            }
+        )
         result = merge_headers(h1, h2, mapper)
         assert result == [
             "Patient ID*",
@@ -377,10 +381,12 @@ class TestMergeHeaders:
         h1 = ["%", "(date)", None, "kg"]
         h2 = ["HbA1c", None, None, "Weight"]
         # Mock mapper that validates HbA1c forward-fills
-        mapper = create_mock_mapper({
-            "HbA1c %",
-            "HbA1c (date)",
-        })
+        mapper = create_mock_mapper(
+            {
+                "HbA1c %",
+                "HbA1c (date)",
+            }
+        )
         result = merge_headers(h1, h2, mapper)
         assert result == [
             "HbA1c %",
