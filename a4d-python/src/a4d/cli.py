@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from a4d.pipeline.patient import process_patient_tables, run_patient_pipeline
+from a4d.pipeline.patient import discover_tracker_files, process_patient_tables, run_patient_pipeline
 from a4d.tables.logs import create_table_logs
 
 app = typer.Typer(
@@ -69,18 +69,18 @@ def process_patient_cmd(
         ),
     ] = None,
     workers: Annotated[
-        int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")
-    ] = 1,
+        int | None, typer.Option("--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)")
+    ] = None,
     skip_tables: Annotated[
         bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
     ] = False,
     force: Annotated[
         bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
     ] = False,
-    clean: Annotated[
-        bool,
-        typer.Option("--clean", help="Wipe output directory before running (default when --file is used)"),
-    ] = False,
+    data_root: Annotated[
+        Path | None,
+        typer.Option("--data-root", "-d", help="Directory containing tracker files (default: from config)"),
+    ] = None,
     output_root: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
     ] = None,
@@ -88,11 +88,17 @@ def process_patient_cmd(
     """Process patient data pipeline.
 
     \b
+    Output is always cleaned before each run so tables reflect only the
+    current run's files.
+
     Examples:
-        # Process all trackers in data_root
+        # Process all trackers in data_root (from config)
         uv run a4d process-patient
 
-        # Process specific file (output is always cleaned first)
+        # Process all trackers in a specific directory
+        uv run a4d process-patient --data-root /path/to/trackers
+
+        # Process specific file
         uv run a4d process-patient --file /path/to/tracker.xlsx
 
         # Parallel processing with 8 workers
@@ -101,25 +107,45 @@ def process_patient_cmd(
         # Just extract + clean, skip tables
         uv run a4d process-patient --skip-tables
     """
+    from a4d.config import settings as _settings
+
     console.print("\n[bold blue]A4D Patient Pipeline[/bold blue]\n")
 
-    # Prepare tracker files list
-    tracker_files = [file] if file else None
+    if file:
+        tracker_files = [file]
+        data_root_display = f"{file} (single file)"
+    elif data_root:
+        tracker_files = discover_tracker_files(data_root)
+        if not tracker_files:
+            console.print(f"[bold red]Error: No tracker files found in {data_root}[/bold red]\n")
+            raise typer.Exit(1)
+        data_root_display = str(data_root)
+    else:
+        tracker_files = None  # pipeline uses settings.data_root
+        data_root_display = str(_settings.data_root)
 
-    # Single-file mode always cleans first — there's no reason to keep stale
-    # outputs from previous runs when testing a specific file.
-    clean_output = clean or (file is not None)
+    _output_root = output_root or _settings.output_root
+    _workers = workers if workers is not None else _settings.max_workers
+
+    console.print(f"Data root:   {data_root_display}")
+    console.print(f"Output root: {_output_root}")
+    console.print(f"Workers:     {_workers}")
+    if skip_tables:
+        console.print("Tables:      skipped")
+    if force:
+        console.print("Force:       yes")
+    console.print()
 
     # Step 1: Extract + clean (table creation handled below for visible progress)
     console.print("[bold]Step 1/3:[/bold] Extracting and cleaning tracker files...")
     try:
         result = run_patient_pipeline(
             tracker_files=tracker_files,
-            max_workers=workers,
+            max_workers=_workers,
             output_root=output_root,
             skip_tables=True,  # tables created below with console feedback
             force=force,
-            clean_output=clean_output,
+            clean_output=True,
             show_progress=True,
             console_log_level="ERROR",
         )
@@ -130,9 +156,6 @@ def process_patient_cmd(
     # Step 2+3: Table and log creation with console feedback
     tables: dict[str, Path] = {}
     if not skip_tables and result.successful_trackers > 0:
-        from a4d.config import settings as _settings
-
-        _output_root = output_root or _settings.output_root
         cleaned_dir = _output_root / "patient_data_cleaned"
         tables_dir = _output_root / "tables"
         logs_dir = _output_root / "logs"
@@ -483,14 +506,18 @@ def upload_output_cmd(
 @app.command("run-pipeline")
 def run_pipeline_cmd(
     workers: Annotated[
-        int, typer.Option("--workers", "-w", help="Number of parallel workers (1 = sequential)")
-    ] = 4,
+        int | None, typer.Option("--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)")
+    ] = None,
     force: Annotated[
         bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
     ] = False,
+    skip_download: Annotated[
+        bool,
+        typer.Option("--skip-download", help="Skip GCS download (use files already in data_root)"),
+    ] = False,
     skip_upload: Annotated[
         bool,
-        typer.Option("--skip-upload", help="Skip GCS and BigQuery uploads (local testing)"),
+        typer.Option("--skip-upload", help="Skip GCS and BigQuery upload steps"),
     ] = False,
 ):
     """Run the full end-to-end A4D pipeline.
@@ -506,28 +533,33 @@ def run_pipeline_cmd(
 
     \b
     Examples:
-        # Full pipeline with 4 workers
+        # Full pipeline (download + process + upload)
         uv run a4d run-pipeline
 
-        # Force reprocess all files
-        uv run a4d run-pipeline --force
-
-        # Local testing without GCS/BigQuery uploads
+        # Download latest files, process locally, skip upload
         uv run a4d run-pipeline --skip-upload
+
+        # Process local files only, no download or upload
+        uv run a4d run-pipeline --skip-download --skip-upload
     """
     from a4d.config import settings
     from a4d.gcp.bigquery import load_pipeline_tables
     from a4d.gcp.storage import download_tracker_files, upload_output
 
+    _workers = workers if workers is not None else settings.max_workers
+
     console.print("\n[bold blue]A4D Full Pipeline[/bold blue]\n")
     console.print(f"Data root:   {settings.data_root}")
     console.print(f"Output root: {settings.output_root}")
-    console.print(f"Workers:     {workers}")
+    console.print(f"Workers:     {_workers}")
     console.print(f"Project:     {settings.project_id}")
-    console.print(f"Dataset:     {settings.dataset}\n")
+    console.print(f"Dataset:     {settings.dataset}")
+    console.print(f"Download:    {'yes' if not skip_download else 'skipped (--skip-download)'}")
+    console.print(f"Upload:      {'yes' if not skip_upload else 'skipped (--skip-upload)'}")
+    console.print()
 
     # Step 1 – Download tracker files from GCS
-    if not skip_upload:
+    if not skip_download:
         console.print("[bold]Step 1/5:[/bold] Downloading tracker files from GCS...")
         try:
             downloaded = download_tracker_files(destination=settings.data_root)
@@ -536,13 +568,13 @@ def run_pipeline_cmd(
             console.print(f"\n[bold red]Error during download: {e}[/bold red]\n")
             raise typer.Exit(1) from e
     else:
-        console.print("[bold]Step 1/5:[/bold] Skipping GCS download (--skip-upload)\n")
+        console.print("[bold]Step 1/5:[/bold] Skipping GCS download (--skip-download)\n")
 
     # Step 2+3 – Extract, clean and build tables
     console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
     try:
         result = run_patient_pipeline(
-            max_workers=workers,
+            max_workers=_workers,
             force=force,
             show_progress=True,
             console_log_level="WARNING",

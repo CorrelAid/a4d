@@ -58,10 +58,13 @@ gcloud config set project a4dphase2
 # Test with a single file (fastest)
 just run-file /path/to/tracker.xlsx
 
-# Process all trackers in A4D_DATA_ROOT, skip GCS/BigQuery
-just run --skip-upload
+# Process all files already in A4D_DATA_ROOT — no GCS
+just run-local
 
-# Full pipeline (downloads from GCS, uploads results, loads into BigQuery)
+# Download latest files from GCS, process locally — no upload
+just run-download
+
+# Full pipeline: download from GCS, process, upload results + load BigQuery
 just run
 ```
 

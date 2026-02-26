@@ -132,8 +132,8 @@ def run_patient_pipeline(
 
     Pipeline steps:
     1. For each tracker (optionally parallel):
-       - Extract patient data from Excel → raw parquet
-       - Clean raw data → cleaned parquet
+        - Extract patient data from Excel → raw parquet
+        - Clean raw data → cleaned parquet
     2. Create final tables from all cleaned parquets (if not skipped)
 
     Args:
@@ -142,6 +142,7 @@ def run_patient_pipeline(
         output_root: Output directory (None = use settings.output_root)
         skip_tables: If True, only extract + clean, skip table creation
         force: If True, reprocess even if outputs exist
+        clean_output: If True, wipe patient_data_raw/, patient_data_cleaned/, tables/ before run
         progress_callback: Optional callback(tracker_name, success) called after each tracker
         show_progress: If True, show tqdm progress bar
         console_log_level: Console log level (None=INFO, ERROR=quiet, etc)
@@ -175,10 +176,9 @@ def run_patient_pipeline(
     if output_root is None:
         output_root = settings.output_root
 
-    # Wipe previous run's intermediate outputs so tables only reflect this run.
-    # Does not delete logs (useful for debugging) or the tables dir itself.
+    # Wipe previous run's outputs so tables reflect only this run.
     if clean_output:
-        for subdir in ("patient_data_raw", "patient_data_cleaned", "tables"):
+        for subdir in ("patient_data_raw", "patient_data_cleaned", "tables", "logs"):
             target = output_root / subdir
             if target.exists():
                 shutil.rmtree(target)
@@ -215,11 +215,7 @@ def run_patient_pipeline(
         logger.info("Processing trackers sequentially")
 
         # Use tqdm if requested
-        iterator = (
-            tqdm(tracker_files, desc="Processing trackers", unit="file")
-            if show_progress
-            else tracker_files
-        )
+        iterator = tqdm(tracker_files, desc="Processing trackers", unit="file") if show_progress else tracker_files
 
         for tracker_file in iterator:
             if show_progress:
@@ -265,9 +261,7 @@ def run_patient_pipeline(
             # Collect results as they complete
             futures_iterator = as_completed(futures)
             if show_progress:
-                futures_iterator = tqdm(
-                    futures_iterator, total=len(futures), desc="Processing trackers", unit="file"
-                )
+                futures_iterator = tqdm(futures_iterator, total=len(futures), desc="Processing trackers", unit="file")
 
             for future in futures_iterator:
                 tracker_file = futures[future]
