@@ -77,11 +77,11 @@ run-force:
 
 # Create tables from existing cleaned parquet files
 create-tables INPUT:
-    uv run a4d create-tables --input {{INPUT}}
+    uv run a4d create-tables --input "{{INPUT}}"
 
 # Process a single tracker file
 run-file FILE:
-    uv run a4d process-patient --file {{FILE}}
+    uv run a4d process-patient --file "{{FILE}}"
 
 # Build Docker image
 docker-build:

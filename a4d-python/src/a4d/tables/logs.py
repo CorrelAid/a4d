@@ -135,7 +135,7 @@ def parse_log_file(log_file: Path) -> pl.DataFrame:
 
 
 def create_table_logs(logs_dir: Path, output_dir: Path) -> Path:
-    """Create logs table from all pipeline log files.
+    """Create logs table from pipeline log files.
 
     Reads all .log files from the logs directory, parses JSON lines,
     and creates a structured table for BigQuery upload.

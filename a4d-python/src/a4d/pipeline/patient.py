@@ -119,6 +119,7 @@ def run_patient_pipeline(
     output_root: Path | None = None,
     skip_tables: bool = False,
     force: bool = False,
+    clean_output: bool = False,
     progress_callback: Callable[[str, bool], None] | None = None,
     show_progress: bool = False,
     console_log_level: str | None = None,
@@ -168,9 +169,20 @@ def run_patient_pipeline(
         ...     console_log_level="ERROR"
         ... )
     """
+    import shutil
+
     # Use settings defaults if not provided
     if output_root is None:
         output_root = settings.output_root
+
+    # Wipe previous run's intermediate outputs so tables only reflect this run.
+    # Does not delete logs (useful for debugging) or the tables dir itself.
+    if clean_output:
+        for subdir in ("patient_data_raw", "patient_data_cleaned", "tables"):
+            target = output_root / subdir
+            if target.exists():
+                shutil.rmtree(target)
+                logger.info(f"Cleaned output directory: {target}")
 
     # Setup main pipeline logging
     setup_logging(
@@ -299,12 +311,11 @@ def run_patient_pipeline(
         try:
             cleaned_dir = output_root / "patient_data_cleaned"
             tables_dir = output_root / "tables"
+            logs_dir = output_root / "logs"
 
-            # Create patient tables
             tables = process_patient_tables(cleaned_dir, tables_dir)
 
             # Create logs table separately (operational data, not patient data)
-            logs_dir = output_root / "logs"
             if logs_dir.exists():
                 logger.info("Creating logs table from pipeline execution logs")
                 logs_table_path = create_table_logs(logs_dir, tables_dir)
