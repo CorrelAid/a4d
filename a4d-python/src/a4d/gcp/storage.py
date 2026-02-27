@@ -4,12 +4,15 @@ Replaces the R pipeline's `gsutil` CLI calls with the google-cloud-storage
 Python client library.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from google.cloud import storage
 from loguru import logger
 
 from a4d.config import settings
+
+_GCS_WORKERS = 16  # parallel connections; GCS supports many concurrent requests
 
 
 def get_storage_client(project_id: str | None = None) -> storage.Client:
@@ -29,6 +32,26 @@ def get_storage_client(project_id: str | None = None) -> storage.Client:
     return storage.Client(project=project_id or settings.project_id)
 
 
+def _download_blob(blob: storage.Blob, destination: Path) -> Path | None:
+    """Download a single blob, skipping if the local file is already current.
+
+    Uses blob.size (available from list_blobs metadata at no extra cost) to
+    detect unchanged files without reading the file content.
+
+    Returns the local path if downloaded, None if skipped.
+    """
+    local_path = destination / blob.name
+
+    if local_path.exists() and local_path.stat().st_size == blob.size:
+        logger.debug(f"Skipping (unchanged): {blob.name}")
+        return None
+
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.debug(f"Downloading: {blob.name}")
+    blob.download_to_filename(str(local_path))
+    return local_path
+
+
 def download_tracker_files(
     destination: Path,
     bucket_name: str | None = None,
@@ -36,8 +59,8 @@ def download_tracker_files(
 ) -> list[Path]:
     """Download tracker files from GCS bucket.
 
-    Replaces R pipeline's `download_data()` function which used `gsutil -m cp -r`.
-    Downloads all .xlsx files from the bucket, preserving directory structure.
+    Downloads in parallel and skips files whose local size already matches
+    the blob size (equivalent to gsutil -m cp -n).
 
     Args:
         destination: Local directory to download files to
@@ -45,7 +68,7 @@ def download_tracker_files(
         client: Storage client (created if not provided)
 
     Returns:
-        List of downloaded file paths
+        List of downloaded file paths (excludes skipped files)
     """
     bucket_name = bucket_name or settings.download_bucket
 
@@ -57,24 +80,33 @@ def download_tracker_files(
 
     logger.info(f"Downloading tracker files from gs://{bucket_name} to {destination}")
 
-    downloaded: list[Path] = []
-    blobs = list(bucket.list_blobs())
+    blobs = [b for b in bucket.list_blobs() if not b.name.endswith("/")]
     logger.info(f"Found {len(blobs)} objects in bucket")
 
-    for blob in blobs:
-        # Skip directory markers
-        if blob.name.endswith("/"):
-            continue
+    downloaded: list[Path] = []
 
-        local_path = destination / blob.name
-        local_path.parent.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=_GCS_WORKERS) as executor:
+        futures = {executor.submit(_download_blob, blob, destination): blob for blob in blobs}
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result is not None:
+                    downloaded.append(result)
+            except Exception:
+                blob = futures[future]
+                logger.error(f"Failed to download: {blob.name}")
 
-        logger.debug(f"Downloading: {blob.name}")
-        blob.download_to_filename(str(local_path))
-        downloaded.append(local_path)
-
-    logger.info(f"Downloaded {len(downloaded)} files")
+    skipped = len(blobs) - len(downloaded)
+    logger.info(f"Downloaded {len(downloaded)} files, skipped {skipped} unchanged")
     return downloaded
+
+
+def _upload_file(bucket: storage.Bucket, file_path: Path, blob_name: str) -> str:
+    """Upload a single file to GCS."""
+    logger.debug(f"Uploading: {blob_name}")
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(str(file_path))
+    return blob_name
 
 
 def upload_output(
@@ -83,10 +115,7 @@ def upload_output(
     prefix: str = "",
     client: storage.Client | None = None,
 ) -> list[str]:
-    """Upload output directory to GCS bucket.
-
-    Replaces R pipeline's `upload_data()` function which used `gsutil -m cp -r`.
-    Uploads all files from the source directory, preserving directory structure.
+    """Upload output directory to GCS bucket in parallel.
 
     Args:
         source_dir: Local directory to upload
@@ -112,18 +141,25 @@ def upload_output(
 
     logger.info(f"Uploading {source_dir} to gs://{bucket_name}/{prefix}")
 
-    uploaded: list[str] = []
     files = [f for f in source_dir.rglob("*") if f.is_file()]
 
-    for file_path in files:
-        relative_path = file_path.relative_to(source_dir)
-        blob_name = f"{prefix}/{relative_path}" if prefix else str(relative_path)
-        blob_name = blob_name.replace("\\", "/")  # Windows compatibility
+    def _blob_name(file_path: Path) -> str:
+        relative = file_path.relative_to(source_dir)
+        name = f"{prefix}/{relative}" if prefix else str(relative)
+        return name.replace("\\", "/")
 
-        logger.debug(f"Uploading: {blob_name}")
-        blob = bucket.blob(blob_name)
-        blob.upload_from_filename(str(file_path))
-        uploaded.append(blob_name)
+    uploaded: list[str] = []
+
+    with ThreadPoolExecutor(max_workers=_GCS_WORKERS) as executor:
+        futures = {
+            executor.submit(_upload_file, bucket, f, _blob_name(f)): f for f in files
+        }
+        for future in as_completed(futures):
+            try:
+                uploaded.append(future.result())
+            except Exception:
+                file_path = futures[future]
+                logger.error(f"Failed to upload: {file_path}")
 
     logger.info(f"Uploaded {len(uploaded)} files to gs://{bucket_name}")
     return uploaded

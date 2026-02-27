@@ -77,3 +77,6 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
 ]
+filterwarnings = [
+    "ignore::RuntimeWarning:google_crc32c",
+]
