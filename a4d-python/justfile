@@ -80,16 +80,31 @@ run-file FILE:
 create-tables INPUT:
     uv run a4d create-tables --input "{{INPUT}}"
 
-# Build Docker image
-docker-build:
-    docker build -t a4d-python:latest .
+IMAGE := "europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
 
-# Run Docker container locally
-docker-run:
-    docker run --rm \
-        --env-file .env \
-        -v $(pwd)/output:/app/output \
-        a4d-python:latest
+# Build Docker image (context must be repo root for reference_data/ access)
+docker-build:
+    docker build -f Dockerfile -t {{IMAGE}} ..
+
+# Push image to Artifact Registry
+docker-push: docker-build
+    docker push {{IMAGE}}
+
+# Update Cloud Run Job to use the latest image
+deploy: docker-push
+    gcloud run jobs update a4d-pipeline \
+        --image={{IMAGE}} \
+        --region=europe-west1
+
+# Execute the Cloud Run Job manually
+run-job:
+    gcloud run jobs execute a4d-pipeline --region=europe-west1
+
+# Stream logs from the latest Cloud Run Job execution
+logs-job:
+    gcloud run jobs executions logs tail \
+        $(gcloud run jobs executions list --job=a4d-pipeline --region=europe-west1 --limit=1 --format="value(name)") \
+        --region=europe-west1
 
 # Install pre-commit hooks
 hooks:

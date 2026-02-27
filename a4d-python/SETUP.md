@@ -119,8 +119,12 @@ gcloud storage buckets add-iam-policy-binding gs://a4dphase2_upload \
 ```bash
 gcloud storage buckets add-iam-policy-binding gs://a4dphase2_output \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
-    --role="roles/storage.objectAdmin"
+    --role="roles/storage.objectCreator"
 ```
+
+> `objectCreator` grants only `storage.objects.create` — sufficient for upload.
+> `objectAdmin` (broader) is not needed as the pipeline never reads, lists, or
+> manages IAM on the output bucket.
 
 **BigQuery — run jobs (project-level):**
 ```bash
@@ -136,6 +140,10 @@ bq add-iam-policy-binding \
     --role="roles/bigquery.dataEditor" \
     a4dphase2:tracker
 ```
+
+> `dataEditor` is scoped to the `tracker` dataset only, not the whole project.
+> It is the most granular predefined role that allows creating and overwriting
+> tables (WRITE_TRUNCATE load jobs require `tables.create` + `tables.updateData`).
 
 ### 3. Set up Artifact Registry
 
@@ -156,18 +164,20 @@ gcloud artifacts repositories add-iam-policy-binding a4d \
 
 ### 4. Build and push the Docker image
 
-Run from the **repo root** (the Dockerfile copies `reference_data/` which is outside `a4d-python/`):
+Authenticate Docker to Artifact Registry once:
 
 ```bash
 gcloud auth configure-docker europe-west1-docker.pkg.dev
-
-docker build \
-    -f a4d-python/Dockerfile \
-    -t europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
-    .
-
-docker push europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest
 ```
+
+Then build and push (run from `a4d-python/`):
+
+```bash
+just docker-push
+```
+
+This builds with the repo root as context (required — the Dockerfile copies
+`reference_data/` from outside `a4d-python/`) and pushes to Artifact Registry.
 
 ### 5. Create the Cloud Run Job
 
@@ -200,13 +210,14 @@ gcloud run jobs update a4d-pipeline --region=europe-west1 [--set-env-vars=...]
 ### 6. Execute
 
 ```bash
-# Run the job manually
-gcloud run jobs execute a4d-pipeline --region=europe-west1
+just run-job    # trigger the Cloud Run Job
+just logs-job   # stream logs from the latest execution
+```
 
-# Follow logs
-gcloud run jobs executions logs tail \
-    $(gcloud run jobs executions list --job=a4d-pipeline --region=europe-west1 --limit=1 --format="value(name)") \
-    --region=europe-west1
+After a code change, redeploy and run in one step:
+
+```bash
+just deploy && just run-job
 ```
 
 ### 7. Schedule (optional)

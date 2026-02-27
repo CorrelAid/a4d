@@ -1,7 +1,12 @@
 """Command-line interface for A4D pipeline."""
 
+import warnings
 from pathlib import Path
 from typing import Annotated
+
+# google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
+# fallback is correct, just slightly slower. Suppress the noisy runtime warning.
+warnings.filterwarnings("ignore", message="As the c extension couldn't be imported", category=RuntimeWarning)
 
 import polars as pl
 import typer
