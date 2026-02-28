@@ -80,7 +80,32 @@ run-file FILE:
 create-tables INPUT:
     uv run a4d create-tables --input "{{INPUT}}"
 
-IMAGE := "europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
+PROJECT := "a4dphase2"
+DATASET := "tracker"
+IMAGE   := "europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
+
+# Snapshot all pipeline tables in BigQuery (7-day expiry, safe to run before upload)
+# Creates dated snapshots e.g. patient_data_static_20260227. Tables that do not
+# exist yet are skipped gracefully.
+backup-bq:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DATE=$(date +%Y%m%d)
+    EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
+    TABLES="patient_data_static patient_data_monthly patient_data_annual"
+    for TABLE in $TABLES; do
+        if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
+            SNAP="${TABLE}_${DATE}"
+            echo "Snapshotting ${TABLE} -> ${SNAP}..."
+            bq query --use_legacy_sql=false --project_id={{PROJECT}} \
+                "CREATE SNAPSHOT TABLE \`{{PROJECT}}.{{DATASET}}.${SNAP}\`
+                 CLONE \`{{PROJECT}}.{{DATASET}}.${TABLE}\`
+                 OPTIONS(expiration_timestamp = ${EXPIRY})"
+        else
+            echo "Skipping ${TABLE} (does not exist yet)"
+        fi
+    done
+    echo "Done. Snapshots expire in 7 days."
 
 # Build Docker image (context must be repo root for reference_data/ access)
 docker-build:
@@ -100,11 +125,11 @@ deploy: docker-push
 run-job:
     gcloud run jobs execute a4d-pipeline --region=europe-west1
 
-# Stream logs from the latest Cloud Run Job execution
+# Stream logs from the Cloud Run Job (Ctrl-C to stop)
 logs-job:
-    gcloud run jobs executions logs tail \
-        $(gcloud run jobs executions list --job=a4d-pipeline --region=europe-west1 --limit=1 --format="value(name)") \
-        --region=europe-west1
+    gcloud beta logging tail 'resource.type="cloud_run_job" AND resource.labels.job_name="a4d-pipeline"' \
+        --project={{PROJECT}} \
+        --format="value(textPayload)"
 
 # Install pre-commit hooks
 hooks:
