@@ -9,10 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv from the official image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Use the system Python from the base image; do not let uv download its own
+ENV UV_PYTHON_DOWNLOADS=never
+
 WORKDIR /app
 
 # Copy dependency files first to leverage Docker layer caching
-COPY a4d-python/pyproject.toml a4d-python/uv.lock ./
+COPY a4d-python/pyproject.toml a4d-python/uv.lock a4d-python/README.md ./
 
 # Install production dependencies only
 RUN uv sync --frozen --no-dev
