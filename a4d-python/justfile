@@ -129,6 +129,12 @@ docker-push: docker-build
     docker push {{IMAGE_SHA}}
     @echo "Pushed: {{IMAGE}} and {{IMAGE_SHA}}"
 
+# List images in Artifact Registry with tags and digests
+docker-list:
+    gcloud artifacts docker images list {{REGISTRY}} \
+        --include-tags \
+        --project={{PROJECT}}
+
 # Update Cloud Run Job to use the latest image
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
