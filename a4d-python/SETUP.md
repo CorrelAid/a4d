@@ -197,6 +197,15 @@ just docker-push
 This builds with the repo root as context (required — the Dockerfile copies
 `reference_data/` from outside `a4d-python/`) and pushes to Artifact Registry.
 
+To verify the image was pushed and see what's already in the registry:
+
+```bash
+gcloud artifacts docker images list \
+    asia-southeast2-docker.pkg.dev/a4dphase2/a4d \
+    --include-tags \
+    --project=a4dphase2
+```
+
 ### 5. Create the Cloud Run Job
 
 ```bash
