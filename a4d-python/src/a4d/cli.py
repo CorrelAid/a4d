@@ -1,6 +1,7 @@
 """Command-line interface for A4D pipeline."""
 
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -565,8 +566,10 @@ def run_pipeline_cmd(
     from a4d.config import settings
     from a4d.gcp.bigquery import load_pipeline_tables
     from a4d.gcp.storage import download_tracker_files, upload_output
+    from a4d.tables.clinic import create_table_clinic_static
 
     _workers = workers if workers is not None else settings.max_workers
+    run_ts = datetime.now().strftime("%Y/%m/%d/%H%M%S")
 
     console.print("\n[bold blue]A4D Full Pipeline[/bold blue]\n")
     console.print(f"Data root:   {settings.data_root}")
@@ -621,13 +624,30 @@ def run_pipeline_cmd(
         raise typer.Exit(1) from e
 
     tables_dir = settings.output_root / "tables"
+    logs_dir = settings.output_root / "logs"
 
-    # Step 4 – Upload output to GCS
+    # Clinic static table — independent of tracker processing, always created
+    console.print("[bold]Step 3b/5:[/bold] Creating clinic static table...")
+    try:
+        create_table_clinic_static(tables_dir)
+        console.print("  ✓ Clinic static table created\n")
+    except Exception as e:
+        console.print(f"  [bold red]Error creating clinic static table: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+    # Step 4 – Upload tables/ and logs/ to GCS under a timestamped prefix
+    # Each run gets an isolated path: YYYY/MM/DD/HHMMSS/tables/ and .../logs/
+    # This avoids overwriting previous runs and keeps objectCreator permission sufficient.
     if not skip_upload:
         console.print("[bold]Step 4/5:[/bold] Uploading output files to GCS...")
+        console.print(f"  Prefix: {run_ts}/\n")
         try:
-            uploaded = upload_output(source_dir=settings.output_root)
-            console.print(f"  ✓ Uploaded {len(uploaded)} files\n")
+            uploaded: list[str] = []
+            if tables_dir.exists():
+                uploaded += upload_output(source_dir=tables_dir, prefix=f"{run_ts}/tables")
+            if logs_dir.exists():
+                uploaded += upload_output(source_dir=logs_dir, prefix=f"{run_ts}/logs")
+            console.print(f"  ✓ Uploaded {len(uploaded)} files to gs://{settings.upload_bucket}/{run_ts}/\n")
         except Exception as e:
             console.print(f"\n[bold red]Error during GCS upload: {e}[/bold red]\n")
             raise typer.Exit(1) from e
