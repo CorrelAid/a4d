@@ -4,6 +4,7 @@ This module provides common utilities for loading YAML and other reference
 data files shared between the R and Python pipelines.
 """
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +13,11 @@ from loguru import logger
 
 
 def find_reference_data_dir() -> Path:
-    """Find reference_data directory relative to the a4d package.
+    """Find reference_data directory.
 
-    The reference_data directory is at the repository root, shared between
-    R and Python pipelines. From src/a4d/utils/reference_data.py we navigate
-    up to the repo root.
+    Checks A4D_REFERENCE_DATA env var first (used in Docker/Cloud Run where
+    the directory is at /app/reference_data). Falls back to walking up from
+    this file to find the repo root for local development.
 
     Returns:
         Path to reference_data directory
@@ -24,8 +25,15 @@ def find_reference_data_dir() -> Path:
     Raises:
         FileNotFoundError: If reference_data directory not found
     """
-    # Navigate from src/a4d/utils/reference_data.py to repo root
-    # reference_data.py -> utils -> a4d -> src -> a4d-python -> repo root
+    # Explicit override for Docker/Cloud Run (set A4D_REFERENCE_DATA=/app/reference_data)
+    if env_path := os.environ.get("A4D_REFERENCE_DATA"):
+        path = Path(env_path)
+        if path.exists():
+            return path
+        raise FileNotFoundError(f"reference_data directory not found at {path}")
+
+    # Local dev: navigate from src/a4d/reference/loaders.py up to repo root
+    # loaders.py -> reference -> a4d -> src -> a4d-python -> repo root
     repo_root = Path(__file__).parents[4]
     reference_data_dir = repo_root / "reference_data"
 
