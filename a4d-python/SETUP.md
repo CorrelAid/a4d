@@ -220,8 +220,8 @@ A4D_DOWNLOAD_BUCKET=a4dphase2_upload,\
 A4D_UPLOAD_BUCKET=a4dphase2_output,\
 A4D_DATA_ROOT=/tmp/data,\
 A4D_OUTPUT_DIR=output" \
-    --memory=4Gi \
-    --cpu=2 \
+    --memory=8Gi \
+    --cpu=8 \
     --task-timeout=3600 \
     --project=a4dphase2
 ```
@@ -233,6 +233,12 @@ To update the job after a config change:
 
 ```bash
 gcloud run jobs update a4d-pipeline --region=asia-southeast2 [--set-env-vars=...]
+```
+
+To list all existing jobs:
+
+```bash
+gcloud run jobs list --region=asia-southeast2 --project=a4dphase2
 ```
 
 ### 5a. Test the image locally before deploying
