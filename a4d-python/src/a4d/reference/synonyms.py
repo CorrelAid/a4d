@@ -117,7 +117,7 @@ class ColumnMapper:
                 sanitized_key = sanitize_str(synonym)
 
                 if sanitized_key in lookup:
-                    logger.warning(
+                    logger.bind(error_code="invalid_tracker").warning(
                         f"Duplicate sanitized synonym '{sanitized_key}' "
                         f"(from '{synonym}') found for both "
                         f"'{lookup[sanitized_key]}' and '{standard_name}'. "
@@ -209,7 +209,7 @@ class ColumnMapper:
                     "These columns do not appear in the synonym file."
                 )
             else:
-                logger.warning(
+                logger.bind(error_code="missing_column").warning(
                     f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
                 )
 
@@ -221,7 +221,7 @@ class ColumnMapper:
 
         if any(count > 1 for count in target_counts.values()):
             duplicates = {t: c for t, c in target_counts.items() if c > 1}
-            logger.warning(
+            logger.bind(error_code="invalid_tracker").warning(
                 f"Multiple source columns map to same target name: {duplicates}. "
                 "Keeping first occurrence only. "
                 "This is an edge case from discontinued 2023 format."

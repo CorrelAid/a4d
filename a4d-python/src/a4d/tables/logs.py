@@ -60,11 +60,12 @@ def parse_log_file(log_file: Path) -> pl.DataFrame:
                     line = record_data.get("line", 0)
                     module = record_data.get("module", "")
 
-                    # Extract context fields (file_name, tracker_year, tracker_month)
+                    # Extract context fields (file_name, tracker_year, tracker_month, error_code)
                     extra = record_data.get("extra", {})
                     file_name = extra.get("file_name")
                     tracker_year = extra.get("tracker_year")
                     tracker_month = extra.get("tracker_month")
+                    error_code = extra.get("error_code")
 
                     # Extract process info (useful for debugging parallel processing)
                     process_data = record_data.get("process", {})
@@ -86,6 +87,7 @@ def parse_log_file(log_file: Path) -> pl.DataFrame:
                             "timestamp": timestamp,
                             "level": level,
                             "message": message,
+                            "error_code": error_code,
                             "log_file": log_file.name,
                             "file_name": file_name,
                             "tracker_year": tracker_year,
@@ -169,6 +171,7 @@ def create_table_logs(logs_dir: Path, output_dir: Path) -> Path:
                 "timestamp": pl.Datetime,
                 "level": pl.Categorical,
                 "message": pl.Utf8,
+                "error_code": pl.Utf8,
                 "log_file": pl.Categorical,
                 "file_name": pl.Utf8,
                 "tracker_year": pl.Int32,

@@ -510,7 +510,7 @@ def extract_patient_data(
     if not valid_cols:
         if close_wb:
             workbook.close()
-        logger.warning(f"No valid headers found in sheet '{sheet_name}'")
+        logger.bind(error_code="invalid_tracker").warning(f"No valid headers found in sheet '{sheet_name}'")
         return pl.DataFrame()
 
     data = read_patient_rows(ws, data_start_row, len(headers))
@@ -689,13 +689,13 @@ def read_all_patient_sheets(
         df_sheet = extract_patient_data(tracker_file, sheet_name, year, mapper=mapper, workbook=wb)
 
         if df_sheet.is_empty():
-            logger.warning(f"Sheet '{sheet_name}' has no data, skipping")
+            logger.bind(error_code="invalid_tracker").warning(f"Sheet '{sheet_name}' has no data, skipping")
             continue
 
         df_sheet = harmonize_patient_data_columns(df_sheet, mapper=mapper, strict=False)
 
         if "patient_id" not in df_sheet.columns:
-            logger.warning(
+            logger.bind(error_code="invalid_tracker").warning(
                 f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
             )
             continue
@@ -703,7 +703,7 @@ def read_all_patient_sheets(
         try:
             month_num = extract_tracker_month(sheet_name)
         except ValueError as e:
-            logger.warning(f"Could not extract month from '{sheet_name}': {e}, skipping")
+            logger.bind(error_code="invalid_tracker").warning(f"Could not extract month from '{sheet_name}': {e}, skipping")
             continue
 
         # Derived metadata (year, month) use Int64; text metadata (sheet_name, etc.) use String
@@ -735,7 +735,7 @@ def read_all_patient_sheets(
     missing_count = len(missing_patient_id_rows)
 
     if missing_count > 0:
-        logger.error(
+        logger.bind(error_code="invalid_value").error(
             f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
             f"these rows will be excluded from processing"
         )
@@ -837,13 +837,13 @@ def read_all_patient_sheets(
                     )
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
-                    logger.warning(
+                    logger.bind(error_code="invalid_tracker").warning(
                         "Patient List sheet has no 'patient_id' column after harmonization"
                     )
             else:
-                logger.warning("Patient List sheet is empty")
+                logger.bind(error_code="invalid_tracker").warning("Patient List sheet is empty")
         except Exception as e:
-            logger.warning(f"Could not process Patient List sheet: {e}")
+            logger.bind(error_code="invalid_tracker").warning(f"Could not process Patient List sheet: {e}")
 
     # Process Annual sheet if it exists (R: lines 132-160)
     if "Annual" in all_sheets:
@@ -884,11 +884,11 @@ def read_all_patient_sheets(
                     )
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:
-                    logger.warning("Annual sheet has no 'patient_id' column after harmonization")
+                    logger.bind(error_code="invalid_tracker").warning("Annual sheet has no 'patient_id' column after harmonization")
             else:
-                logger.warning("Annual sheet is empty")
+                logger.bind(error_code="invalid_tracker").warning("Annual sheet is empty")
         except Exception as e:
-            logger.warning(f"Could not process Annual sheet: {e}")
+            logger.bind(error_code="invalid_tracker").warning(f"Could not process Annual sheet: {e}")
 
     # Close workbook after all processing
     wb.close()
