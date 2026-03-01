@@ -1,9 +1,7 @@
 """Main patient pipeline orchestration."""
 
-import os
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from loguru import logger
@@ -19,24 +17,6 @@ from a4d.tables.patient import (
     create_table_patient_data_monthly,
     create_table_patient_data_static,
 )
-
-
-def _init_worker_logging(output_root: Path):
-    """Initialize logging for worker processes.
-
-    This is called once when each worker process starts in ProcessPoolExecutor.
-    Sets up quiet logging (only file output, no console spam).
-
-    Args:
-        output_root: Output directory for logs
-    """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pid = os.getpid()
-    setup_logging(
-        output_root=output_root,
-        log_name=f"worker_{timestamp}_pid{pid}",
-        console_level="ERROR",  # Quiet console
-    )
 
 
 def discover_tracker_files(data_root: Path) -> list[Path]:
@@ -246,11 +226,10 @@ def run_patient_pipeline(
                     tqdm.write(f"✗ {tracker_file.name}: {result.error}")
 
     else:
-        # Parallel processing
+        # Parallel processing with threads (Polars releases the GIL so threads get real parallelism;
+        # avoids fork() overhead which is very slow in Cloud Run's gVisor sandbox)
         logger.info(f"Processing trackers in parallel ({max_workers} workers)")
-        with ProcessPoolExecutor(
-            max_workers=max_workers, initializer=_init_worker_logging, initargs=(output_root,)
-        ) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all jobs
             futures = {
                 executor.submit(
