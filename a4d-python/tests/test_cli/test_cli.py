@@ -1,10 +1,8 @@
 """Tests for the A4D CLI commands."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
-import pytest
 from typer.testing import CliRunner
 
 from a4d.cli import app
