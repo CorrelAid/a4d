@@ -235,6 +235,51 @@ To update the job after a config change:
 gcloud run jobs update a4d-pipeline --region=asia-southeast2 [--set-env-vars=...]
 ```
 
+### 5a. Test the image locally before deploying
+
+Always verify a newly built image works before creating or updating the Cloud Run Job.
+
+**Level 1 — smoke test** (image starts, CLI is reachable):
+
+```bash
+just docker-smoke
+# or:
+docker run --rm asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
+    uv run a4d --help
+```
+
+**Level 2 — local pipeline run** (no GCS, process a local file):
+
+Mount a directory containing tracker files and run `process-patient`. Output lands in
+`/data/output` inside the container, which is the same mount so you can inspect it
+afterward.
+
+```bash
+docker run --rm \
+    -v /path/to/trackers:/data \
+    -e A4D_DATA_ROOT=/data \
+    asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
+    uv run a4d process-patient --file /data/your_tracker.xlsx
+```
+
+**Level 3 — full pipeline with GCP** (real GCS + BigQuery, no download):
+
+Mount your local Application Default Credentials so the container can authenticate.
+Use `--skip-download` to process files already on disk instead of fetching from GCS.
+
+```bash
+docker run --rm \
+    -v /path/to/trackers:/data \
+    -v "$HOME/.config/gcloud:/root/.config/gcloud:ro" \
+    -e A4D_DATA_ROOT=/data \
+    -e GOOGLE_CLOUD_PROJECT=a4dphase2 \
+    asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
+    uv run a4d run-pipeline --skip-download
+```
+
+This exercises the full upload path (GCS + BigQuery) without touching the live tracker
+source bucket.
+
 ### 6. Execute
 
 ```bash

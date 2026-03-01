@@ -111,6 +111,10 @@ backup-bq:
 docker-build:
     docker build -f Dockerfile -t {{IMAGE}} ..
 
+# Smoke test: verify the image starts and the CLI is reachable
+docker-smoke:
+    docker run --rm {{IMAGE}} uv run a4d --help
+
 # Push image to Artifact Registry
 docker-push: docker-build
     docker push {{IMAGE}}
