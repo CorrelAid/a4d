@@ -165,10 +165,13 @@ def run_patient_pipeline(
                 logger.info(f"Cleaned output directory: {target}")
 
     # Setup main pipeline logging
+    # When using parallel workers (threads), filter console to main thread only so that
+    # worker thread logs don't flood the console or break the tqdm progress bar.
     setup_logging(
         output_root,
         "pipeline_patient",
         console_level=console_log_level if console_log_level else "INFO",
+        console_main_thread_only=max_workers > 1,
     )
     logger.info("Starting patient pipeline")
     logger.info(f"Output directory: {output_root}")
