@@ -3,7 +3,7 @@
 import polars as pl
 
 
-def get_patient_data_schema() -> dict[str, pl.DataType]:
+def get_patient_data_schema() -> dict[str, type[pl.DataType] | pl.DataType]:
     """Get the complete meta schema for patient data.
 
     This schema EXACTLY matches the R pipeline's schema in script2_process_patient_data.R.
