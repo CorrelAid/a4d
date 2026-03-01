@@ -82,7 +82,7 @@ create-tables INPUT:
 
 PROJECT := "a4dphase2"
 DATASET := "tracker"
-IMAGE   := "europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
+IMAGE   := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
 
 # Snapshot all pipeline tables in BigQuery (7-day expiry, safe to run before upload)
 # Creates dated snapshots e.g. patient_data_static_20260227. Tables that do not
@@ -119,11 +119,11 @@ docker-push: docker-build
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
         --image={{IMAGE}} \
-        --region=europe-west1
+        --region=asia-southeast2
 
 # Execute the Cloud Run Job manually
 run-job:
-    gcloud run jobs execute a4d-pipeline --region=europe-west1
+    gcloud run jobs execute a4d-pipeline --region=asia-southeast2
 
 # Stream logs from the Cloud Run Job (Ctrl-C to stop)
 logs-job:
