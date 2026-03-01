@@ -135,6 +135,25 @@ docker-push: docker-build
     docker push {{IMAGE_SHA}}
     @echo "Pushed: {{IMAGE}} and {{IMAGE_SHA}}"
 
+# Delete all images from Artifact Registry except :latest
+docker-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LATEST=$(gcloud artifacts docker images describe {{IMAGE}} \
+        --project={{PROJECT}} --format="value(image_summary.digest)")
+    echo "Keeping: {{IMAGE}} ($LATEST)"
+    gcloud artifacts docker images list {{REGISTRY}} \
+        --include-tags --project={{PROJECT}} \
+        --format="value(digest)" \
+    | while read -r digest; do
+        if [ "$digest" != "$LATEST" ]; then
+            echo "Deleting $digest..."
+            gcloud artifacts docker images delete "{{REGISTRY}}@$digest" \
+                --project={{PROJECT}} --quiet --delete-tags 2>/dev/null || true
+        fi
+    done
+    echo "Done."
+
 # List images in Artifact Registry with tags and digests
 docker-list:
     gcloud artifacts docker images list {{REGISTRY}} \
