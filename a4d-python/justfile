@@ -4,48 +4,29 @@
 default:
     @just --list
 
+PROJECT  := "a4dphase2"
+DATASET  := "tracker"
+REGISTRY := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline"
+GIT_SHA  := `git rev-parse --short HEAD`
+IMAGE    := REGISTRY + ":latest"
+IMAGE_SHA := REGISTRY + ":" + GIT_SHA
+
+# ── Environment ───────────────────────────────────────────────────────────────
+
 # Install dependencies and sync environment
 sync:
     uv sync --all-extras
 
-# Run unit tests (skip slow/integration)
-test:
-    uv run pytest -m "not slow"
+# Update dependencies
+update:
+    uv lock --upgrade
 
-# Run all tests including slow/integration
-test-all:
-    uv run pytest
-
-# Run integration tests only
-test-integration:
-    uv run pytest -m integration
-
-# Run tests without coverage (faster, fail fast)
-test-fast:
-    uv run pytest -m "not slow" --no-cov -x
-
-# Run type checking with ty
-check:
-    uv run ty check src/
-
-# Run ruff linting
-lint:
-    uv run ruff check .
-
-# Format code with ruff
-format:
-    uv run ruff format .
-
-# Auto-fix linting issues
-fix:
-    uv run ruff check --fix .
-
-# Check code formatting without modifying files
-format-check:
-    uv run ruff format --check .
-
-# Run all CI checks (format, lint, type, test)
-ci: format-check lint check test
+# Show project info
+info:
+    @echo "Python version:"
+    @uv run python --version
+    @echo "\nInstalled packages:"
+    @uv pip list
 
 # Clean cache and build artifacts
 clean:
@@ -59,60 +40,85 @@ clean:
     find . -type d -name __pycache__ -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 
-# Full pipeline: download from GCS, process, upload to GCS + BigQuery
-run *ARGS:
-    uv run a4d run-pipeline {{ARGS}}
+# ── Code Quality ──────────────────────────────────────────────────────────────
 
-# Download from GCS, process locally, no upload
-run-download *ARGS:
-    uv run a4d run-pipeline --skip-upload {{ARGS}}
+# Format code with ruff
+format:
+    uv run ruff format .
+
+# Check code formatting without modifying files
+format-check:
+    uv run ruff format --check .
+
+# Auto-fix linting issues
+fix:
+    uv run ruff check --fix .
+
+# Run ruff linting
+lint:
+    uv run ruff check .
+
+# Run type checking with ty
+check:
+    uv run ty check src/
+
+# Run all CI checks (format, lint, type, test)
+ci: format-check lint check test
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+
+# Run unit tests (skip slow/integration)
+test:
+    uv run pytest -m "not slow"
+
+# Run tests without coverage (faster, fail fast)
+test-fast:
+    uv run pytest -m "not slow" --no-cov -x
+
+# Run all tests including slow/integration
+test-all:
+    uv run pytest
+
+# Run integration tests only
+test-integration:
+    uv run pytest -m integration
+
+# Install pre-commit hooks
+hooks:
+    uv run pre-commit install
+
+# Run pre-commit on all files
+hooks-run:
+    uv run pre-commit run --all-files
+
+# ── Local Pipeline ────────────────────────────────────────────────────────────
+
+# Process a single tracker file (no GCS)
+run-file FILE:
+    uv run a4d process-patient --file "{{FILE}}"
 
 # Process local files only, no GCS (use files already in data_root)
 # Optionally pass a path: just run-local --data-root /path/to/trackers
 run-local *ARGS:
     uv run a4d process-patient {{ARGS}}
 
-# Process a single tracker file
-run-file FILE:
-    uv run a4d process-patient --file "{{FILE}}"
-
 # Create tables from existing cleaned parquet files
 create-tables INPUT:
     uv run a4d create-tables --input "{{INPUT}}"
 
-PROJECT  := "a4dphase2"
-DATASET  := "tracker"
-REGISTRY := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline"
-GIT_SHA  := `git rev-parse --short HEAD`
-IMAGE    := REGISTRY + ":latest"
-IMAGE_SHA := REGISTRY + ":" + GIT_SHA
+# Download from GCS, process locally, no upload
+run-download *ARGS:
+    uv run a4d run-pipeline --skip-upload {{ARGS}}
 
-# Snapshot all pipeline tables in BigQuery (7-day expiry, safe to run before upload)
-# Creates dated snapshots e.g. patient_data_static_20260227. Tables that do not
-# exist yet are skipped gracefully.
-backup-bq:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    DATE=$(date +%Y%m%d)
-    EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
-    TABLES="patient_data_static patient_data_monthly patient_data_annual"
-    for TABLE in $TABLES; do
-        if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
-            SNAP="${TABLE}_${DATE}"
-            echo "Snapshotting ${TABLE} -> ${SNAP}..."
-            bq query --use_legacy_sql=false --project_id={{PROJECT}} \
-                "CREATE SNAPSHOT TABLE \`{{PROJECT}}.{{DATASET}}.${SNAP}\`
-                 CLONE \`{{PROJECT}}.{{DATASET}}.${TABLE}\`
-                 OPTIONS(expiration_timestamp = ${EXPIRY})"
-        else
-            echo "Skipping ${TABLE} (does not exist yet)"
-        fi
-    done
-    echo "Done. Snapshots expire in 7 days."
+# Full pipeline: download from GCS, process, upload to GCS + BigQuery
+run *ARGS:
+    uv run a4d run-pipeline {{ARGS}}
 
-# Build Docker image (context must be repo root for reference_data/ access)
+# ── Docker ────────────────────────────────────────────────────────────────────
+
 # --provenance=false: suppress BuildKit attestation manifests so the registry
 # shows one image entry instead of three (image + attestation + index)
+# Build Docker image tagged as :latest and :<git-sha>
 docker-build:
     docker build --provenance=false \
         -t {{IMAGE}} \
@@ -135,21 +141,37 @@ docker-list:
         --include-tags \
         --project={{PROJECT}}
 
-# Update Cloud Run Job to use the latest image
+# ── GCP / Cloud Run ───────────────────────────────────────────────────────────
+
+# Creates dated snapshots e.g. patient_data_static_20260227 with 7-day expiry.
+# Snapshot all BigQuery pipeline tables (safe to run before deploy)
+backup-bq:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DATE=$(date +%Y%m%d)
+    EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
+    TABLES="patient_data_static patient_data_monthly patient_data_annual"
+    for TABLE in $TABLES; do
+        if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
+            SNAP="${TABLE}_${DATE}"
+            echo "Snapshotting ${TABLE} -> ${SNAP}..."
+            bq query --use_legacy_sql=false --project_id={{PROJECT}} \
+                "CREATE SNAPSHOT TABLE \`{{PROJECT}}.{{DATASET}}.${SNAP}\`
+                 CLONE \`{{PROJECT}}.{{DATASET}}.${TABLE}\`
+                 OPTIONS(expiration_timestamp = ${EXPIRY})"
+        else
+            echo "Skipping ${TABLE} (does not exist yet)"
+        fi
+    done
+    echo "Done. Snapshots expire in 7 days."
+
+# Build, push and update the Cloud Run Job to use the latest image
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
         --image={{IMAGE}} \
         --region=asia-southeast2
 
-# Roll back Cloud Run Job to a specific git SHA
-# Usage: just rollback abc1234
-rollback SHA:
-    gcloud run jobs update a4d-pipeline \
-        --image={{REGISTRY}}:{{SHA}} \
-        --region=asia-southeast2
-    @echo "Rolled back to {{REGISTRY}}:{{SHA}}"
-
-# Execute the Cloud Run Job manually
+# Execute the Cloud Run Job
 run-job:
     gcloud run jobs execute a4d-pipeline --region=asia-southeast2
 
@@ -159,21 +181,10 @@ logs-job:
         --project={{PROJECT}} \
         --format="value(textPayload)"
 
-# Install pre-commit hooks
-hooks:
-    uv run pre-commit install
-
-# Run pre-commit on all files
-hooks-run:
-    uv run pre-commit run --all-files
-
-# Update dependencies
-update:
-    uv lock --upgrade
-
-# Show project info
-info:
-    @echo "Python version:"
-    @uv run python --version
-    @echo "\nInstalled packages:"
-    @uv pip list
+# Roll back Cloud Run Job to a specific git SHA
+# Usage: just rollback abc1234
+rollback SHA:
+    gcloud run jobs update a4d-pipeline \
+        --image={{REGISTRY}}:{{SHA}} \
+        --region=asia-southeast2
+    @echo "Rolled back to {{REGISTRY}}:{{SHA}}"
