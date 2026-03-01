@@ -157,7 +157,7 @@ def upload_output(
                 uploaded.append(future.result())
             except Exception:
                 file_path = futures[future]
-                logger.error(f"Failed to upload: {file_path}")
+                logger.exception(f"Failed to upload: {file_path}")
 
     logger.info(f"Uploaded {len(uploaded)} files to gs://{bucket_name}")
     return uploaded
