@@ -82,6 +82,11 @@ The pipeline runs as a **Cloud Run Job** — a one-shot container that downloads
 tracker files from GCS, processes them, and loads the results into BigQuery.
 A service account is used instead of personal credentials.
 
+> **Data residency**: All GCP resources (Artifact Registry, Cloud Run Job,
+> Cloud Scheduler, BigQuery dataset, GCS buckets) must be located in
+> **`asia-southeast2` (Jakarta)**. Patient data must not be processed or stored
+> in the EU.
+
 > **Steps 1–4 are one-time infrastructure setup.** Once the service account,
 > IAM roles, and Artifact Registry repository exist, you only need to rebuild
 > and redeploy (steps 4–5) when the code changes.
@@ -108,7 +113,12 @@ gcloud iam service-accounts create a4d-pipeline \
 
 The service account needs access to two GCS buckets and the BigQuery dataset.
 
+> Both GCS buckets (`a4dphase2_upload`, `a4dphase2_output`) must be located in
+> `asia-southeast2`. Bucket location is set at creation time and cannot be
+> changed.
+
 **GCS — read tracker files:**
+
 ```bash
 gcloud storage buckets add-iam-policy-binding gs://a4dphase2_upload \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
@@ -116,6 +126,7 @@ gcloud storage buckets add-iam-policy-binding gs://a4dphase2_upload \
 ```
 
 **GCS — write pipeline output:**
+
 ```bash
 gcloud storage buckets add-iam-policy-binding gs://a4dphase2_output \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
@@ -126,7 +137,13 @@ gcloud storage buckets add-iam-policy-binding gs://a4dphase2_output \
 > `objectAdmin` (broader) is not needed as the pipeline never reads, lists, or
 > manages IAM on the output bucket.
 
+> The BigQuery dataset `tracker` must be created in `asia-southeast2`. Dataset
+> location is set at creation time and cannot be changed. If the dataset already
+> exists in another region, it must be deleted and recreated (data loss — export
+> first).
+
 **BigQuery — run jobs (project-level):**
+
 ```bash
 gcloud projects add-iam-policy-binding a4dphase2 \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
@@ -134,6 +151,7 @@ gcloud projects add-iam-policy-binding a4dphase2 \
 ```
 
 **BigQuery — read/write tables in the `tracker` dataset:**
+
 ```bash
 bq add-iam-policy-binding \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
@@ -151,12 +169,12 @@ bq add-iam-policy-binding \
 # Create the repository (once)
 gcloud artifacts repositories create a4d \
     --repository-format=docker \
-    --location=europe-west1 \
+    --location=asia-southeast2 \
     --project=a4dphase2
 
 # Allow the service account to pull images
 gcloud artifacts repositories add-iam-policy-binding a4d \
-    --location=europe-west1 \
+    --location=asia-southeast2 \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
     --role="roles/artifactregistry.reader" \
     --project=a4dphase2
@@ -167,7 +185,7 @@ gcloud artifacts repositories add-iam-policy-binding a4d \
 Authenticate Docker to Artifact Registry once:
 
 ```bash
-gcloud auth configure-docker europe-west1-docker.pkg.dev
+gcloud auth configure-docker asia-southeast2-docker.pkg.dev
 ```
 
 Then build and push (run from `a4d-python/`):
@@ -183,8 +201,8 @@ This builds with the repo root as context (required — the Dockerfile copies
 
 ```bash
 gcloud run jobs create a4d-pipeline \
-    --image=europe-west1-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
-    --region=europe-west1 \
+    --image=asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
+    --region=asia-southeast2 \
     --service-account=a4d-pipeline@a4dphase2.iam.gserviceaccount.com \
     --set-env-vars="\
 A4D_PROJECT_ID=a4dphase2,\
@@ -203,8 +221,9 @@ A4D_OUTPUT_DIR=output" \
 tracker files there, processes them, uploads the output, then exits. Nothing persists.
 
 To update the job after a config change:
+
 ```bash
-gcloud run jobs update a4d-pipeline --region=europe-west1 [--set-env-vars=...]
+gcloud run jobs update a4d-pipeline --region=asia-southeast2 [--set-env-vars=...]
 ```
 
 ### 6. Execute
@@ -227,13 +246,14 @@ To run the pipeline on a schedule, create a Cloud Scheduler job that triggers it
 ```bash
 gcloud scheduler jobs create http a4d-pipeline-weekly \
     --schedule="0 6 * * 1" \
-    --uri="https://europe-west1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/a4dphase2/jobs/a4d-pipeline:run" \
+    --uri="https://asia-southeast2-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/a4dphase2/jobs/a4d-pipeline:run" \
     --http-method=POST \
     --oauth-service-account-email=a4d-pipeline@a4dphase2.iam.gserviceaccount.com \
-    --location=europe-west1
+    --location=asia-southeast2
 ```
 
 The service account also needs permission to trigger Cloud Run Jobs for this:
+
 ```bash
 gcloud projects add-iam-policy-binding a4dphase2 \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
