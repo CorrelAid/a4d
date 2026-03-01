@@ -151,9 +151,7 @@ def upload_output(
     uploaded: list[str] = []
 
     with ThreadPoolExecutor(max_workers=_GCS_WORKERS) as executor:
-        futures = {
-            executor.submit(_upload_file, bucket, f, _blob_name(f)): f for f in files
-        }
+        futures = {executor.submit(_upload_file, bucket, f, _blob_name(f)): f for f in files}
         for future in as_completed(futures):
             try:
                 uploaded.append(future.result())

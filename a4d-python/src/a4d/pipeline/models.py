@@ -55,7 +55,7 @@ class PipelineResult:
     @classmethod
     def from_tracker_results(
         cls, tracker_results: list[TrackerResult], tables: dict[str, Path] | None = None
-    ) -> "PipelineResult":
+    ) -> PipelineResult:
         """Create PipelineResult from tracker results.
 
         Args:
