@@ -8,6 +8,7 @@ clustering configuration matching the R pipeline.
 from pathlib import Path
 
 from google.cloud import bigquery
+from google.api_core.exceptions import NotFound
 from loguru import logger
 
 from a4d.config import settings
@@ -25,7 +26,7 @@ TABLE_CONFIGS: dict[str, list[str]] = {
         "product_table_month",
     ],
     "clinic_data_static": ["clinic_id"],
-    "logs": ["level", "log_file", "file_name"],
+    "logs": ["level", "error_code", "file_name", "function"],
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
@@ -35,6 +36,7 @@ PARQUET_TO_TABLE: dict[str, str] = {
     "patient_data_static.parquet": "patient_data_static",
     "patient_data_monthly.parquet": "patient_data_monthly",
     "patient_data_annual.parquet": "patient_data_annual",
+    "clinic_data_static.parquet": "clinic_data_static",
     "table_logs.parquet": "logs",
 }
 
@@ -97,6 +99,15 @@ def load_table(
 
     table_ref = f"{project_id}.{dataset}.{table_name}"
     logger.info(f"Loading {parquet_path.name} → {table_ref}")
+
+    # WRITE_TRUNCATE preserves existing clustering, so deleting first ensures
+    # any schema or clustering changes (e.g. from R→Python migration) take effect.
+    if replace:
+        try:
+            client.delete_table(table_ref)
+            logger.info(f"Deleted existing table {table_ref} for fresh creation")
+        except NotFound:
+            pass
 
     # Configure the load job
     job_config = bigquery.LoadJobConfig(
