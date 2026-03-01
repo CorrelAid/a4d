@@ -80,9 +80,12 @@ run-file FILE:
 create-tables INPUT:
     uv run a4d create-tables --input "{{INPUT}}"
 
-PROJECT := "a4dphase2"
-DATASET := "tracker"
-IMAGE   := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest"
+PROJECT  := "a4dphase2"
+DATASET  := "tracker"
+REGISTRY := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline"
+GIT_SHA  := `git rev-parse --short HEAD`
+IMAGE    := REGISTRY + ":latest"
+IMAGE_SHA := REGISTRY + ":" + GIT_SHA
 
 # Snapshot all pipeline tables in BigQuery (7-day expiry, safe to run before upload)
 # Creates dated snapshots e.g. patient_data_static_20260227. Tables that do not
@@ -111,21 +114,34 @@ backup-bq:
 # --provenance=false: suppress BuildKit attestation manifests so the registry
 # shows one image entry instead of three (image + attestation + index)
 docker-build:
-    docker build --provenance=false -f Dockerfile -t {{IMAGE}} ..
+    docker build --provenance=false \
+        -t {{IMAGE}} \
+        -t {{IMAGE_SHA}} \
+        -f Dockerfile ..
 
 # Smoke test: verify the image starts and the CLI is reachable
 docker-smoke:
     docker run --rm {{IMAGE}} uv run a4d --help
 
-# Push image to Artifact Registry
+# Push both :latest and :<git-sha> tags to Artifact Registry
 docker-push: docker-build
     docker push {{IMAGE}}
+    docker push {{IMAGE_SHA}}
+    @echo "Pushed: {{IMAGE}} and {{IMAGE_SHA}}"
 
 # Update Cloud Run Job to use the latest image
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
         --image={{IMAGE}} \
         --region=asia-southeast2
+
+# Roll back Cloud Run Job to a specific git SHA
+# Usage: just rollback abc1234
+rollback SHA:
+    gcloud run jobs update a4d-pipeline \
+        --image={{REGISTRY}}:{{SHA}} \
+        --region=asia-southeast2
+    @echo "Rolled back to {{REGISTRY}}:{{SHA}}"
 
 # Execute the Cloud Run Job manually
 run-job:
