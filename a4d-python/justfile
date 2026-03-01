@@ -108,8 +108,10 @@ backup-bq:
     echo "Done. Snapshots expire in 7 days."
 
 # Build Docker image (context must be repo root for reference_data/ access)
+# --provenance=false: suppress BuildKit attestation manifests so the registry
+# shows one image entry instead of three (image + attestation + index)
 docker-build:
-    docker build -f Dockerfile -t {{IMAGE}} ..
+    docker build --provenance=false -f Dockerfile -t {{IMAGE}} ..
 
 # Smoke test: verify the image starts and the CLI is reachable
 docker-smoke:
