@@ -21,7 +21,7 @@ from a4d.errors import ErrorCollector
 def safe_convert_column(
     df: pl.DataFrame,
     column: str,
-    target_type: pl.DataType,
+    target_type: type[pl.DataType] | pl.DataType,
     error_collector: ErrorCollector,
     error_value: float | str | None = None,
     file_name_col: str = "file_name",
@@ -305,7 +305,7 @@ def cut_numeric_value(
 def safe_convert_multiple_columns(
     df: pl.DataFrame,
     columns: list[str],
-    target_type: pl.DataType,
+    target_type: type[pl.DataType] | pl.DataType,
     error_collector: ErrorCollector,
     error_value: float | str | None = None,
     file_name_col: str = "file_name",

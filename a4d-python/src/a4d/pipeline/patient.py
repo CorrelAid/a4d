@@ -215,10 +215,14 @@ def run_patient_pipeline(
         logger.info("Processing trackers sequentially")
 
         # Use tqdm if requested
-        iterator = tqdm(tracker_files, desc="Processing trackers", unit="file") if show_progress else tracker_files
+        iterator = (
+            tqdm(tracker_files, desc="Processing trackers", unit="file")
+            if show_progress
+            else tracker_files
+        )
 
         for tracker_file in iterator:
-            if show_progress:
+            if isinstance(iterator, tqdm):
                 iterator.set_description(f"Processing {tracker_file.name}")
 
             result = process_tracker_patient(
@@ -261,7 +265,9 @@ def run_patient_pipeline(
             # Collect results as they complete
             futures_iterator = as_completed(futures)
             if show_progress:
-                futures_iterator = tqdm(futures_iterator, total=len(futures), desc="Processing trackers", unit="file")
+                futures_iterator = tqdm(
+                    futures_iterator, total=len(futures), desc="Processing trackers", unit="file"
+                )
 
             for future in futures_iterator:
                 tracker_file = futures[future]
