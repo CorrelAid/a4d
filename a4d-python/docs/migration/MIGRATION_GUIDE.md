@@ -1,16 +1,9 @@
 # R to Python Migration Guide
 
-Complete guide for migrating the A4D pipeline from R to Python.
+Reference for the A4D pipeline migration from R to Python.
 
----
-
-## Quick Reference
-
-**Status**: Phase 3 - Patient Cleaning Complete ✅
-**Next**: Phase 4 - Tables (aggregation, BigQuery)
-**Timeline**: 12-13 weeks total
-**Current Branch**: `migration`
-**Last Updated**: 2025-10-26
+**Status**: Phases 0–7 complete. Patient pipeline production-ready. Product pipeline not yet started.
+**Branch**: `migration`
 
 ---
 
@@ -19,91 +12,111 @@ Complete guide for migrating the A4D pipeline from R to Python.
 1. [Strategy & Decisions](#strategy--decisions)
 2. [Technology Stack](#technology-stack)
 3. [Architecture](#architecture)
-4. [Key Migration Patterns](#key-migration-patterns)
-5. [Phase Checklist](#phase-checklist)
-6. [Code Examples](#code-examples)
+4. [Key Code Patterns](#key-code-patterns)
+5. [Open Items](#open-items)
 
 ---
 
 ## Strategy & Decisions
 
 ### Goals
-1. **Output Compatibility** - Generate identical parquet files (or document differences)
-2. **Performance** - 2-5x faster than R
-3. **Incremental Processing** - Only reprocess changed trackers (hash-based)
-4. **Error Transparency** - Same detailed error tracking as R
+1. **Output Compatibility** — Generate equivalent parquet files (differences documented)
+2. **Performance** — 2-5x faster than R
+3. **Incremental Processing** — Only reprocess changed trackers (hash-based)
+4. **Error Transparency** — Detailed per-row error tracking
 
 ### Key Architectural Decisions
 
-✅ **Per-Tracker Processing** - Process each tracker end-to-end, then aggregate
-- Better for incremental updates
-- Natural parallelization
-- Failed tracker doesn't block others
+**Per-Tracker Processing** — Process each tracker end-to-end, then aggregate
+- Better for incremental updates; natural parallelization; failed tracker doesn't block others
 
-✅ **No Orchestrator** - Simple Python + multiprocessing (not Prefect/doit/Airflow)
-- DAG is simple: trackers → tables → BigQuery
-- Multiprocessing sufficient for parallelization
-- Less complexity, easier to maintain
+**No Orchestrator** — Simple Python + multiprocessing (not Prefect/doit/Airflow)
+- DAG is simple: trackers → tables → BigQuery; less complexity, easier to maintain
 
-✅ **BigQuery Metadata Table for State** - Not SQLite (containers are stateless)
-- Query at pipeline start to get previous file hashes
-- Only reprocess changed/new files
-- Update metadata table at end
-- Same table used for dashboards/analytics
+**BigQuery Metadata Table for State** — Not SQLite (containers are stateless)
+- Query at pipeline start to get previous file hashes; only reprocess changed/new files; same table used for dashboards
 
-✅ **Hybrid Error Logging** - Vectorized + row-level detail
-- Try vectorized conversion (fast, handles 95%+ of data)
-- Detect failures (nulls after conversion)
-- Log only failed rows with patient_id, file_name, error details
-- Export error logs as parquet (like other tables)
+**Hybrid Error Logging** — Vectorized + row-level detail
+- Try vectorized conversion (handles 95%+ of data); detect failures; log only failed rows with patient_id, file_name, error details; export error logs as parquet
 
 ---
 
 ## Technology Stack
 
-### Core (All from Astral where possible!)
-- **uv** - Dependency management & Python version
-- **ruff** - Linting & formatting
-- **ty** - Type checking
-- **polars** - DataFrames (10-100x faster than pandas)
-- **duckdb** - Complex SQL operations
-- **pydantic** - Settings & validation
-- **pandera** - DataFrame schema validation
-- **loguru** - Logging (JSON output)
-- **pytest** - Testing
-
-### GCP & Utilities
-- **google-cloud-bigquery** - Replaces `bq` CLI
-- **google-cloud-storage** - Replaces `gsutil` CLI
-- **typer** - CLI interface
-- **rich** - Beautiful console output
+- **uv** — Dependency management & Python version
+- **ruff** — Linting & formatting
+- **polars** — DataFrames (10-100x faster than pandas)
+- **duckdb** — Complex SQL operations
+- **pydantic** — Settings & validation
+- **loguru** — Logging (JSON output)
+- **pytest** — Testing
+- **google-cloud-bigquery** — Replaces `bq` CLI
+- **google-cloud-storage** — Replaces `gsutil` CLI
+- **typer + rich** — CLI interface
 
 ---
 
 ## Architecture
 
-### Current R Pipeline (Batch per Step)
+### Data Flow
+
 ```
-Step 1: ALL trackers → raw parquets
-Step 2: ALL raw → ALL cleaned
-Step 3: ALL cleaned → tables
+Excel Trackers (GCS)
+       |
+       v
+download-trackers          # GCS → local data_root/
+       |
+       v
+process-patient            # For each tracker (parallel):
+  ├─ extract/patient.py    #   Excel → patient_data_raw/*.parquet
+  └─ clean/patient.py      #   raw → patient_data_cleaned/*.parquet
+       |
+       v
+create-tables              # All cleaned parquets →
+  ├─ tables/patient.py     #   tables/static.parquet
+  |                        #   tables/monthly.parquet
+  |                        #   tables/annual.parquet
+  └─ tables/logs.py        #   tables/logs.parquet
+       |
+       v
+upload-output              # local output/ → GCS
+upload-tables              # tables/*.parquet → BigQuery
 ```
 
-**Problems**: Must reprocess everything, high memory, slow feedback
+### Module Structure
 
-### New Python Pipeline (Per-Tracker)
 ```
-For each changed tracker (in parallel):
-  ├─ Extract → Clean → Export
-
-Then aggregate all:
-  ├─ All cleaned parquets → Final tables
-  └─ Upload to BigQuery
+src/a4d/
+├── extract/patient.py     # Excel → raw parquet
+├── clean/
+│   ├── patient.py         # Main cleaning pipeline
+│   ├── schema.py          # 83-column meta schema
+│   ├── converters.py      # Safe type conversion + ErrorCollector
+│   ├── validators.py      # Case-insensitive allowed-values
+│   ├── transformers.py    # Explicit transformations
+│   └── date_parser.py     # Flexible date parsing
+├── tables/
+│   ├── patient.py         # static/monthly/annual aggregation
+│   └── logs.py            # Error log aggregation
+├── pipeline/
+│   ├── patient.py         # Orchestration + parallel workers
+│   ├── tracker.py         # Per-tracker execution
+│   └── models.py          # Result dataclasses
+├── gcp/
+│   ├── storage.py         # GCS operations
+│   └── bigquery.py        # BigQuery load
+├── reference/
+│   ├── synonyms.py        # Column name mapping (YAML)
+│   ├── provinces.py       # Allowed province validation
+│   └── loaders.py         # YAML loading utilities
+├── state/                 # State management (exists, not yet wired up)
+├── config.py              # Pydantic settings from A4D_* env vars
+├── logging.py             # loguru setup
+├── errors.py              # Shared error types
+└── cli.py                 # Typer CLI (6 commands)
 ```
 
-**Benefits**: Incremental, parallel, lower memory, immediate feedback
-
-### State Management Flow
+### State Management (Designed, Not Yet Active)
 
 ```
 1. Container starts (stateless, fresh)
@@ -115,626 +128,135 @@ Then aggregate all:
 6. Container shuts down (state persists in BigQuery)
 ```
 
-### Error Logging Pattern
-
-```python
-# Try vectorized conversion
-df = df.with_columns(pl.col("age").cast(pl.Int32, strict=False))
-
-# Detect failures (became null but wasn't null before)
-failed_rows = df.filter(conversion_failed)
-
-# Log each failure with context
-for row in failed_rows:
-    error_collector.add_error(
-        file_name=row["file_name"],
-        patient_id=row["patient_id"],
-        column="age",
-        original_value=row["age_original"],
-        error="Could not convert to Int32"
-    )
-
-# Replace with error value
-df = df.with_columns(
-    pl.when(conversion_failed).then(ERROR_VAL).otherwise(converted)
-)
-```
-
-Result: Fast vectorization + complete error transparency
+Currently: pipeline processes all trackers found in `data_root`. Incremental logic exists in `state/` but is not wired into `pipeline/patient.py` yet.
 
 ---
 
-## Key Migration Patterns
+## Key Code Patterns
 
 ### Configuration
 ```python
-# R: config.yml → config::get()
-# Python: .env → Pydantic Settings
-
 from a4d.config import settings
-print(settings.data_root)
-print(settings.project_id)
+settings.data_root      # Path to tracker files
+settings.project_id     # GCP project
+settings.output_root    # Local output directory
 ```
 
-### Logging
+### Error Tracking
 ```python
-# R: logInfo(log_to_json("msg", values=list(x=1)))
-# Python: loguru
-
-from loguru import logger
-
-logger.info("Processing tracker", file="clinic_001.xlsx", rows=100)
-
-# File-specific logging (like R's with_file_logger)
-with file_logger("clinic_001_patient", output_root) as log:
-    log.info("Processing patient data")
-    log.error("Failed", error_code="critical_abort")
-```
-
-### DataFrames
-```python
-# R: df %>% filter(age > 18) %>% select(name, age)
-# Python: Polars
-
-df.filter(pl.col("age") > 18).select(["name", "age"])
-
-# R: df %>% mutate(age = age + 1)
-# Python:
-df.with_columns((pl.col("age") + 1).alias("age"))
-```
-
-### Avoid rowwise() - Use Vectorized
-```python
-# R (slow):
-# df %>% rowwise() %>% mutate(age_fixed = fix_age(age, dob, ...))
-
-# Python (fast):
-# Vectorized operations
-df = df.with_columns([
-    fix_age_vectorized(
-        pl.col("age"),
-        pl.col("dob"),
-        pl.col("tracker_year")
-    ).alias("age")
-])
-
-# OR if you must iterate (only for failures):
-failed_rows = df.filter(needs_special_handling)
-for row in failed_rows.iter_rows(named=True):
-    # Handle edge case + log error
-    pass
-```
-
-### Type Conversion with Error Tracking
-```python
-# R: convert_to(x, as.numeric, ERROR_VAL)
-# Python:
+# ErrorCollector accumulates failures without raising
+error_collector = ErrorCollector()
 
 df = safe_convert_column(
     df=df,
     column="age",
     target_type=pl.Int32,
     error_value=settings.error_val_numeric,
-    error_collector=error_collector
+    error_collector=error_collector,
 )
+# Errors exported as parquet → aggregated into logs table
+```
 
-# This function:
-# 1. Tries vectorized conversion
-# 2. Detects failures
-# 3. Logs each failure with patient_id, file_name
-# 4. Replaces with error value
+### Vectorized Conversion Pattern
+```python
+# Try vectorized conversion
+df = df.with_columns(pl.col("age").cast(pl.Int32, strict=False))
+
+# Detect failures (null after conversion but wasn't null before)
+failed_rows = df.filter(conversion_failed)
+
+# Log each failure; replace with error value
+```
+
+### Avoiding R's rowwise() Pattern
+```python
+# R (slow): df %>% rowwise() %>% mutate(age_fixed = fix_age(age, dob, ...))
+
+# Python (fast): vectorized
+df = df.with_columns([
+    fix_age_vectorized(pl.col("age"), pl.col("dob"), pl.col("tracker_year")).alias("age")
+])
+
+# Only iterate for genuine edge cases (log + replace)
+```
+
+### DataFrames (R → Python)
+```python
+# R: df %>% filter(age > 18) %>% select(name, age)
+df.filter(pl.col("age") > 18).select(["name", "age"])
+
+# R: df %>% mutate(age = age + 1)
+df.with_columns((pl.col("age") + 1).alias("age"))
 ```
 
 ### GCP Operations
 ```python
 # R: system("gsutil cp ...")
-# Python:
 from google.cloud import storage
-client = storage.Client()
-bucket = client.bucket("a4dphase2_upload")
-blob = bucket.blob("file.parquet")
-blob.upload_from_filename("local_file.parquet")
+bucket = storage.Client().bucket("a4dphase2_upload")
+bucket.blob("file.parquet").upload_from_filename("local_file.parquet")
 
 # R: system("bq load ...")
-# Python:
 from google.cloud import bigquery
-client = bigquery.Client()
-job = client.load_table_from_dataframe(df, table_id)
+job = bigquery.Client().load_table_from_dataframe(df, table_id)
 job.result()
 ```
 
----
-
-## Phase Checklist
-
-### ✅ Phase 0: Foundation (DONE)
-- [x] Create migration branch
-- [x] Create a4d-python/ directory structure
-- [x] Set up pyproject.toml with uv
-- [x] Configure Astral toolchain (ruff, ty)
-- [x] Add GitHub Actions CI
-- [x] Create basic config.py
-
-### Phase 1: Core Infrastructure (PARTIAL)
-- [x] **reference/synonyms.py** - Column name mapping ✅
-  - Load YAML files (reuse from reference_data/)
-  - Create reverse mapping dict
-  - `rename_columns()` method with strict mode
-  - Comprehensive test coverage
-
-- [x] **reference/provinces.py** - Province validation ✅
-  - Load allowed provinces YAML
-  - Case-insensitive validation
-  - Country mapping
-
-- [x] **reference/loaders.py** - YAML loading utilities ✅
-  - Find reference_data directory
-  - Load YAML with validation
-
-- [ ] **logging.py** - loguru setup with JSON output
-  - Console handler (pretty, colored)
-  - File handler (JSON for BigQuery upload)
-  - `file_logger()` context manager
-
-- [ ] **clean/converters.py** - Type conversion with error tracking
-  - `ErrorCollector` class
-  - `safe_convert_column()` function
-  - Vectorized + detailed error logging
-
-- [ ] **schemas/validation.py** - YAML-based validation
-  - Load data_cleaning.yaml
-  - Apply allowed_values rules
-  - Integrate with Pandera schemas
-
-- [ ] **gcp/storage.py** - GCS operations
-  - `download_bucket()`
-  - `upload_directory()`
-
-- [ ] **gcp/bigquery.py** - BigQuery operations
-  - `ingest_table()` with parquet
-
-- [ ] **state/bigquery_state.py** - State management
-  - Query previous file hashes
-  - `get_files_to_process()` - incremental logic
-  - `update_metadata()` - append new records
-
-- [ ] **utils/paths.py** - Path utilities
-
-### Phase 2: Script 1 - Extraction ✅ COMPLETE
-- [x] **extract/patient.py** - COMPLETED ✅
-  - [x] Read Excel with openpyxl (read-only, single-pass optimization)
-  - [x] Find all month sheets automatically
-  - [x] Extract tracker year from sheet names or filename
-  - [x] Read and merge two-row headers (with horizontal fill-forward)
-  - [x] **Smart header detection**: Detects title rows vs. actual headers (e.g., "Summary of Patient Recruitment" title above "Patient ID" column)
-  - [x] Handle merged cells creating duplicate columns (R-compatible merge with commas)
-  - [x] Apply synonym mapping with `ColumnMapper`
-  - [x] Extract clinic_id from parent directory basename
-  - [x] Process "Patient List" sheet and left join with monthly data
-  - [x] Process "Annual" sheet and left join with monthly data
-  - [x] Extract from all month sheets with metadata (sheet_name, tracker_month, tracker_year, file_name, clinic_id)
-  - [x] Combine sheets with `diagonal_relaxed` (handles type mismatches)
-  - [x] Filter invalid rows (null patient_id, or "0"/"0" combinations)
-  - [x] **Export raw parquet**: `export_patient_raw()` matches R filename format
-  - [x] 28 comprehensive tests (all passing)
-  - [x] 88% code coverage for patient.py
-  - [x] **Script**: `scripts/export_single_tracker.py` for manual testing
-
-- [ ] **extract/product.py** - TODO
-  - Same pattern as patient
-
-- [x] **Test on sample trackers** - DONE
-  - Tested with 2024, 2019, 2018 trackers
-  - **2017 Mahosot (Laos/MHS)**: 11 months, legacy "Summary of Patient Recruitment" title row format
-  - **2025 Mahosot (Laos/MHS)**: 6 months, Patient List & Annual sheets, modern format
-  - Handles format variations across years (2017-2025)
-
-- [ ] **Compare outputs with R pipeline** - TODO
-  - Need to run both pipelines and compare parquet outputs
-
-### Phase 3: Script 2 - Cleaning (Week 5-7) ✅
-- [x] **clean/patient.py** - COMPLETE
-  - [x] Meta schema approach (all 83 database columns)
-  - [x] Legacy format fixes (placeholders for pre-2024 trackers)
-  - [x] Preprocessing transformations (HbA1c exceeds, Y/N normalization, insulin derivation)
-  - [x] Transformations (regimen extraction, decimal correction)
-  - [x] Type conversions with error tracking (ErrorCollector)
-  - [x] Range validation (height, weight, BMI, age, HbA1c, FBG)
-  - [x] YAML-based allowed values validation (case-insensitive)
-  - [x] Unit conversions (FBG mmol ↔ mg)
-  - [x] **Improvements over R**:
-    - Fixed insulin_type bug (R doesn't check analog columns)
-    - Fixed insulin_subtype typo (rapic → rapid)
-    - Better error tracking with detailed logging
-
-- [x] **clean/schema.py** - Exact 83-column schema matching R
-- [x] **clean/validators.py** - Case-insensitive validation with sanitize_str()
-- [x] **clean/converters.py** - Safe type conversion with error tracking
-- [x] **clean/transformers.py** - Explicit transformations (not YAML-driven)
-
-- [ ] **clean/product.py** - TODO
-
-- [x] **Test on sample data** - DONE (2024 Sibu Hospital tracker)
-- [x] **Compare outputs with R** - DONE
-  - Schema: 100% match (83 columns, all types)
-  - Values: 3 remaining differences (all Python improvements)
-  - See [PYTHON_IMPROVEMENTS.md](PYTHON_IMPROVEMENTS.md)
-- [ ] **Compare error logs** - TODO (need to generate errors)
-
-### Phase 4: Script 3 - Tables (Week 7-9)
-- [ ] **tables/patient.py**
-  - `create_table_patient_data_static()`
-  - `create_table_patient_data_monthly()` - with DuckDB for changes
-  - `create_table_patient_data_annual()`
-
-- [ ] **tables/product.py**
-  - `create_table_product_data()`
-
-- [ ] **tables/clinic.py**
-  - `create_table_clinic_static_data()`
-
-- [ ] **Logs table** - Aggregate all error parquets
-
-- [ ] **Compare final tables with R**
-
-### Phase 5: Pipeline Integration (Week 9-10)
-- [ ] **pipeline/tracker_pipeline.py**
-  - `TrackerPipeline.process()` - end-to-end per tracker
-
-- [ ] **scripts/run_pipeline.py**
-  - Query BigQuery state
-  - Parallel processing with ProcessPoolExecutor
-  - Create final tables
-  - Upload to BigQuery
-  - Update metadata table
-
-- [ ] **Test end-to-end locally**
-
-### Phase 6: GCP Deployment (Week 10-11)
-- [ ] Finalize Dockerfile
-- [ ] Test GCS upload/download
-- [ ] Deploy to Cloud Run (test)
-- [ ] Test with Cloud Scheduler trigger
-
-### Phase 7: Validation (Week 11-12)
-- [ ] Run both R and Python pipelines on production data
-- [ ] Automated comparison of all outputs
-- [ ] Performance benchmarking
-- [ ] Fix discovered bugs
-
-### Phase 8: Cutover (Week 12-13)
-- [ ] Final validation
-- [ ] Deploy to production
-- [ ] Monitor first run
-- [ ] Deprecate R pipeline
-
----
-
-## Code Examples
-
-### 1. Configuration (src/a4d/config.py)
-
-Already implemented ✅
-
-### 2. Logging Setup (src/a4d/logging.py)
-
+### Logging
 ```python
 from loguru import logger
-from pathlib import Path
-import sys
+logger.info("Processing tracker", file="clinic_001.xlsx", rows=100)
 
-def setup_logging(log_dir: Path, log_name: str):
-    """Configure loguru for BigQuery-compatible JSON logs."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"main_{log_name}.log"
-
-    logger.remove()  # Remove default
-
-    # Console (pretty, colored)
-    logger.add(sys.stdout, level="INFO", colorize=True)
-
-    # File (JSON for BigQuery)
-    logger.add(
-        log_file,
-        serialize=True,  # JSON output
-        level="DEBUG",
-        rotation="100 MB",
-    )
-
-from contextlib import contextmanager
-
-@contextmanager
-def file_logger(file_name: str, output_root: Path):
-    """File-specific logging (like R's with_file_logger)."""
-    log_file = output_root / "logs" / f"{file_name}.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    handler_id = logger.add(log_file, serialize=True)
-    bound_logger = logger.bind(file_name=file_name)
-
-    try:
-        yield bound_logger
-    except Exception:
-        bound_logger.exception("Processing failed", error_code="critical_abort")
-        raise
-    finally:
-        logger.remove(handler_id)
-```
-
-### 3. Synonym Mapper (src/a4d/synonyms/mapper.py)
-
-```python
-import yaml
-from pathlib import Path
-import polars as pl
-
-class SynonymMapper:
-    def __init__(self, synonym_file: Path):
-        with open(synonym_file) as f:
-            synonyms = yaml.safe_load(f)
-
-        # Reverse mapping: synonym -> standard
-        self._mapping = {}
-        for standard, variants in synonyms.items():
-            if isinstance(variants, list):
-                for variant in variants:
-                    self._mapping[variant.lower()] = standard
-            else:
-                self._mapping[variants.lower()] = standard
-
-    def rename_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Rename columns using synonym mapping."""
-        mapping = {col: self._mapping.get(col.lower(), col) for col in df.columns}
-        return df.rename(mapping)
-
-# Cache mappers
-from functools import lru_cache
-
-@lru_cache(maxsize=2)
-def get_synonym_mapper(data_type: str) -> SynonymMapper:
-    file = Path(f"../reference_data/synonyms/synonyms_{data_type}.yaml")
-    return SynonymMapper(file)
-```
-
-### 4. Error Tracking Converter (src/a4d/clean/converters.py)
-
-```python
-from dataclasses import dataclass
-import polars as pl
-
-@dataclass
-class ConversionError:
-    file_name: str
-    patient_id: str
-    column: str
-    original_value: any
-    error_message: str
-
-class ErrorCollector:
-    def __init__(self):
-        self.errors = []
-
-    def add_error(self, file_name, patient_id, column, original_value, error_message):
-        self.errors.append(ConversionError(
-            file_name, patient_id, column, str(original_value), error_message
-        ))
-
-    def to_dataframe(self) -> pl.DataFrame:
-        if not self.errors:
-            return pl.DataFrame()
-        return pl.DataFrame([e.__dict__ for e in self.errors])
-
-def safe_convert_column(
-    df: pl.DataFrame,
-    column: str,
-    target_type: pl.DataType,
-    error_value: any,
-    error_collector: ErrorCollector
-) -> pl.DataFrame:
-    """Vectorized conversion with row-level error tracking."""
-
-    # Store original
-    df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
-
-    # Try vectorized conversion
-    df = df.with_columns(
-        pl.col(column).cast(target_type, strict=False).alias(f"_conv_{column}")
-    )
-
-    # Detect failures
-    failed = df.filter(
-        pl.col(f"_conv_{column}").is_null() &
-        pl.col(f"_orig_{column}").is_not_null()
-    )
-
-    # Log each failure
-    for row in failed.iter_rows(named=True):
-        error_collector.add_error(
-            file_name=row.get("file_name", "unknown"),
-            patient_id=row.get("patient_id", "unknown"),
-            column=column,
-            original_value=row[f"_orig_{column}"],
-            error_message=f"Could not convert to {target_type}"
-        )
-
-    # Replace failures with error value
-    df = df.with_columns(
-        pl.when(pl.col(f"_conv_{column}").is_null())
-        .then(pl.lit(error_value))
-        .otherwise(pl.col(f"_conv_{column}"))
-        .alias(column)
-    )
-
-    return df.drop([f"_orig_{column}", f"_conv_{column}"])
-```
-
-### 5. State Manager (src/a4d/state/bigquery_state.py)
-
-```python
-from google.cloud import bigquery
-import polars as pl
-import hashlib
-from pathlib import Path
-
-class BigQueryStateManager:
-    def __init__(self, project_id: str, dataset: str):
-        self.client = bigquery.Client(project=project_id)
-        self.table_id = f"{project_id}.{dataset}.tracker_metadata"
-
-    def get_file_hash(self, file_path: Path) -> str:
-        hasher = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-
-    def get_previous_state(self) -> pl.DataFrame:
-        """Query BigQuery for previous file hashes."""
-        query = f"""
-        SELECT file_name, file_hash, status
-        FROM `{self.table_id}`
-        WHERE last_processed = (
-            SELECT MAX(last_processed)
-            FROM `{self.table_id}` AS t2
-            WHERE t2.file_name = {self.table_id}.file_name
-        )
-        """
-        df_pandas = self.client.query(query).to_dataframe()
-        return pl.from_pandas(df_pandas) if len(df_pandas) > 0 else pl.DataFrame()
-
-    def get_files_to_process(self, tracker_files: list[Path], force=False) -> list[Path]:
-        """Determine which files need processing (incremental)."""
-        if force:
-            return tracker_files
-
-        previous = self.get_previous_state()
-        if len(previous) == 0:
-            return tracker_files
-
-        prev_lookup = {
-            row["file_name"]: (row["file_hash"], row["status"])
-            for row in previous.iter_rows(named=True)
-        }
-
-        to_process = []
-        for file in tracker_files:
-            current_hash = self.get_file_hash(file)
-
-            if file.name not in prev_lookup:
-                to_process.append(file)  # New
-            else:
-                prev_hash, status = prev_lookup[file.name]
-                if current_hash != prev_hash or status == "failed":
-                    to_process.append(file)  # Changed or failed
-
-        return to_process
+# File-specific logging (like R's with_file_logger)
+with file_logger("clinic_001_patient", output_root) as log:
+    log.info("Processing patient data")
 ```
 
 ---
 
-## Reference Data (Reusable)
+## Completed Phases
 
-All YAML files in `reference_data/` can be used as-is:
-- ✅ `synonyms/synonyms_patient.yaml`
-- ✅ `synonyms/synonyms_product.yaml`
-- ✅ `data_cleaning.yaml`
-- ✅ `provinces/allowed_provinces.yaml`
-
-No migration needed - just reference from Python code.
-
----
-
-## Success Criteria
-
-### Correctness
-- [ ] All final tables match R output (or differences documented)
-- [ ] Error counts match R
-- [ ] Same patient_ids flagged
-
-### Performance
-- [ ] 2-5x faster than R
-- [ ] Incremental runs only process changed files
-- [ ] Memory usage <8GB
-
-### Code Quality
-- [ ] Test coverage >80%
-- [ ] ruff linting passes
-- [ ] ty type checking passes
-
-### Deployment
-- [ ] Runs in Cloud Run
-- [ ] Incremental processing works
-- [ ] Monitoring set up
+| Phase | Description |
+|-------|-------------|
+| 0 | Foundation: repo structure, uv, ruff, CI |
+| 1 | Core infrastructure: reference, logging, config, ErrorCollector |
+| 2 | Extraction: `extract/patient.py` (28 tests, 88% coverage) |
+| 3 | Cleaning: `clean/patient.py` (83-column schema, full validation) |
+| 4 | Tables: `tables/patient.py` (static, monthly, annual, logs) |
+| 5 | Pipeline integration: `pipeline/patient.py` + parallel processing |
+| 6 | GCP: `gcp/storage.py`, `gcp/bigquery.py`, CLI commands |
+| 7 | Validation: 174 trackers compared, 8 bugs fixed, production verdict |
 
 ---
 
-## Notes for Implementation
+## Open Items
 
-1. **Start with infrastructure** - Don't jump to extraction yet
-2. **Test continuously** - Write tests alongside code
-3. **Compare with R** - After each phase, validate outputs match
-4. **Use existing R code as reference** - Read the R scripts to understand logic
-5. **Ask questions** - Migration docs are guides, not absolute rules
-6. **Document differences** - If output differs from R, document why
+### Phase 8: First GCP Production Run
 
----
+- Run `run-pipeline` against production GCS bucket (patient data)
+- Validate BigQuery table outputs match expected counts/schema
+- Compare dashboard reports with R pipeline baseline
+- Fix any issues discovered during first real run
 
-## Recent Progress (2025-10-26)
+### Phase 9: Product Pipeline
 
-### ✅ Completed: Phase 3 - Patient Data Cleaning
+- `extract/product.py` — same pattern as patient extraction
+- `clean/product.py` — same pattern as patient cleaning
+- `tables/product.py` — product aggregation tables
+- Validate against R product pipeline outputs
 
-**Modules Implemented**:
-- `src/a4d/clean/patient.py` (461 lines) - Main cleaning pipeline
-- `src/a4d/clean/schema.py` (200 lines) - Meta schema (83 columns, exact R match)
-- `src/a4d/clean/validators.py` (250 lines) - Case-insensitive validation
-- `src/a4d/clean/converters.py` (150 lines) - Safe type conversions
-- `src/a4d/clean/transformers.py` (100 lines) - Data transformations
+### State Management (Incremental Processing)
 
-**Key Features**:
-1. **Meta Schema Approach**: Define all 83 target database columns upfront, fill what exists, leave rest as NULL
-2. **Case-Insensitive Validation**: Implements R's `sanitize_str()` pattern (lowercase, remove spaces/special chars), returns canonical values
-3. **Error Tracking**: ErrorCollector class for detailed conversion failure logging
-4. **Type Conversions**: String → Date/Int32/Float64 with error values (999999, "Undefined", 9999-09-09)
-5. **Range Validation**: Height (0-2.3m), Weight (0-200kg), BMI (4-60), Age (0-25), HbA1c (4-18%), FBG (0-136.5 mmol/l)
-6. **Unit Conversions**: FBG mmol/l ↔ mg/dl (18x factor), applied AFTER schema so target columns exist
-7. **Pipeline Order**: Legacy fixes → Preprocessing → Transformations → **Schema** → Type conversion → Range validation → Allowed values → Unit conversion
-
-**Comparison with R Pipeline**:
-- ✅ Schema: 100% match (83 columns, all types correct)
-- ✅ Type alignment: Fixed tracker_year/tracker_month (String → Int32)
-- ✅ Status validation: Case-insensitive with canonical Title Case values
-- ✅ FBG unit conversion: Works perfectly (13.5 mmol × 18 = 243.0 mg)
-- ✅ insulin_type/insulin_subtype: Derivation enabled with Python improvements
-
-**Python Improvements Over R** (see [PYTHON_IMPROVEMENTS.md](PYTHON_IMPROVEMENTS.md)):
-1. **insulin_type bug fix**: R doesn't check analog columns, returns None for analog-only patients. Python correctly derives "Analog Insulin".
-2. **insulin_subtype typo fix**: R has typo "rapic-acting", Python uses correct "rapid-acting"
-3. **Better null handling**: Python correctly preserves None when all insulin columns are None (matches R's NA behavior)
-
-**Remaining Differences** (all Python correct):
-- `insulin_type` (5/53 rows): Python='Analog Insulin', R=None (R bug)
-- `insulin_total_units` (50/53 rows): Python extracts values, R=None (to verify if R should extract)
-- `bmi` (27/53 rows): Float precision ~10^-15 (negligible)
-
-### 🔑 Key Learnings
-1. **Apply schema BEFORE conversions**: Enables unit conversions on columns that don't exist in raw data
-2. **Case-insensitive validation is complex**: Must create {sanitized → canonical} mapping, then replace with canonical values
-3. **R's ifelse handles NA differently**: NA in condition → NA result (not False). Python needs explicit null checks.
-4. **Type conversion optimization**: Skip columns already at correct type (happens when schema adds NULL columns)
-5. **Fix R bugs, don't replicate them**: insulin_type derivation bug, insulin_subtype typo - Python should be correct
-
-### 📝 Next Steps
-1. Document insulin_total_units extraction difference (verify if R should extract this)
-2. Implement `clean/product.py` (similar pattern to patient)
-3. Move to Phase 4: Tables (aggregation into final BigQuery tables)
+- `state/` module exists with BigQuery state design
+- Wire into `pipeline/patient.py` so only changed/new trackers are processed
+- Required before production scheduling (Cloud Run + Cloud Scheduler)
 
 ---
 
-## Questions During Migration
+## Reference Data
 
-1. How to handle date parsing edge cases?
-2. Exact numeric precision for comparisons?
-3. Memory optimization for large files?
-4. Optimal parallel workers for Cloud Run?
-
-→ These will be answered during implementation
+All YAML files in `reference_data/` are shared with the R pipeline — do not modify without testing both:
+- `reference_data/synonyms/synonyms_patient.yaml`
+- `reference_data/synonyms/synonyms_product.yaml`
+- `reference_data/data_cleaning.yaml`
+- `reference_data/provinces/allowed_provinces.yaml`
