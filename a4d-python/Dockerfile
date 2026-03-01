@@ -14,17 +14,18 @@ ENV UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /app
 
-# Copy dependency files first to leverage Docker layer caching
+# Install dependencies first (without the project) for better layer caching.
+# --no-install-project skips the editable install of a4d itself, which requires
+# src/ to be present. Dependencies rarely change so this layer stays cached.
 COPY a4d-python/pyproject.toml a4d-python/uv.lock a4d-python/README.md ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Install production dependencies only
-RUN uv sync --frozen --no-dev
-
-# Copy application code
+# Copy application code and reference data
 COPY a4d-python/src/ src/
-
-# Copy reference data from the repo root
 COPY reference_data/ reference_data/
+
+# Install the project itself now that src/ exists
+RUN uv sync --frozen --no-dev
 
 # Set environment
 ENV PYTHONPATH=/app/src
