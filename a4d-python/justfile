@@ -120,7 +120,7 @@ run *ARGS:
 # shows one image entry instead of three (image + attestation + index)
 # Build Docker image tagged as :latest and :<git-sha>
 docker-build:
-    docker build --provenance=false \
+    docker build --provenance=false --platform=linux/amd64 \
         -t {{IMAGE}} \
         -t {{IMAGE_SHA}} \
         -f Dockerfile ..
