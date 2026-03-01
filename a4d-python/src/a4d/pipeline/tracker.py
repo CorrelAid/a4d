@@ -102,7 +102,7 @@ def process_tracker_patient(
         )
 
     except Exception as e:
-        logger.exception(f"Failed to process tracker: {tracker_file.name}")
+        logger.bind(error_code="critical_abort").exception(f"Failed to process tracker: {tracker_file.name}")
         return TrackerResult(
             tracker_file=tracker_file,
             tracker_name=tracker_name,

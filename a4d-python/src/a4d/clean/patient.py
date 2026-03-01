@@ -671,7 +671,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         calc_age = row["_calc_age"]
 
         if excel_age is None or (excel_age == settings.error_val_numeric):
-            logger.warning(
+            logger.bind(error_code="missing_value").warning(
                 f"Patient {patient_id}: age is missing. "
                 f"Using calculated age {calc_age} instead of original age."
             )
@@ -686,7 +686,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
             )
             ages_missing += 1
         elif calc_age < 0:
-            logger.warning(
+            logger.bind(error_code="invalid_value").warning(
                 f"Patient {patient_id}: calculated age is negative ({calc_age}). "
                 f"Please check this manually. Using error value instead."
             )
@@ -701,7 +701,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
             )
             ages_negative += 1
         else:
-            logger.warning(
+            logger.bind(error_code="invalid_value").warning(
                 f"Patient {patient_id}: age {excel_age} is different "
                 f"from calculated age {calc_age}. "
                 f"Using calculated age instead of original age."
@@ -831,7 +831,7 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
             original_date = row.get(col)
             tracker_year = row.get("tracker_year")
 
-            logger.warning(
+            logger.bind(error_code="invalid_value").warning(
                 f"Patient {patient_id}: {col} = {original_date} "
                 f"is beyond tracker year {tracker_year}. "
                 f"Replacing with error date."

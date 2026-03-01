@@ -165,7 +165,7 @@ def file_logger(
             yield
         except Exception:
             # Log exception with full traceback
-            logger.exception("Processing failed", error_code="critical_abort")
+            logger.bind(error_code="critical_abort").exception("Processing failed")
             raise
         finally:
             # Remove the handler

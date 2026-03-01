@@ -324,7 +324,7 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 
     # Log warning if any ranges were found
     if has_ranges:
-        logger.warning("Found ranges in testing_frequency column. Replacing with mean values.")
+        logger.bind(error_code="invalid_value").warning("Found ranges in testing_frequency column. Replacing with mean values.")
 
     return df
 
@@ -367,7 +367,7 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
     has_errors = df.filter(pl.col("blood_pressure_mmhg") == error_pattern).height > 0
 
     if has_errors:
-        logger.warning(
+        logger.bind(error_code="invalid_value").warning(
             "Found invalid values for column blood_pressure_mmhg "
             f"that do not follow the format X/Y. "
             f"Values were replaced with {error_val_int}."
