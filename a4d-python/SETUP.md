@@ -150,18 +150,18 @@ gcloud projects add-iam-policy-binding a4dphase2 \
     --role="roles/bigquery.jobUser"
 ```
 
-**BigQuery — read/write tables in the `tracker` dataset:**
+**BigQuery — read/write tables (project-level):**
 
 ```bash
-bq add-iam-policy-binding \
+gcloud projects add-iam-policy-binding a4dphase2 \
     --member="serviceAccount:a4d-pipeline@a4dphase2.iam.gserviceaccount.com" \
-    --role="roles/bigquery.dataEditor" \
-    a4dphase2:tracker
+    --role="roles/bigquery.dataEditor"
 ```
 
-> `dataEditor` is scoped to the `tracker` dataset only, not the whole project.
-> It is the most granular predefined role that allows creating and overwriting
-> tables (WRITE_TRUNCATE load jobs require `tables.create` + `tables.updateData`).
+> `bq add-iam-policy-binding` (dataset-scoped) requires allowlisting and does not
+> work on standard projects. Use the project-level grant above instead.
+> `dataEditor` allows creating and overwriting tables (`tables.create` +
+> `tables.updateData`) which WRITE_TRUNCATE load jobs require.
 
 ### 3. Set up Artifact Registry
 
@@ -219,7 +219,8 @@ A4D_DATASET=tracker,\
 A4D_DOWNLOAD_BUCKET=a4dphase2_upload,\
 A4D_UPLOAD_BUCKET=a4dphase2_output,\
 A4D_DATA_ROOT=/tmp/data,\
-A4D_OUTPUT_DIR=output" \
+A4D_OUTPUT_DIR=output,\
+A4D_MAX_WORKERS=8" \
     --memory=8Gi \
     --cpu=8 \
     --task-timeout=3600 \
