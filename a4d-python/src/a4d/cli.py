@@ -4,17 +4,24 @@ import warnings
 from pathlib import Path
 from typing import Annotated
 
-# google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
-# fallback is correct, just slightly slower. Suppress the noisy runtime warning.
-warnings.filterwarnings("ignore", message="As the c extension couldn't be imported", category=RuntimeWarning)
-
 import polars as pl
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from a4d.pipeline.patient import discover_tracker_files, process_patient_tables, run_patient_pipeline
+from a4d.pipeline.patient import (
+    discover_tracker_files,
+    process_patient_tables,
+    run_patient_pipeline,
+)
 from a4d.tables.logs import create_table_logs
+
+# google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
+# fallback is correct, just slightly slower. Suppress the noisy runtime warning
+# before any google SDK calls are made (those happen lazily inside commands).
+warnings.filterwarnings(
+    "ignore", message="As the c extension couldn't be imported", category=RuntimeWarning
+)
 
 app = typer.Typer(
     name="a4d", help="A4D medical tracker data processing pipeline", no_args_is_help=True
@@ -74,7 +81,10 @@ def process_patient_cmd(
         ),
     ] = None,
     workers: Annotated[
-        int | None, typer.Option("--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)")
+        int | None,
+        typer.Option(
+            "--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)"
+        ),
     ] = None,
     skip_tables: Annotated[
         bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
@@ -84,7 +94,9 @@ def process_patient_cmd(
     ] = False,
     data_root: Annotated[
         Path | None,
-        typer.Option("--data-root", "-d", help="Directory containing tracker files (default: from config)"),
+        typer.Option(
+            "--data-root", "-d", help="Directory containing tracker files (default: from config)"
+        ),
     ] = None,
     output_root: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
@@ -511,7 +523,10 @@ def upload_output_cmd(
 @app.command("run-pipeline")
 def run_pipeline_cmd(
     workers: Annotated[
-        int | None, typer.Option("--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)")
+        int | None,
+        typer.Option(
+            "--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)"
+        ),
     ] = None,
     force: Annotated[
         bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
