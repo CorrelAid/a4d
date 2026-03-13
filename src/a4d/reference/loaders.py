@@ -33,8 +33,8 @@ def find_reference_data_dir() -> Path:
         raise FileNotFoundError(f"reference_data directory not found at {path}")
 
     # Local dev: navigate from src/a4d/reference/loaders.py up to repo root
-    # loaders.py -> reference -> a4d -> src -> a4d-python -> repo root
-    repo_root = Path(__file__).parents[4]
+    # loaders.py -> reference -> a4d -> src -> repo root
+    repo_root = Path(__file__).parents[3]
     reference_data_dir = repo_root / "reference_data"
 
     if not reference_data_dir.exists():

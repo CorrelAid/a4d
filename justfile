@@ -123,7 +123,7 @@ docker-build:
     docker build --provenance=false --platform=linux/amd64 \
         -t {{IMAGE}} \
         -t {{IMAGE_SHA}} \
-        -f Dockerfile ..
+        -f Dockerfile .
 
 # Smoke test: verify the image starts and the CLI is reachable
 docker-smoke:

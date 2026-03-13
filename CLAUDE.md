@@ -1,61 +1,39 @@
 # CLAUDE.md
 
-This repository contains **two projects**:
+## Python Pipeline
 
-## 1. R Pipeline (Production - Legacy)
-
-**Location**: Root directory
-**Status**: Production (being phased out)
-
-The original R implementation of the A4D medical tracker data processing pipeline.
-
-**Key Files**:
-- `R/` - R package code
-- `scripts/R/` - Pipeline scripts
-- `reference_data/` - Shared YAML configurations
-
-**Commands**: See README.md for R-specific commands
-
----
-
-## 2. Python Pipeline (Active Development)
-
-**Location**: `a4d-python/`
-**Status**: Active migration
+**Location**: Repo root
 **Branch**: `migration`
 
-New Python implementation with better performance and incremental processing.
+Python implementation of the A4D medical tracker data processing pipeline.
 
-**Documentation**: [a4d-python/docs/CLAUDE.md](a4d-python/docs/CLAUDE.md)
+**Key Directories**:
+- `src/` - Python package source
+- `tests/` - Test suite
+- `docs/` - Documentation (see [docs/CLAUDE.md](docs/CLAUDE.md) for detailed guidance)
+- `scripts/` - Utility scripts
+- `reference_data/` - Shared YAML configs (synonyms, validation rules, provinces)
 
 **Quick Start**:
 ```bash
-cd a4d-python
 uv sync
 uv run pytest
 ```
 
-**Migration Guide**: [a4d-python/docs/migration/MIGRATION_GUIDE.md](a4d-python/docs/migration/MIGRATION_GUIDE.md)
+**Migration Guide**: [docs/migration/MIGRATION_GUIDE.md](docs/migration/MIGRATION_GUIDE.md)
 
----
+## R Archive
 
-## Working on This Repository
+**Location**: `r-archive/`
 
-**If working on R code**: Stay in root, use R commands
-
-**If working on Python migration**:
-```bash
-cd a4d-python
-# See a4d-python/docs/CLAUDE.md for Python-specific guidance
-```
+Legacy R implementation, preserved for reference. Do not modify.
 
 ## Shared Resources
 
-Both projects use the same reference data:
 - `reference_data/synonyms/` - Column name mappings
 - `reference_data/data_cleaning.yaml` - Validation rules
 - `reference_data/provinces/` - Allowed provinces
 
-**Do not modify these** without testing both R and Python pipelines.
-- Always check your implementation against the original R pipeline and check if the logic is the same
-- Limit comments to explain why a desigin was made or give important context information for the migration but do not use comments for obvious code otherwise
+**Do not modify these** without testing the Python pipeline.
+- Always check your implementation against the original R pipeline and verify the logic is the same
+- Limit comments to explain why a design was made or give important context for the migration; do not use comments for obvious code
