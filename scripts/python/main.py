@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "click>=8.3.1",
+#     "openpyxl>=3.1.5",
+#     "pandas>=3.0.1",
+# ]
+# ///
 """ Small cli helper tool to replace patient names with patient ids in excel files.
 
 This script is used to replace patient names with patient ids in excel files.
