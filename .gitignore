@@ -1,16 +1,70 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-.Rhistory
-.Rdata
-.httr-oauth
-.DS_Store
-.Renviron
-rsconnect
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-data/output
-data/mapping_table.csv
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# uv
+.uv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Data (sensitive)
+data/
+output/
+*.parquet
+*.xlsx
+!reference_data/
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Serena (MCP server state)
 .serena/

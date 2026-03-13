@@ -4,20 +4,21 @@ on:
   push:
     branches: [migration]
     paths:
-      - 'a4d-python/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/python-ci.yml'
   pull_request:
     branches: [main, develop, migration]
     paths:
-      - 'a4d-python/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/python-ci.yml'
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: a4d-python
 
     steps:
     - uses: actions/checkout@v4
@@ -48,5 +49,5 @@ jobs:
     - name: Upload coverage
       uses: codecov/codecov-action@v3
       with:
-        files: ./a4d-python/coverage.xml
+        files: ./coverage.xml
         flags: python

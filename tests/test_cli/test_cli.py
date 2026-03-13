@@ -105,7 +105,9 @@ class TestRunPipeline:
         mock_result.tables = {}
         mock_run_pipeline.return_value = mock_result
 
-        result = runner.invoke(app, ["run-pipeline", "--skip-download", "--skip-upload"])
+        result = runner.invoke(
+            app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
+        )
 
         mock_run_pipeline.assert_called_once()
         assert result.exit_code == 0
@@ -133,7 +135,9 @@ class TestRunPipeline:
         mock_result.tables = {}
         mock_run_pipeline.return_value = mock_result
 
-        result = runner.invoke(app, ["run-pipeline", "--skip-download", "--skip-upload"])
+        result = runner.invoke(
+            app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
+        )
 
         assert result.exit_code == 1
 

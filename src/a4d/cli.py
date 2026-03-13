@@ -344,6 +344,8 @@ def create_tables_cmd(
     console.print(f"Found {len(cleaned_files)} cleaned parquet files\n")
 
     try:
+        from a4d.tables.clinic import create_table_clinic_static
+
         console.print("[bold]Creating tables...[/bold]")
 
         # Create patient tables
@@ -357,6 +359,11 @@ def create_tables_cmd(
             tables["logs"] = logs_table_path
         else:
             console.print(f"  [yellow]Warning: Logs directory not found at {logs_dir}[/yellow]")
+
+        # Create clinic static table (reads reference_data/clinic_data.xlsx)
+        console.print("  • Creating clinic static table...")
+        clinic_table_path = create_table_clinic_static(output_dir)
+        tables["clinic_data_static"] = clinic_table_path
 
         # Display results
         console.print("\n[bold green]✓ Tables created successfully![/bold green]")
@@ -521,6 +528,33 @@ def upload_output_cmd(
         raise typer.Exit(1) from e
 
 
+@app.command("download-reference-data")
+def download_reference_data_cmd() -> None:
+    """Download reference data files from Google Drive.
+
+    Downloads clinic_data.xlsx from Google Drive into the reference_data/
+    directory. Uses Application Default Credentials with Drive readonly scope.
+
+    The service account must have at least Viewer access to the file.
+    """
+    from a4d.gcp.drive import download_clinic_data
+    from a4d.reference.loaders import find_reference_data_dir
+
+    console.print("\n[bold blue]A4D Reference Data Download[/bold blue]\n")
+
+    reference_dir = find_reference_data_dir()
+    console.print(f"Destination: {reference_dir}\n")
+
+    try:
+        console.print("Downloading clinic_data.xlsx from Google Drive...")
+        path = download_clinic_data(reference_dir)
+        size_kb = path.stat().st_size / 1024
+        console.print(f"  [bold green]✓[/bold green] clinic_data.xlsx ({size_kb:.1f} KB) -> {path}\n")
+    except Exception as e:
+        console.print(f"  [bold red]✗ Download failed: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
 @app.command("run-pipeline")
 def run_pipeline_cmd(
     workers: Annotated[
@@ -540,13 +574,21 @@ def run_pipeline_cmd(
         bool,
         typer.Option("--skip-upload", help="Skip GCS and BigQuery upload steps"),
     ] = False,
+    skip_drive_download: Annotated[
+        bool,
+        typer.Option(
+            "--skip-drive-download",
+            help="Skip Google Drive download of reference data (clinic_data.xlsx)",
+        ),
+    ] = False,
 ):
     """Run the full end-to-end A4D pipeline.
 
     Executes all pipeline stages in sequence:
+      0. Download reference data (clinic_data.xlsx) from Google Drive
       1. Download tracker files from Google Cloud Storage
       2. Extract and clean all tracker files
-      3. Create final tables (static, monthly, annual)
+      3. Create final tables (static, monthly, annual, clinic)
       4. Upload output files to Google Cloud Storage
       5. Ingest tables into BigQuery
 
@@ -562,10 +604,15 @@ def run_pipeline_cmd(
 
         # Process local files only, no download or upload
         uv run a4d run-pipeline --skip-download --skip-upload
+
+        # Skip Drive download if clinic_data.xlsx is already current
+        uv run a4d run-pipeline --skip-drive-download
     """
     from a4d.config import settings
     from a4d.gcp.bigquery import load_pipeline_tables
+    from a4d.gcp.drive import download_clinic_data
     from a4d.gcp.storage import download_tracker_files, upload_output
+    from a4d.reference.loaders import find_reference_data_dir
     from a4d.tables.clinic import create_table_clinic_static
 
     _workers = workers if workers is not None else settings.max_workers
@@ -577,9 +624,24 @@ def run_pipeline_cmd(
     console.print(f"Workers:     {_workers}")
     console.print(f"Project:     {settings.project_id}")
     console.print(f"Dataset:     {settings.dataset}")
+    console.print(f"Drive:       {'yes' if not skip_drive_download else 'skipped (--skip-drive-download)'}")
     console.print(f"Download:    {'yes' if not skip_download else 'skipped (--skip-download)'}")
     console.print(f"Upload:      {'yes' if not skip_upload else 'skipped (--skip-upload)'}")
     console.print()
+
+    # Step 0 – Download reference data from Google Drive
+    if not skip_drive_download:
+        console.print("[bold]Step 0/5:[/bold] Downloading reference data from Google Drive...")
+        try:
+            reference_dir = find_reference_data_dir()
+            path = download_clinic_data(reference_dir)
+            size_kb = path.stat().st_size / 1024
+            console.print(f"  ✓ clinic_data.xlsx ({size_kb:.1f} KB)\n")
+        except Exception as e:
+            console.print(f"\n[bold red]Error downloading reference data: {e}[/bold red]\n")
+            raise typer.Exit(1) from e
+    else:
+        console.print("[bold]Step 0/5:[/bold] Skipping Drive download (--skip-drive-download)\n")
 
     # Step 1 – Download tracker files from GCS
     if not skip_download:

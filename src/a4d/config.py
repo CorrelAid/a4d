@@ -3,7 +3,12 @@
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env into os.environ so non-prefixed vars like GOOGLE_APPLICATION_CREDENTIALS
+# are visible to third-party SDKs (Google Auth, etc.) without requiring a manual export.
+load_dotenv(override=False)
 
 
 class Settings(BaseSettings):
@@ -19,6 +24,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_prefix="A4D_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Environment
