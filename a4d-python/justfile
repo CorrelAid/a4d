@@ -200,6 +200,13 @@ logs-job:
         --project={{PROJECT}} \
         --format="value(textPayload)"
 
+# Show current resource settings (CPU, memory, timeout, parallelism) for the Cloud Run Job
+job-settings:
+    gcloud run jobs describe a4d-pipeline \
+        --region=asia-southeast2 \
+        --project={{PROJECT}} \
+        --format="yaml(spec.template.spec.template.spec.containers[0].resources, spec.template.spec.template.spec.timeoutSeconds, spec.template.spec.parallelism, spec.template.spec.taskCount)"
+
 # Roll back Cloud Run Job to a specific git SHA
 # Usage: just rollback abc1234
 rollback SHA:
