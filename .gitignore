@@ -71,3 +71,4 @@ Thumbs.db
 
 # Secrets (GCP service accounts, etc.)
 secrets/
+.opencode
