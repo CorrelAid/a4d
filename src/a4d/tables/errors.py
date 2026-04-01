@@ -48,17 +48,23 @@ def create_table_errors(data_errors: list[DataError], output_dir: Path) -> Path:
         return output_file
 
     records = [e.model_dump() for e in data_errors]
-    df = pl.DataFrame(records).with_columns(
-        pl.col("error_code").cast(pl.Categorical),
-        pl.col("script").cast(pl.Categorical),
-        pl.col("function_name").cast(pl.Categorical),
-    ).sort("timestamp")
+    df = (
+        pl.DataFrame(records)
+        .with_columns(
+            pl.col("error_code").cast(pl.Categorical),
+            pl.col("script").cast(pl.Categorical),
+            pl.col("function_name").cast(pl.Categorical),
+        )
+        .sort("timestamp")
+    )
 
     df.write_parquet(output_file)
 
     logger.info(f"Errors table saved: {output_file} ({len(df):,} records)")
 
-    breakdown = df.group_by("error_code").agg(pl.len().alias("count")).sort("count", descending=True)
+    breakdown = (
+        df.group_by("error_code").agg(pl.len().alias("count")).sort("count", descending=True)
+    )
     logger.info(f"Error breakdown: {breakdown.to_dict(as_series=False)}")
 
     return output_file

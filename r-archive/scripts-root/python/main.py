@@ -6,15 +6,15 @@
 #     "pandas>=3.0.1",
 # ]
 # ///
-""" Small cli helper tool to replace patient names with patient ids in excel files.
+"""Small cli helper tool to replace patient names with patient ids in excel files.
 
 This script is used to replace patient names with patient ids in excel files.
 The script will look for excel files in the source directory and replace the names
-with the ids. The script will create a new directory called 'output' next to the source directory 
+with the ids. The script will create a new directory called 'output' next to the source directory
 and save the changed files there.
-The source directory is specified by the user via prompt. 
+The source directory is specified by the user via prompt.
 The output directory is specified by the user via option --output, and defaults to "output".
-The script is logging to a file called 'main_replace_patient_names.log' 
+The script is logging to a file called 'main_replace_patient_names.log'
 in a subdirectory called 'logs' inside the output directory.
 
 Example call:
@@ -78,9 +78,7 @@ def replace_name_with_id(src: Path, output: str):
 
     logger.info("Start processing %s excel files.", len(excel_files))
     for i, excel_file in enumerate(excel_files):
-        logger.info(
-            "Start processing %s (%s/%s).", excel_file.name, i + 1, len(excel_files)
-        )
+        logger.info("Start processing %s (%s/%s).", excel_file.name, i + 1, len(excel_files))
 
         try:
             wb = openpyxl.load_workbook(str(excel_file), data_only=True)
@@ -98,9 +96,7 @@ def replace_name_with_id(src: Path, output: str):
         patient_data = pd.DataFrame(
             [
                 (b.value, c.value)
-                for b, c in wb["Patient List"][
-                    PATIENT_DATA_RANGE[0] : PATIENT_DATA_RANGE[1]
-                ]
+                for b, c in wb["Patient List"][PATIENT_DATA_RANGE[0] : PATIENT_DATA_RANGE[1]]
                 if b.value and c.value
             ],
             columns=["id", "name"],
@@ -129,9 +125,7 @@ def replace_name_with_id(src: Path, output: str):
         if not all(patients_replaced.values()):
             logger.warning(
                 "Not all patient names were replaced. Missing patients: %s",
-                ", ".join(
-                    name for name, replaced in patients_replaced.items() if not replaced
-                ),
+                ", ".join(name for name, replaced in patients_replaced.items() if not replaced),
             )
 
         wb.save(output_dir / excel_file.name)
