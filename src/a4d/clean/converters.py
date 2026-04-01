@@ -107,7 +107,7 @@ def safe_convert_column(
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
-                error_message=f"Could not convert to {target_type}",
+                error_message=f"Could not convert '{row[f'_orig_{column}']}' to {target_type}",
                 error_code="type_conversion",
                 function_name="safe_convert_column",
             )
@@ -196,7 +196,7 @@ def parse_date_column(
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
-                error_message="Could not parse date",
+                error_message=f"Could not parse date '{row[f'_orig_{column}']}'",
                 error_code="type_conversion",
                 function_name="parse_date_column",
             )

@@ -15,6 +15,7 @@ from a4d.pipeline.patient import (
     process_patient_tables,
     run_patient_pipeline,
 )
+from a4d.tables.errors import create_table_errors
 from a4d.tables.logs import create_table_logs
 
 # google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
@@ -46,26 +47,14 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     tables_table.add_column("Path", style="green")
     tables_table.add_column("Records", justify="right", style="magenta")
 
-    # Add patient tables first, then logs table
-    for name in ["static", "monthly", "annual"]:
+    for name in ["static", "monthly", "annual", "logs", "errors"]:
         if name in tables:
             path = tables[name]
             try:
-                df = pl.read_parquet(path)
-                record_count = f"{len(df):,}"
+                record_count = f"{pl.read_parquet(path).__len__():,}"
             except Exception:
                 record_count = "?"
             tables_table.add_row(name, str(path.name), record_count)
-
-    # Add logs table last
-    if "logs" in tables:
-        path = tables["logs"]
-        try:
-            df = pl.read_parquet(path)
-            record_count = f"{len(df):,}"
-        except Exception:
-            record_count = "?"
-        tables_table.add_row("logs", str(path.name), record_count)
 
     console.print(tables_table)
     console.print()
@@ -155,7 +144,7 @@ def process_patient_cmd(
     console.print()
 
     # Step 1: Extract + clean (table creation handled below for visible progress)
-    console.print("[bold]Step 1/3:[/bold] Extracting and cleaning tracker files...")
+    console.print("[bold]Step 1/4:[/bold] Extracting and cleaning tracker files...")
     try:
         result = run_patient_pipeline(
             tracker_files=tracker_files,
@@ -171,28 +160,44 @@ def process_patient_cmd(
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
 
-    # Step 2+3: Table and log creation with console feedback
+    # Steps 2-4: Table and log/error creation with console feedback
     tables: dict[str, Path] = {}
     if not skip_tables and result.successful_trackers > 0:
         cleaned_dir = _output_root / "patient_data_cleaned"
         tables_dir = _output_root / "tables"
         logs_dir = _output_root / "logs"
 
-        console.print("[bold]Step 2/3:[/bold] Creating patient tables...")
+        console.print("[bold]Step 2/4:[/bold] Creating patient tables...")
         try:
             tables = process_patient_tables(cleaned_dir, tables_dir)
         except Exception as e:
             console.print(f"[bold red]Error creating tables: {e}[/bold red]")
 
         if logs_dir.exists():
-            console.print("[bold]Step 3/3:[/bold] Creating logs table...")
+            console.print("[bold]Step 3/4:[/bold] Creating logs table...")
             try:
                 logs_table_path = create_table_logs(logs_dir, tables_dir)
                 tables["logs"] = logs_table_path
             except Exception as e:
                 console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
+
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
     elif skip_tables:
         console.print("[dim]Steps 2–3: Skipped (--skip-tables)[/dim]")
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            tables_dir = _output_root / "tables"
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
 
     # Display results
     console.print("\n[bold]Pipeline Results[/bold]\n")
