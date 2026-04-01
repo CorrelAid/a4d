@@ -13,6 +13,7 @@ from a4d.config import settings
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
 from a4d.pipeline.tracker import process_tracker_patient
+from a4d.tables.errors import create_table_errors
 from a4d.tables.logs import create_table_logs
 from a4d.tables.patient import (
     create_table_patient_data_annual,
@@ -314,6 +315,13 @@ def run_patient_pipeline(
                 logs_table_path = create_table_logs(logs_dir, tables_dir)
                 tables["logs"] = logs_table_path
                 logger.info(f"Logs table created: {logs_table_path}")
+
+            # Aggregate all data quality errors from every tracker into one table
+            all_data_errors = [e for r in tracker_results for e in r.data_errors]
+            logger.info(f"Creating errors table ({len(all_data_errors)} total data quality errors)")
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+            logger.info(f"Errors table created: {errors_table_path}")
 
             logger.info(f"Created {len(tables)} tables total")
         except Exception:

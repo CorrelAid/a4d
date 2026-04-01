@@ -27,6 +27,7 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     ],
     "clinic_data_static": ["clinic_id"],
     "logs": ["level", "error_code", "file_name", "function"],
+    "errors": ["file_name", "error_code", "patient_id", "column"],
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
@@ -38,6 +39,7 @@ PARQUET_TO_TABLE: dict[str, str] = {
     "patient_data_annual.parquet": "patient_data_annual",
     "clinic_data_static.parquet": "clinic_data_static",
     "table_logs.parquet": "logs",
+    "table_errors.parquet": "errors",
 }
 
 

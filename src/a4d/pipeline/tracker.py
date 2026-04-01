@@ -99,6 +99,7 @@ def process_tracker_patient(
             error=None,
             cleaning_errors=error_count,
             error_breakdown=error_breakdown if error_breakdown else None,
+            data_errors=error_collector.errors.copy(),
         )
 
     except Exception as e:
