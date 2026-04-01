@@ -4,10 +4,8 @@ version = "2.0.0"
 description = "A4D Medical Tracker Data Processing Pipeline (Python)"
 readme = "README.md"
 requires-python = ">=3.14"
-authors = [
-    {name = "Michael Aydinbas", email = "michael.aydinbas@gmail.com"}
-]
-license = {text = "MIT"}
+authors = [{ name = "Michael Aydinbas", email = "michael.aydinbas@gmail.com" }]
+license = { text = "MIT" }
 
 dependencies = [
     "polars>=0.20.0",
@@ -48,20 +46,20 @@ build-backend = "hatchling.build"
 line-length = 100
 target-version = "py314"
 lint.select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-    "A",   # flake8-builtins
-    "C4",  # flake8-comprehensions
-    "PT",  # flake8-pytest-style
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "A",  # flake8-builtins
+    "C4", # flake8-comprehensions
+    "PT", # flake8-pytest-style
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"__init__.py" = ["F401"] # Allow unused imports in __init__.py
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -72,11 +70,5 @@ markers = [
     "integration: marks tests as integration tests requiring real tracker files",
     "e2e: marks tests as end-to-end tests (extraction + cleaning)",
 ]
-addopts = [
-    "--cov=src/a4d",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-]
-filterwarnings = [
-    "ignore::RuntimeWarning:google_crc32c",
-]
+addopts = ["--cov=src/a4d", "--cov-report=term-missing", "--cov-report=html"]
+filterwarnings = ["ignore::RuntimeWarning:google_crc32c"]

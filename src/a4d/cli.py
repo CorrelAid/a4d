@@ -554,7 +554,9 @@ def download_reference_data_cmd() -> None:
         console.print("Downloading clinic_data.xlsx from Google Drive...")
         path = download_clinic_data(reference_dir)
         size_kb = path.stat().st_size / 1024
-        console.print(f"  [bold green]✓[/bold green] clinic_data.xlsx ({size_kb:.1f} KB) -> {path}\n")
+        console.print(
+            f"  [bold green]✓[/bold green] clinic_data.xlsx ({size_kb:.1f} KB) -> {path}\n"
+        )
     except Exception as e:
         console.print(f"  [bold red]✗ Download failed: {e}[/bold red]\n")
         raise typer.Exit(1) from e
@@ -629,7 +631,9 @@ def run_pipeline_cmd(
     console.print(f"Workers:     {_workers}")
     console.print(f"Project:     {settings.project_id}")
     console.print(f"Dataset:     {settings.dataset}")
-    console.print(f"Drive:       {'yes' if not skip_drive_download else 'skipped (--skip-drive-download)'}")
+    console.print(
+        f"Drive:       {'yes' if not skip_drive_download else 'skipped (--skip-drive-download)'}"
+    )
     console.print(f"Download:    {'yes' if not skip_download else 'skipped (--skip-download)'}")
     console.print(f"Upload:      {'yes' if not skip_upload else 'skipped (--skip-upload)'}")
     console.print()
@@ -714,7 +718,9 @@ def run_pipeline_cmd(
                 uploaded += upload_output(source_dir=tables_dir, prefix=f"{run_ts}/tables")
             if logs_dir.exists():
                 uploaded += upload_output(source_dir=logs_dir, prefix=f"{run_ts}/logs")
-            console.print(f"  ✓ Uploaded {len(uploaded)} files to gs://{settings.upload_bucket}/{run_ts}/\n")
+            console.print(
+                f"  ✓ Uploaded {len(uploaded)} files to gs://{settings.upload_bucket}/{run_ts}/\n"
+            )
         except Exception as e:
             console.print(f"\n[bold red]Error during GCS upload: {e}[/bold red]\n")
             raise typer.Exit(1) from e

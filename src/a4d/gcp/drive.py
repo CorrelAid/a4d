@@ -39,9 +39,7 @@ def download_clinic_data(destination: Path) -> Path:
 
     logger.info(f"Downloading clinic_data.xlsx from Google Drive (file ID: {CLINIC_DATA_FILE_ID})")
 
-    credentials, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/drive.readonly"]
-    )
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive.readonly"])
     session = google.auth.transport.requests.AuthorizedSession(credentials)
 
     # clinic_data is a Google Sheets file — must use export endpoint, not alt=media.

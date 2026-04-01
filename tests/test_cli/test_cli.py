@@ -228,7 +228,10 @@ class TestProcessPatientE2E:
         assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
 
         tables_dir = output_dir / "tables"
-        assert not tables_dir.exists() or not any(tables_dir.iterdir())
+        # Patient tables are skipped, but errors table is always written
+        for name in ["patient_data_static.parquet", "patient_data_monthly.parquet", "patient_data_annual.parquet"]:
+            assert not (tables_dir / name).exists(), f"{name} should not exist with --skip-tables"
+        assert (tables_dir / "table_errors.parquet").exists(), "errors table should always be written"
 
     def test_process_missing_file_exits_nonzero(self, tmp_path):
         """Passing a non-existent file should exit with error."""
