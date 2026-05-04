@@ -5,11 +5,13 @@ from pathlib import Path
 from loguru import logger
 
 from a4d.clean.patient import clean_patient_file
+from a4d.clean.product import clean_product_file
 from a4d.errors import ErrorCollector
 from a4d.extract.patient import export_patient_raw, read_all_patient_sheets
+from a4d.extract.product import export_product_raw, read_all_product_sheets
 from a4d.logging import file_logger
 from a4d.pipeline.models import TrackerResult
-from a4d.reference.synonyms import ColumnMapper
+from a4d.reference.synonyms import ColumnMapper, load_product_mapper
 
 
 def process_tracker_patient(
@@ -78,6 +80,82 @@ def process_tracker_patient(
             logger.info("Step 2: Cleaning patient data")
 
             clean_patient_file(
+                raw_parquet_path=raw_output,
+                output_parquet_path=cleaned_output,
+                error_collector=error_collector,
+            )
+
+            error_count = len(error_collector)
+            error_breakdown = error_collector.get_error_summary()
+            logger.info(f"Cleaned parquet saved: {cleaned_output}")
+            logger.info(f"Total data quality errors: {error_count}")
+            if error_breakdown:
+                logger.info(f"Error breakdown: {error_breakdown}")
+
+        return TrackerResult(
+            tracker_file=tracker_file,
+            tracker_name=tracker_name,
+            raw_output=raw_output,
+            cleaned_output=cleaned_output,
+            success=True,
+            error=None,
+            cleaning_errors=error_count,
+            error_breakdown=error_breakdown if error_breakdown else None,
+        )
+
+    except Exception as e:
+        logger.bind(error_code="critical_abort").exception(f"Failed to process tracker: {tracker_file.name}")
+        return TrackerResult(
+            tracker_file=tracker_file,
+            tracker_name=tracker_name,
+            raw_output=None,
+            cleaned_output=None,
+            success=False,
+            error=str(e),
+        )
+
+
+def process_tracker_product(
+    tracker_file: Path, output_root: Path, mapper: ColumnMapper | None = None
+) -> TrackerResult:
+    """Process single tracker file: extract + clean product data.
+
+    Mirrors ``process_tracker_patient``. Non-fatal cleaning errors keep
+    ``success=True`` and surface via ``error_breakdown``; only unhandled
+    exceptions set ``success=False``.
+    """
+    tracker_name = tracker_file.stem
+
+    try:
+        raw_dir = output_root / "product_data_raw"
+        cleaned_dir = output_root / "product_data_cleaned"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        cleaned_dir.mkdir(parents=True, exist_ok=True)
+
+        cleaned_output = cleaned_dir / f"{tracker_name}_product_cleaned.parquet"
+
+        with file_logger(f"{tracker_name}_product", output_root):
+            logger.info(f"Processing tracker: {tracker_file.name}")
+
+            logger.info("Step 1: Extracting product data from Excel")
+            error_collector = ErrorCollector()
+
+            mapper = mapper or load_product_mapper()
+
+            df_raw = read_all_product_sheets(
+                tracker_file=tracker_file,
+                mapper=mapper,
+                error_collector=error_collector,
+            )
+            logger.info(f"Extracted {len(df_raw)} rows")
+
+            raw_output = export_product_raw(
+                df=df_raw, tracker_file=tracker_file, output_dir=raw_dir
+            )
+            logger.info(f"Raw parquet saved: {raw_output}")
+
+            logger.info("Step 2: Cleaning product data")
+            clean_product_file(
                 raw_parquet_path=raw_output,
                 output_parquet_path=cleaned_output,
                 error_collector=error_collector,

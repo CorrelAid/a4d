@@ -1,5 +1,7 @@
 # Feature Proposal: Product Data Processing Pipeline
 
+> **OBSOLETE — historical reference only.** The product data pipeline described here was implemented and merged into `src/a4d/` on 2026-04-23. This document predates that work and is preserved for context on the original proposal; the "Problem Statement", "Implementation Plan", "Success Criteria", and "Questions for User" sections no longer reflect reality. For current state, see [docs/CLAUDE.md](../CLAUDE.md) Migration Status. For the R↔Python step mapping that guided the implementation, see [product_r_to_python_mapping.md](product_r_to_python_mapping.md).
+
 ## Summary
 
 Implement a complete product data processing pipeline in the Python codebase to match the functionality of the R pipeline. This is a critical gap as the R pipeline processes both patient AND product data, while the Python pipeline currently only handles patient data.

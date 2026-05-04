@@ -122,6 +122,73 @@ for h1, h2 in zip(header_1, header_2, strict=True):
 
 **Impact**: Negligible - differences are below any meaningful precision threshold for BMI measurements.
 
+## 5. Product Pipeline: Date Parsing Robustness
+
+**Status**: ✅ Improved in Python
+
+Three distinct date-parsing patterns surfaced during product-pipeline diff investigation against R goldens. In each case Python yields a more correct result than R; no R-parity fix is warranted. Investigation: [Ali_internship/residual_dig.ipynb](../../Ali_internship/residual_dig.ipynb).
+
+### 5.1 "Sept" → "Sep" month abbreviation
+
+**Issue in R**: `lubridate` does not recognize the 4-letter abbreviation "Sept" as September. Source strings like `"05-Sept-2025"` or `"25-Sept-2025"` are rejected → `null`.
+
+**Python Fix**: `parse_date_flexible` strips the trailing letter from any 4-letter month abbreviation before matching:
+
+```python
+re.sub(r"([a-zA-Z]{3})[a-zA-Z]", r"\1", date_str)
+```
+
+This converts `"Sept"` → `"Sep"`, after which the standard `%d-%b-%Y` parse succeeds.
+
+**Impact**: 46 rows across 28 product `(file, sheet, product)` groups where R has `null` and Python has a valid date — the `py_set_r_null` class in the joined-view diff. Affected trackers include `2024_Putrajaya Hospital A4D Tracker` (Sep24) and `2025_NPH A4D Tracker` (Sep25).
+
+**File**: [src/a4d/clean/date_parser.py:67-69](../../src/a4d/clean/date_parser.py#L67-L69)
+
+### 5.2 D/M/YYYY single-digit-month dates
+
+**Issue in R**: `lubridate::dmy()` with default formats does not parse `"20/5/2025"` (single-digit month, slash separator) — rejects → `null`.
+
+**Python Fix**: `parse_date_flexible` includes a slash-format match path that accepts both `D/M/YYYY` and `DD/MM/YYYY`.
+
+**Impact**: 5 rows in `2025_Putrajaya Hospital A4D Tracker` / May25 / WIZ Test Strips with cell values like `"20/5/2025"`, `"22/5/2025"`, `"28/5/2025"`. R rejects all; Python parses them correctly.
+
+**File**: [src/a4d/clean/date_parser.py](../../src/a4d/clean/date_parser.py)
+
+### 5.3 Future-year sentinel guard for malformed date strings
+
+**Issue in R**: `lubridate` is permissive — strings with structural typos like `"10-Oct-2-24"` (extra `-2-` injected) get force-parsed into plausible-but-incorrect dates (e.g. `2024-02-10`). The wrong date sorts at a different position in the cumulative-balance sequence, so intermediate `product_balance` values diverge from what the source spreadsheet shows. R has no future-year guard.
+
+**Python Fix**: `parse_date_flexible` returns successfully or returns the sentinel `9999-09-09` for unparseable input. `_validate_entry_dates` then re-sentinels any successfully-parsed date whose year is between the tracker year and the Buddhist-era threshold (2400) — this catches fat-fingered Gregorian years (e.g. `"2099-..."` typed in a 2024 tracker) while exempting genuine Buddhist-era dates (BE 25xx → CE 20xx). Sentinelled rows sort to the end of the cumulative-balance sequence so they don't corrupt intermediate values.
+
+```python
+BUDDHIST_ERA_THRESHOLD = 2400
+invalid_mask = (
+    pl.col("product_entry_date").is_not_null()
+    & (pl.col("product_entry_date") > max_valid)
+    & (pl.col("product_entry_date").dt.year() < BUDDHIST_ERA_THRESHOLD)
+)
+```
+
+**Impact**: 31 rows across 6 product groups (the post-Buddhist-fix `real_divergence` class in `product_balance`) — R force-parses or silently rejects malformed strings while Python correctly sentinels them. Confirmed by raw-Excel inspection of:
+
+- `"10-Oct-2-24"` (×2) — Putrajaya 2024 / Oct24 / WIZ Alcohol Swabs. R parses as `2024-02-10`; Python sentinels.
+- `"15-Seep-225"`, `"08-Sep02025"` — NPH 2025 / Sep25. Both R and Python sentinel/null these; balance still diverges via the date-sort interaction with the legitimate Sept rows from §5.1.
+- `"01-Ju-2025"` — Sarawak 2025 / Jul25. Both pipelines reject ("Ju" is too short to disambiguate Jun/Jul); balance diverges because R returns `null` (sorts in nulls-first/last position differing from sentinel) while Python returns `9999-09-09` (sorts to end deterministically).
+
+**File**: [src/a4d/clean/product.py:_validate_entry_dates](../../src/a4d/clean/product.py)
+
+## 6. Product Pipeline: Running Balance FP Precision
+
+**Status**: ℹ️ Negligible difference
+
+**Observation**: Python's vectorized `cum_sum().over([sheet, product])` and R's iterative `for (i in 1:nrow)` loop produce running balances that drift by ~5.7 × 10⁻¹⁴ at the deepest accumulation step.
+
+**Cause**: IEEE-754 floating-point accumulation order differs between Polars' vectorized cumsum and R's row-by-row addition.
+
+**Impact**: 411 rows across 80 product groups in the joined-view diff are flagged as different but classify as `fp_precision_only`. Both pipelines produce identical final-row balances per group; only sub-display-precision intermediates differ.
+
+**File**: [src/a4d/clean/product.py:_compute_running_balance](../../src/a4d/clean/product.py)
+
 ## Summary
 
 | Issue | R Behavior | Python Behavior | Classification |
@@ -130,17 +197,23 @@ for h1, h2 in zip(header_1, header_2, strict=True):
 | insulin_subtype typo | "rapic-acting" (typo) | "rapid-acting" (correct spelling) | **Python Fix** |
 | insulin_total_units extraction | Not extracted (header merge fails for 2024+ trackers) | Correctly extracted (unconditional header merge) | **Python Fix** |
 | BMI precision | 16 decimal places | 14-15 decimal places | **Negligible** |
+| product entry date "Sept" | Rejects 4-letter month abbreviation → null | Truncates to "Sep", parses correctly | **Python Fix** |
+| product entry date `D/M/YYYY` | Rejects single-digit-month slash format → null | Parses correctly | **Python Fix** |
+| product entry date — malformed strings | Force-parses to plausible-but-incorrect dates (e.g. `"10-Oct-2-24"` → 2024-02-10), distorting cumulative balance | Sentinels to `9999-09-09`, sorts to end, preserves correct intermediate balances | **Python Fix** |
+| product running balance | Iterative cumsum, slightly different IEEE-754 accumulation order | Vectorized cumsum, identical final-row balances | **Negligible** |
 
 ## Migration Validation Status
 
-✅ **Schema**: 100% match (83 columns, all types correct)
+✅ **Schema**: 100% match (83 patient columns + 19 product columns)
 ✅ **Extraction**: Improved (unconditional header merge fixes insulin_total_units)
-✅ **Cleaning**: Improved (fixes insulin_type derivation bug, corrects insulin_subtype typo)
-ℹ️ **Precision**: Acceptable float differences (~10^-15 for BMI)
+✅ **Cleaning**: Improved (insulin_type, insulin_subtype, product date parsing)
+ℹ️ **Precision**: Acceptable float differences (~10⁻¹⁵ BMI, ~10⁻¹⁴ product running balance)
 
-**All 3 value differences are Python improvements over R bugs.**
+**All value differences are Python improvements over R bugs or negligible precision drift.**
 
 The Python pipeline is production-ready with significant improvements over the R pipeline:
+
 1. **More robust header parsing** - No conditional merge that fails on 2024+ trackers
 2. **Better null handling** - Correctly checks all insulin columns before derivation
 3. **Correct terminology** - Uses proper medical terms ("rapid-acting" not "rapic-acting")
+4. **More robust date parsing** - Accepts "Sept" and `D/M/YYYY`; sentinels malformed strings instead of force-parsing them into plausible-but-wrong dates that distort cumulative balances

@@ -55,7 +55,6 @@ just run
 
 # With options
 just run --max-workers 8
-just run --force  # Reprocess all files
 just run --skip-upload  # Local testing
 ```
 
