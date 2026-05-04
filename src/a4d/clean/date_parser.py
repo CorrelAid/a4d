@@ -18,6 +18,28 @@ from loguru import logger
 # Excel epoch: dates stored as days since this date
 EXCEL_EPOCH = date(1899, 12, 30)
 
+# Known data-entry typos in month names. Patterns are applied case-insensitively
+# with word boundaries so unrelated text containing these substrings (e.g.
+# "CON0CT") is not rewritten. Replacements use uppercase since downstream
+# parsers are case-insensitive.
+TYPO_REPLACEMENTS: list[tuple[str, str]] = [
+    (r"(?i)\bMACH\b", "MAR"),
+    (r"(?i)\b0CT\b", "OCT"),
+    (r"(?i)\b0CTOBER\b", "OCTOBER"),
+    (r"(?i)\bN0V\b", "NOV"),
+    (r"(?i)\bN0VEMBER\b", "NOVEMBER"),
+]
+
+
+def rescue_date_typos(s: str) -> tuple[str, bool]:
+    """Substitute known month-name typos. Returns (possibly-rewritten, was_rescued)."""
+    rescued = False
+    for pattern, replacement in TYPO_REPLACEMENTS:
+        new_s, n = re.subn(pattern, replacement, s)
+        if n > 0:
+            s, rescued = new_s, True
+    return s, rescued
+
 
 def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> date | None:
     """Parse date strings flexibly using Python's dateutil.parser.

@@ -318,10 +318,11 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     For 2024+ trackers:
     - insulin_type: "human insulin" if any human column is Y, else "analog insulin"
     - insulin_subtype: Comma-separated list like "pre-mixed,rapid-acting,long-acting"
-      (will be replaced with "Undefined" by validation since
-      comma-separated values aren't in allowed_values)
+      Validation uses allow_csv_subset (see reference_data/validation_rules.yaml) to
+      accept each token against allowed_values and rejoin in canonical case.
 
-    NOTE: Python is CORRECT here. Comparison with R will show differences because R has a typo.
+    NOTE: Python is CORRECT here. Comparison with R will show differences because R has a typo
+    and because R's validator rejects its own multi-insulin CSV output.
 
     Args:
         df: Input DataFrame with individual insulin columns
