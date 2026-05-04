@@ -103,10 +103,10 @@ def apply_schema(df: pl.DataFrame) -> pl.DataFrame:
     """Apply the meta schema to a DataFrame.
 
     This function:
-    1. Adds missing columns with NULL values
-    2. Casts existing columns to target types (if they exist)
-    3. Reorders columns to match schema order
-    4. Returns a DataFrame with the exact schema
+    1. Adds missing columns with NULL values typed per the schema.
+    2. Reorders columns to match schema order.
+
+    Casting is the caller's responsibility (see ``safe_convert_column``).
 
     Args:
         df: Input DataFrame (may be missing columns)

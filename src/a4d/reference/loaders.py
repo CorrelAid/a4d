@@ -70,7 +70,7 @@ def load_yaml(
 
     logger.debug(f"Loading YAML file: {yaml_path}")
 
-    with open(yaml_path) as f:
+    with open(yaml_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
