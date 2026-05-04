@@ -824,12 +824,12 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
             pl.col(col).is_not_null() & (pl.col(col) > pl.col("_max_valid_date"))
         )
 
-        # Log each error
-        for row in invalid_dates.iter_rows(named=True):
-            patient_id = row.get("patient_id", "UNKNOWN")
-            file_name = row.get("file_name", "UNKNOWN")
-            original_date = row.get(col)
-            tracker_year = row.get("tracker_year")
+        # Log each error (tuple-unpack avoids per-row dict construction)
+        for patient_id, file_name, original_date, tracker_year in invalid_dates.select(
+            "patient_id", "file_name", col, "tracker_year"
+        ).iter_rows():
+            patient_id = patient_id if patient_id is not None else "UNKNOWN"
+            file_name = file_name if file_name is not None else "UNKNOWN"
 
             logger.bind(error_code="invalid_value").warning(
                 f"Patient {patient_id}: {col} = {original_date} "

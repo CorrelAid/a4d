@@ -209,7 +209,8 @@ def test_create_table_patient_data_static(cleaned_patient_data_files: list[Path]
     """Test creation of static patient data table."""
     output_dir = tmp_path / "output"
 
-    output_file = create_table_patient_data_static(cleaned_patient_data_files, output_dir)
+    patient_data = read_cleaned_patient_data(cleaned_patient_data_files)
+    output_file = create_table_patient_data_static(patient_data, output_dir)
 
     assert output_file.exists()
     assert output_file.name == "patient_data_static.parquet"
@@ -242,7 +243,8 @@ def test_create_table_patient_data_monthly(cleaned_patient_data_files: list[Path
     """Test creation of monthly patient data table."""
     output_dir = tmp_path / "output"
 
-    output_file = create_table_patient_data_monthly(cleaned_patient_data_files, output_dir)
+    patient_data = read_cleaned_patient_data(cleaned_patient_data_files)
+    output_file = create_table_patient_data_monthly(patient_data, output_dir)
 
     assert output_file.exists()
     assert output_file.name == "patient_data_monthly.parquet"
@@ -266,7 +268,8 @@ def test_create_table_patient_data_annual(cleaned_patient_data_files: list[Path]
     """Test creation of annual patient data table."""
     output_dir = tmp_path / "output"
 
-    output_file = create_table_patient_data_annual(cleaned_patient_data_files, output_dir)
+    patient_data = read_cleaned_patient_data(cleaned_patient_data_files)
+    output_file = create_table_patient_data_annual(patient_data, output_dir)
 
     assert output_file.exists()
     assert output_file.name == "patient_data_annual.parquet"
@@ -334,7 +337,8 @@ def test_create_table_patient_data_annual_filters_pre_2024(tmp_path: Path):
     df1.write_parquet(file1)
 
     output_dir = tmp_path / "output"
-    output_file = create_table_patient_data_annual([file1], output_dir)
+    patient_data = read_cleaned_patient_data([file1])
+    output_file = create_table_patient_data_annual(patient_data, output_dir)
 
     result = pl.read_parquet(output_file)
     assert result.shape[0] == 0
@@ -343,7 +347,8 @@ def test_create_table_patient_data_annual_filters_pre_2024(tmp_path: Path):
 def test_static_table_sorting(cleaned_patient_data_files: list[Path], tmp_path: Path):
     """Test that static table is sorted correctly."""
     output_dir = tmp_path / "output"
-    output_file = create_table_patient_data_static(cleaned_patient_data_files, output_dir)
+    patient_data = read_cleaned_patient_data(cleaned_patient_data_files)
+    output_file = create_table_patient_data_static(patient_data, output_dir)
 
     result = pl.read_parquet(output_file)
 
