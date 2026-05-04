@@ -1,5 +1,7 @@
 # a4d Python Pipeline - Development Commands
 
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
 # Default recipe (show available commands)
 default:
     @just --list
@@ -7,9 +9,7 @@ default:
 PROJECT  := "a4dphase2"
 DATASET  := "tracker"
 REGISTRY := "asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline"
-GIT_SHA  := `git rev-parse --short HEAD`
 IMAGE    := REGISTRY + ":latest"
-IMAGE_SHA := REGISTRY + ":" + GIT_SHA
 
 # ── Environment ───────────────────────────────────────────────────────────────
 
@@ -25,20 +25,23 @@ update:
 info:
     @echo "Python version:"
     @uv run python --version
-    @echo "\nInstalled packages:"
+    @echo ""
+    @echo "Installed packages:"
     @uv pip list
 
 # Clean cache and build artifacts
+[unix]
 clean:
-    rm -rf .ruff_cache
-    rm -rf .pytest_cache
-    rm -rf htmlcov
-    rm -rf .coverage
-    rm -rf dist
-    rm -rf build
-    rm -rf src/*.egg-info
+    rm -rf .ruff_cache .pytest_cache htmlcov .coverage dist build src/*.egg-info
     find . -type d -name __pycache__ -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
+
+[windows]
+clean:
+    Remove-Item -Path .ruff_cache, .pytest_cache, htmlcov, .coverage, dist, build -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem src -Filter *.egg-info -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    Get-ChildItem -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Recurse -File -Filter *.pyc | Remove-Item -Force -ErrorAction SilentlyContinue
 
 # ── Code Quality ──────────────────────────────────────────────────────────────
 
@@ -93,18 +96,29 @@ hooks-run:
 
 # ── Local Pipeline ────────────────────────────────────────────────────────────
 
-# Process a single tracker file (no GCS)
+# Process a single patient tracker file (no GCS)
 run-file FILE:
     uv run a4d process-patient --file "{{FILE}}"
 
-# Process local files only, no GCS (use files already in data_root)
-# Optionally pass a path: just run-local --data-root /path/to/trackers
+# Process a single product tracker file (no GCS); ad-hoc/debug only — use `just run` for full runs
+run-file-product FILE:
+    uv run a4d process-product --file "{{FILE}}"
+
+# Process local patient files only, no GCS (paths with spaces: use --file recipes instead)
 run-local *ARGS:
     uv run a4d process-patient {{ARGS}}
 
-# Create tables from existing cleaned parquet files
+# Process local product files only, no GCS; ad-hoc/debug only — use `just run` for full runs
+run-local-product *ARGS:
+    uv run a4d process-product {{ARGS}}
+
+# Create patient tables from existing cleaned parquet files
 create-tables INPUT:
     uv run a4d create-tables --input "{{INPUT}}"
+
+# Create product tables from existing cleaned parquet files
+create-product-tables INPUT:
+    uv run a4d create-product-tables --input "{{INPUT}}"
 
 # Download from GCS, process locally, no upload
 run-download *ARGS:
@@ -119,10 +133,14 @@ run *ARGS:
 # --provenance=false: suppress BuildKit attestation manifests so the registry
 # shows one image entry instead of three (image + attestation + index)
 # Build Docker image tagged as :latest and :<git-sha>
+[unix]
 docker-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GIT_SHA=$(git rev-parse --short HEAD)
     docker build --provenance=false --platform=linux/amd64 \
         -t {{IMAGE}} \
-        -t {{IMAGE_SHA}} \
+        -t {{REGISTRY}}:${GIT_SHA} \
         -f Dockerfile .
 
 # Smoke test: verify the image starts and the CLI is reachable
@@ -130,12 +148,17 @@ docker-smoke:
     docker run --rm {{IMAGE}} uv run a4d --help
 
 # Push both :latest and :<git-sha> tags to Artifact Registry
+[unix]
 docker-push: docker-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GIT_SHA=$(git rev-parse --short HEAD)
     docker push {{IMAGE}}
-    docker push {{IMAGE_SHA}}
-    @echo "Pushed: {{IMAGE}} and {{IMAGE_SHA}}"
+    docker push {{REGISTRY}}:${GIT_SHA}
+    echo "Pushed: {{IMAGE}} and {{REGISTRY}}:${GIT_SHA}"
 
 # Delete all images from Artifact Registry except :latest
+[unix]
 docker-clean:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -164,12 +187,15 @@ docker-list:
 
 # Creates dated snapshots e.g. patient_data_static_20260227 with 7-day expiry.
 # Snapshot all BigQuery pipeline tables (safe to run before deploy)
+[unix]
 backup-bq:
     #!/usr/bin/env bash
     set -euo pipefail
     DATE=$(date +%Y%m%d)
     EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
-    TABLES="patient_data_static patient_data_monthly patient_data_annual"
+    # Output data tables that get WRITE_TRUNCATE'd by load_pipeline_tables on every run.
+    # Keep in sync with PARQUET_TO_TABLE in src/a4d/gcp/bigquery.py when adding new pipelines.
+    TABLES="patient_data_static patient_data_monthly patient_data_annual product_data"
     for TABLE in $TABLES; do
         if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
             SNAP="${TABLE}_${DATE}"
@@ -185,6 +211,7 @@ backup-bq:
     echo "Done. Snapshots expire in 7 days."
 
 # Build, push and update the Cloud Run Job to use the latest image
+[unix]
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
         --image={{IMAGE}} \

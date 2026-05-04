@@ -15,6 +15,8 @@ from a4d.pipeline.patient import (
     process_patient_tables,
     run_patient_pipeline,
 )
+from a4d.pipeline.product import process_product_tables, run_product_pipeline
+from a4d.state import filter_unchanged_trackers, load_previous_manifest
 from a4d.tables.logs import create_table_logs
 
 # google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
@@ -46,8 +48,8 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     tables_table.add_column("Path", style="green")
     tables_table.add_column("Records", justify="right", style="magenta")
 
-    # Add patient tables first, then logs table
-    for name in ["static", "monthly", "annual"]:
+    # Add patient tables first, then product, then logs table
+    for name in ["static", "monthly", "annual", "product_data"]:
         if name in tables:
             path = tables[name]
             try:
@@ -71,6 +73,147 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     console.print()
 
 
+def _render_pipeline_header(
+    data_root: str,
+    output_root: str | Path,
+    workers: int,
+    *,
+    skip_tables: bool = False,
+    extras: list[tuple[str, str]] | None = None,
+) -> None:
+    """Render the per-command header banner.
+
+    `extras` carries the run-pipeline-only fields (Project / Dataset / Drive /
+    Download / Upload / Product) so process-patient and process-product can
+    omit them. All labels are padded to a 13-character column to match the
+    pre-refactor output exactly.
+    """
+    rows: list[tuple[str, str]] = [
+        ("Data root", str(data_root)),
+        ("Output root", str(output_root)),
+        ("Workers", str(workers)),
+    ]
+    if skip_tables:
+        rows.append(("Tables", "skipped"))
+    if extras:
+        rows.extend(extras)
+    for label, value in rows:
+        console.print(f"{label + ':':<13}{value}")
+    console.print()
+
+
+def _render_pipeline_results_summary(
+    result,
+    tables: dict[str, Path],
+    total_errors: int,
+    files_with_errors: int,
+) -> None:
+    """Render the 7-row Summary table used by process-patient / process-product."""
+    summary_table = Table(title="Summary")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+
+    summary_table.add_row("Total Trackers", str(result.total_trackers))
+    summary_table.add_row("Successful", str(result.successful_trackers))
+    summary_table.add_row("Failed", str(result.failed_trackers))
+    summary_table.add_row("Tables Created", str(len(tables)))
+    summary_table.add_row("", "")
+    summary_table.add_row("Data Quality Errors", f"{total_errors:,}")
+    summary_table.add_row("Files with Errors", str(files_with_errors))
+
+    console.print(summary_table)
+
+
+def _resolve_tracker_files(
+    file: Path | None,
+    data_root_arg: Path | None,
+    incremental: bool,
+    output_root: Path,
+) -> tuple[list[Path] | None, str]:
+    """Resolve the tracker-file list for a CLI invocation.
+
+    Returns ``(tracker_files, display_str)``. ``tracker_files`` is ``None`` when
+    the orchestrator should discover trackers itself (the default
+    non-incremental "process everything in data_root" path). An empty list means
+    discovery + incremental filtering produced no work; the caller should
+    short-circuit.
+
+    --file always wins; --incremental + --file is a no-op (logged warning),
+    matching the design that single-file is an explicit user override.
+    """
+    if file:
+        if incremental:
+            console.print(
+                "[yellow]Warning: --incremental is ignored when --file is set[/yellow]"
+            )
+        return [file], f"{file} (single file)"
+
+    from a4d.config import settings as _settings
+
+    if data_root_arg is not None:
+        files = discover_tracker_files(data_root_arg)
+        if not files:
+            console.print(
+                f"[bold red]Error: No tracker files found in {data_root_arg}[/bold red]\n"
+            )
+            raise typer.Exit(1)
+        display = str(data_root_arg)
+    elif incremental:
+        files = discover_tracker_files(_settings.data_root)
+        display = str(_settings.data_root)
+    else:
+        # Default: orchestrator discovers everything from settings.data_root.
+        return None, str(_settings.data_root)
+
+    if incremental:
+        manifest = load_previous_manifest(output_root)
+        files, summary = filter_unchanged_trackers(files, manifest)
+        console.print(
+            f"[cyan]Incremental filter: queued {summary.queued}, "
+            f"skipped {summary.skipped} unchanged "
+            f"(new={summary.new}, changed={summary.changed}, "
+            f"incomplete={summary.previously_incomplete})[/cyan]\n"
+        )
+
+    return files, display
+
+
+def _render_failed_trackers(
+    result,
+    *,
+    mode: str,
+    truncate: int | None = 100,
+    title: str = "Failed Trackers",
+    leading_newline: bool = True,
+) -> None:
+    """Render the failed-trackers section.
+
+    `mode="table"` matches process-patient / process-product (Rich Table,
+    error truncated). `mode="bullets"` matches run-pipeline (bullet list,
+    full error). `truncate` is ignored in bullets mode.
+    """
+    if result.failed_trackers <= 0:
+        return
+    prefix = "\n" if leading_newline else ""
+    console.print(f"{prefix}[bold yellow]{title}:[/bold yellow]")
+    if mode == "table":
+        failed_table = Table()
+        failed_table.add_column("File", style="red")
+        failed_table.add_column("Error")
+        for tr in result.tracker_results:
+            if not tr.success:
+                error_text = str(tr.error)
+                if truncate is not None:
+                    error_text = error_text[:truncate]
+                failed_table.add_row(tr.tracker_file.name, error_text)
+        console.print(failed_table)
+    else:  # bullets
+        for tr in result.tracker_results:
+            if not tr.success:
+                console.print(f"  • {tr.tracker_file.name}: {tr.error}")
+        console.print()
+
+
 @app.command("process-patient")
 def process_patient_cmd(
     file: Annotated[
@@ -90,9 +233,6 @@ def process_patient_cmd(
     skip_tables: Annotated[
         bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
     ] = False,
-    force: Annotated[
-        bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
-    ] = False,
     data_root: Annotated[
         Path | None,
         typer.Option(
@@ -102,12 +242,36 @@ def process_patient_cmd(
     output_root: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
     ] = None,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help=(
+                "Skip trackers whose MD5 + completion state match the previous "
+                "run's manifest. Preserves prior outputs (clean_output disabled)."
+            ),
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help=(
+                "Wipe prior outputs and reprocess every tracker. Same as the "
+                "default behavior; pass explicitly for self-documenting deploy "
+                "commands. Overrides --incremental if both are passed."
+            ),
+        ),
+    ] = False,
 ):
     """Process patient data pipeline.
 
     \b
-    Output is always cleaned before each run so tables reflect only the
-    current run's files.
+    By default, output is cleaned before each run so tables reflect only the
+    current run's files. With --incremental, prior outputs are preserved and
+    only new/changed/previously-incomplete trackers are re-processed.
+    With --force, behaves as the default (wipe + reprocess) and overrides
+    --incremental if both are passed.
 
     Examples:
         # Process all trackers in data_root (from config)
@@ -124,35 +288,39 @@ def process_patient_cmd(
 
         # Just extract + clean, skip tables
         uv run a4d process-patient --skip-tables
+
+        # Skip trackers whose MD5 matches the previous run's manifest
+        uv run a4d process-patient --incremental
+
+        # Explicitly wipe outputs and reprocess everything
+        uv run a4d process-patient --force
     """
     from a4d.config import settings as _settings
 
     console.print("\n[bold blue]A4D Patient Pipeline[/bold blue]\n")
 
-    if file:
-        tracker_files = [file]
-        data_root_display = f"{file} (single file)"
-    elif data_root:
-        tracker_files = discover_tracker_files(data_root)
-        if not tracker_files:
-            console.print(f"[bold red]Error: No tracker files found in {data_root}[/bold red]\n")
-            raise typer.Exit(1)
-        data_root_display = str(data_root)
-    else:
-        tracker_files = None  # pipeline uses settings.data_root
-        data_root_display = str(_settings.data_root)
+    if force and incremental:
+        console.print(
+            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
+        )
+        incremental = False
 
     _output_root = output_root or _settings.output_root
     _workers = workers if workers is not None else _settings.max_workers
 
-    console.print(f"Data root:   {data_root_display}")
-    console.print(f"Output root: {_output_root}")
-    console.print(f"Workers:     {_workers}")
-    if skip_tables:
-        console.print("Tables:      skipped")
-    if force:
-        console.print("Force:       yes")
-    console.print()
+    tracker_files, data_root_display = _resolve_tracker_files(
+        file, data_root, incremental, _output_root
+    )
+
+    if tracker_files is not None and len(tracker_files) == 0:
+        console.print(
+            "[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n"
+        )
+        raise typer.Exit(0)
+
+    _render_pipeline_header(
+        data_root_display, _output_root, _workers, skip_tables=skip_tables
+    )
 
     # Step 1: Extract + clean (table creation handled below for visible progress)
     console.print("[bold]Step 1/3:[/bold] Extracting and cleaning tracker files...")
@@ -162,8 +330,7 @@ def process_patient_cmd(
             max_workers=_workers,
             output_root=output_root,
             skip_tables=True,  # tables created below with console feedback
-            force=force,
-            clean_output=True,
+            clean_output=force or not incremental,  # incremental keeps prior outputs; --force always wipes
             show_progress=True,
             console_log_level="ERROR",
         )
@@ -201,19 +368,7 @@ def process_patient_cmd(
     total_errors = sum(tr.cleaning_errors for tr in result.tracker_results)
     files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
 
-    summary_table = Table(title="Summary")
-    summary_table.add_column("Metric", style="cyan")
-    summary_table.add_column("Value", style="green")
-
-    summary_table.add_row("Total Trackers", str(result.total_trackers))
-    summary_table.add_row("Successful", str(result.successful_trackers))
-    summary_table.add_row("Failed", str(result.failed_trackers))
-    summary_table.add_row("Tables Created", str(len(tables)))
-    summary_table.add_row("", "")  # Spacer
-    summary_table.add_row("Data Quality Errors", f"{total_errors:,}")
-    summary_table.add_row("Files with Errors", str(files_with_errors))
-
-    console.print(summary_table)
+    _render_pipeline_results_summary(result, tables, total_errors, files_with_errors)
 
     # Show error type breakdown if there are errors
     if total_errors > 0:
@@ -241,21 +396,7 @@ def process_patient_cmd(
 
         console.print(error_type_table)
 
-    # Show failed trackers if any
-    if result.failed_trackers > 0:
-        console.print("\n[bold yellow]Failed Trackers:[/bold yellow]")
-        failed_table = Table()
-        failed_table.add_column("File", style="red")
-        failed_table.add_column("Error")
-
-        for tr in result.tracker_results:
-            if not tr.success:
-                failed_table.add_row(
-                    tr.tracker_file.name,
-                    str(tr.error)[:100],  # Truncate long errors
-                )
-
-        console.print(failed_table)
+    _render_failed_trackers(result, mode="table")
 
     # Show top files with most data quality errors (if any)
     if total_errors > 0:
@@ -344,7 +485,9 @@ def create_tables_cmd(
     console.print(f"Found {len(cleaned_files)} cleaned parquet files\n")
 
     try:
+        from a4d.config import settings
         from a4d.tables.clinic import create_table_clinic_static
+        from a4d.tables.metadata import create_table_tracker_metadata
 
         console.print("[bold]Creating tables...[/bold]")
 
@@ -365,12 +508,233 @@ def create_tables_cmd(
         clinic_table_path = create_table_clinic_static(output_dir)
         tables["clinic_data_static"] = clinic_table_path
 
+        # Create tracker metadata table (MD5 + per-tracker output presence).
+        # Skipped if settings.data_root is unreachable — the table needs the
+        # raw .xlsx files, which create-tables doesn't otherwise require.
+        if settings.data_root.exists():
+            console.print("  • Creating tracker metadata table...")
+            metadata_path = create_table_tracker_metadata(
+                settings.data_root, input_dir.parent
+            )
+            tables["tracker_metadata"] = metadata_path
+        else:
+            console.print(
+                f"  [yellow]Warning: data_root {settings.data_root} not found, "
+                "skipping tracker metadata[/yellow]"
+            )
+
         # Display results
         console.print("\n[bold green]✓ Tables created successfully![/bold green]")
         _display_tables_summary(tables)
 
     except Exception as e:
         console.print(f"\n[bold red]Error creating tables: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@app.command("process-product")
+def process_product_cmd(
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            help="Process specific tracker file (if not set, processes all files in data_root)",
+        ),
+    ] = None,
+    workers: Annotated[
+        int | None,
+        typer.Option(
+            "--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)"
+        ),
+    ] = None,
+    skip_tables: Annotated[
+        bool, typer.Option("--skip-tables", help="Skip table creation (only extract + clean)")
+    ] = False,
+    data_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-root", "-d", help="Directory containing tracker files (default: from config)"
+        ),
+    ] = None,
+    output_root: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Output directory (default: from config)")
+    ] = None,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help=(
+                "Skip trackers whose MD5 + completion state match the previous "
+                "run's manifest. Preserves prior outputs (clean_output disabled)."
+            ),
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help=(
+                "Wipe prior outputs and reprocess every tracker. Same as the "
+                "default behavior; pass explicitly for self-documenting deploy "
+                "commands. Overrides --incremental if both are passed."
+            ),
+        ),
+    ] = False,
+):
+    """Process product data pipeline.
+
+    \b
+    By default, output is cleaned before each run so tables reflect only the
+    current run's files. With --incremental, prior outputs are preserved and
+    only new/changed/previously-incomplete trackers are re-processed.
+    With --force, behaves as the default (wipe + reprocess) and overrides
+    --incremental if both are passed.
+
+    Examples:
+        # Process all trackers in data_root (from config)
+        uv run a4d process-product
+
+        # Process specific file
+        uv run a4d process-product --file /path/to/tracker.xlsx
+
+        # Parallel processing with 8 workers
+        uv run a4d process-product --workers 8
+
+        # Just extract + clean, skip tables
+        uv run a4d process-product --skip-tables
+
+        # Skip trackers whose MD5 matches the previous run's manifest
+        uv run a4d process-product --incremental
+
+        # Explicitly wipe outputs and reprocess everything
+        uv run a4d process-product --force
+    """
+    from a4d.config import settings as _settings
+
+    console.print("\n[bold blue]A4D Product Pipeline[/bold blue]\n")
+
+    if force and incremental:
+        console.print(
+            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
+        )
+        incremental = False
+
+    _output_root = output_root or _settings.output_root
+    _workers = workers if workers is not None else _settings.max_workers
+
+    tracker_files, data_root_display = _resolve_tracker_files(
+        file, data_root, incremental, _output_root
+    )
+
+    if tracker_files is not None and len(tracker_files) == 0:
+        console.print(
+            "[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n"
+        )
+        raise typer.Exit(0)
+
+    _render_pipeline_header(
+        data_root_display, _output_root, _workers, skip_tables=skip_tables
+    )
+
+    console.print("[bold]Step 1/2:[/bold] Extracting and cleaning product data...")
+    try:
+        result = run_product_pipeline(
+            tracker_files=tracker_files,
+            max_workers=_workers,
+            output_root=output_root,
+            skip_tables=True,
+            clean_output=force or not incremental,  # incremental keeps prior outputs; --force always wipes
+            show_progress=True,
+            console_log_level="ERROR",
+        )
+    except Exception as e:
+        console.print(f"\n[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+    tables: dict[str, Path] = {}
+    if not skip_tables and result.successful_trackers > 0:
+        cleaned_dir = _output_root / "product_data_cleaned"
+        tables_dir = _output_root / "tables"
+
+        console.print("[bold]Step 2/2:[/bold] Creating product table...")
+        try:
+            tables = process_product_tables(cleaned_dir, tables_dir)
+        except Exception as e:
+            console.print(f"[bold red]Error creating tables: {e}[/bold red]")
+    elif skip_tables:
+        console.print("[dim]Step 2: Skipped (--skip-tables)[/dim]")
+
+    console.print("\n[bold]Pipeline Results[/bold]\n")
+
+    total_errors = sum(tr.cleaning_errors for tr in result.tracker_results)
+    files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
+
+    _render_pipeline_results_summary(result, tables, total_errors, files_with_errors)
+
+    _render_failed_trackers(result, mode="table")
+
+    _display_tables_summary(tables)
+
+    if result.success:
+        console.print("\n[bold green]✓ Product pipeline completed successfully![/bold green]\n")
+        raise typer.Exit(0)
+    else:
+        console.print(
+            f"\n[bold red]✗ Product pipeline completed with {result.failed_trackers} failures[/bold red]\n"
+        )
+        raise typer.Exit(1)
+
+
+@app.command("create-product-tables")
+def create_product_tables_cmd(
+    input_dir: Annotated[
+        Path,
+        typer.Option("--input", "-i", help="Directory containing cleaned product parquet files"),
+    ],
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Output directory for tables (default: input_dir/tables)"
+        ),
+    ] = None,
+):
+    """Create the product table from existing cleaned parquet files.
+
+    \b
+    Examples:
+        # Create table from existing output
+        uv run a4d create-product-tables --input output/product_data_cleaned
+
+        # Specify custom output directory
+        uv run a4d create-product-tables --input output/product_data_cleaned --output custom_tables
+    """
+    console.print("\n[bold blue]A4D Product Table Creation[/bold blue]\n")
+
+    if output_dir is None:
+        output_dir = input_dir.parent / "tables"
+
+    console.print(f"Input directory: {input_dir}")
+    console.print(f"Output directory: {output_dir}\n")
+
+    cleaned_files = list(input_dir.glob("*_product_cleaned.parquet"))
+    if not cleaned_files:
+        console.print(
+            f"[bold red]Error: No cleaned product parquet files found in {input_dir}[/bold red]\n"
+        )
+        raise typer.Exit(1)
+
+    console.print(f"Found {len(cleaned_files)} cleaned product parquet files\n")
+
+    try:
+        console.print("[bold]Creating product table...[/bold]")
+        tables = process_product_tables(input_dir, output_dir)
+
+        console.print("\n[bold green]✓ Product table created successfully![/bold green]")
+        _display_tables_summary(tables)
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error creating product table: {e}[/bold red]\n")
         raise typer.Exit(1) from e
 
 
@@ -563,9 +927,6 @@ def run_pipeline_cmd(
             "--workers", "-w", help="Number of parallel workers (default: A4D_MAX_WORKERS)"
         ),
     ] = None,
-    force: Annotated[
-        bool, typer.Option("--force", help="Force reprocessing (ignore existing outputs)")
-    ] = False,
     skip_download: Annotated[
         bool,
         typer.Option("--skip-download", help="Skip GCS download (use files already in data_root)"),
@@ -579,6 +940,32 @@ def run_pipeline_cmd(
         typer.Option(
             "--skip-drive-download",
             help="Skip Google Drive download of reference data (clinic_data.xlsx)",
+        ),
+    ] = False,
+    skip_product: Annotated[
+        bool,
+        typer.Option("--skip-product", help="Skip the product pipeline arm."),
+    ] = False,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help=(
+                "Skip trackers whose MD5 + completion state match the previous "
+                "run's manifest. Both arms see the same filtered queue."
+            ),
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help=(
+                "Wipe prior local outputs (raw, cleaned, tables) before each "
+                "pipeline arm runs. Without this flag, run-pipeline reuses any "
+                "existing per-tracker parquets on disk. Overrides --incremental "
+                "if both are passed."
+            ),
         ),
     ] = False,
 ):
@@ -607,6 +994,9 @@ def run_pipeline_cmd(
 
         # Skip Drive download if clinic_data.xlsx is already current
         uv run a4d run-pipeline --skip-drive-download
+
+        # Wipe prior outputs before each arm runs
+        uv run a4d run-pipeline --force
     """
     from a4d.config import settings
     from a4d.gcp.bigquery import load_pipeline_tables
@@ -615,19 +1005,29 @@ def run_pipeline_cmd(
     from a4d.reference.loaders import find_reference_data_dir
     from a4d.tables.clinic import create_table_clinic_static
 
+    if force and incremental:
+        console.print(
+            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
+        )
+        incremental = False
+
     _workers = workers if workers is not None else settings.max_workers
     run_ts = datetime.now().strftime("%Y/%m/%d/%H%M%S")
 
     console.print("\n[bold blue]A4D Full Pipeline[/bold blue]\n")
-    console.print(f"Data root:   {settings.data_root}")
-    console.print(f"Output root: {settings.output_root}")
-    console.print(f"Workers:     {_workers}")
-    console.print(f"Project:     {settings.project_id}")
-    console.print(f"Dataset:     {settings.dataset}")
-    console.print(f"Drive:       {'yes' if not skip_drive_download else 'skipped (--skip-drive-download)'}")
-    console.print(f"Download:    {'yes' if not skip_download else 'skipped (--skip-download)'}")
-    console.print(f"Upload:      {'yes' if not skip_upload else 'skipped (--skip-upload)'}")
-    console.print()
+    extras = [
+        ("Project", str(settings.project_id)),
+        ("Dataset", str(settings.dataset)),
+        ("Drive", "yes" if not skip_drive_download else "skipped (--skip-drive-download)"),
+        ("Download", "yes" if not skip_download else "skipped (--skip-download)"),
+        ("Upload", "yes" if not skip_upload else "skipped (--skip-upload)"),
+        ("Product", "yes" if not skip_product else "skipped (--skip-product)"),
+        ("Incremental", "yes" if incremental else "no"),
+        ("Force", "yes" if force else "no"),
+    ]
+    _render_pipeline_header(
+        settings.data_root, settings.output_root, _workers, extras=extras
+    )
 
     # Step 0 – Download reference data from Google Drive
     if not skip_drive_download:
@@ -655,12 +1055,40 @@ def run_pipeline_cmd(
     else:
         console.print("[bold]Step 1/5:[/bold] Skipping GCS download (--skip-download)\n")
 
-    # Step 2+3 – Extract, clean and build tables
+    # Resolve the tracker queue once. Without --incremental, pass None and let
+    # each orchestrator discover. With --incremental, discover + filter here so
+    # both arms see the same queue (single manifest load, coherent skip).
+    shared_tracker_files: list[Path] | None = None
+    if incremental:
+        all_trackers = discover_tracker_files(settings.data_root)
+        manifest = load_previous_manifest(settings.output_root)
+        shared_tracker_files, summary = filter_unchanged_trackers(all_trackers, manifest)
+        console.print(
+            f"[cyan]Incremental filter: queued {summary.queued}, "
+            f"skipped {summary.skipped} unchanged "
+            f"(new={summary.new}, changed={summary.changed}, "
+            f"incomplete={summary.previously_incomplete})[/cyan]\n"
+        )
+        if not shared_tracker_files:
+            console.print(
+                "[bold green]✓ No trackers need reprocessing — exiting cleanly[/bold green]\n"
+            )
+            raise typer.Exit(0)
+
+    # Step 2+3 – Extract, clean and build tables.
+    # clean_output wiring is `force` here, not `force or not incremental` like
+    # process-patient/process-product. Reason: run-pipeline's historical default
+    # (on `migration` and on this branch pre-change) was preserve-outputs — it
+    # never passed clean_output, inheriting the orchestrator's False default.
+    # --force on `migration` was a vestigial no-op (declared, plumbed, never
+    # read). With --force now actually wired through, opting in wipes both arms;
+    # without it, run-pipeline keeps its prior preserve-outputs contract.
     console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
     try:
         result = run_patient_pipeline(
+            tracker_files=shared_tracker_files,
             max_workers=_workers,
-            force=force,
+            clean_output=force,
             show_progress=True,
             console_log_level="WARNING",
         )
@@ -670,12 +1098,12 @@ def run_pipeline_cmd(
             f"({result.successful_trackers} ok, {result.failed_trackers} failed)\n"
         )
 
-        if result.failed_trackers > 0:
-            console.print("[bold yellow]Failed trackers:[/bold yellow]")
-            for tr in result.tracker_results:
-                if not tr.success:
-                    console.print(f"  • {tr.tracker_file.name}: {tr.error}")
-            console.print()
+        _render_failed_trackers(
+            result,
+            mode="bullets",
+            title="Failed trackers",
+            leading_newline=False,
+        )
 
         if not result.success:
             console.print("[bold red]✗ Pipeline failed – aborting upload steps[/bold red]\n")
@@ -696,6 +1124,75 @@ def run_pipeline_cmd(
     except Exception as e:
         console.print(f"  [bold red]Error creating clinic static table: {e}[/bold red]\n")
         raise typer.Exit(1) from e
+
+    # Product pipeline arm — soft failure posture: a crash here warns and
+    # continues so patient outputs (already on disk) still get uploaded.
+    if not skip_product:
+        console.print("[bold]Step 3c/5:[/bold] Running product pipeline...\n")
+        # Drop any stale product table from a prior run before re-running.
+        # Without --force, run-pipeline preserves outputs (clean_output=False),
+        # so a crash mid-product would otherwise leave the previous run's
+        # parquet for upload. With --force the orchestrator wipes anyway, so
+        # this unlink is redundant in that case but harmless.
+        (settings.output_root / "tables" / "product_data.parquet").unlink(missing_ok=True)
+        try:
+            product_result = run_product_pipeline(
+                tracker_files=shared_tracker_files,
+                max_workers=_workers,
+                clean_output=force,
+                show_progress=True,
+                console_log_level="WARNING",
+            )
+            console.print(
+                f"  ✓ Processed {product_result.total_trackers} product trackers "
+                f"({product_result.successful_trackers} ok, {product_result.failed_trackers} failed)\n"
+            )
+            _render_failed_trackers(
+                product_result,
+                mode="bullets",
+                title="Failed product trackers",
+                leading_newline=False,
+            )
+        except Exception as e:
+            console.print(
+                f"[bold yellow]Warning: product pipeline failed: {e}[/bold yellow]\n"
+                "[yellow]Continuing with patient outputs only.[/yellow]\n"
+            )
+    else:
+        console.print("[bold]Step 3c/5:[/bold] Skipping product pipeline (--skip-product)\n")
+
+    # Tracker metadata table — MD5 + per-tracker output presence.
+    # Not a skip-gated step; it's cheap and summarises the run's final state.
+    if settings.data_root.exists():
+        console.print("[bold]Step 3d/5:[/bold] Creating tracker metadata table...\n")
+        try:
+            from a4d.tables.metadata import create_table_tracker_metadata
+
+            create_table_tracker_metadata(settings.data_root, settings.output_root)
+            console.print("  ✓ Tracker metadata table created\n")
+        except Exception as e:
+            console.print(
+                f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n"
+            )
+
+    # Step 3e – Product-patient link validation (logging-only, post-tables).
+    # Skips silently if either arm's table is missing (e.g. --skip-product).
+    product_table = tables_dir / "product_data.parquet"
+    patient_static = tables_dir / "patient_data_static.parquet"
+    if product_table.exists() and patient_static.exists():
+        console.print("[bold]Step 3e/5:[/bold] Validating product-patient links...")
+        try:
+            from a4d.tables.product import link_product_patient
+
+            product_df = pl.read_parquet(product_table)
+            mismatched = link_product_patient(product_df, patient_static)
+            console.print(
+                f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n"
+            )
+        except Exception as e:
+            console.print(
+                f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n"
+            )
 
     # Step 4 – Upload tables/ and logs/ to GCS under a timestamped prefix
     # Each run gets an isolated path: YYYY/MM/DD/HHMMSS/tables/ and .../logs/

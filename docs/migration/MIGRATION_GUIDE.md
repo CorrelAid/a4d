@@ -2,7 +2,7 @@
 
 Reference for the A4D pipeline migration from R to Python.
 
-**Status**: Phases 0–7 complete. Patient pipeline production-ready. Product pipeline not yet started.
+**Status**: Phases 0–9 complete. Patient pipeline production-ready. Product pipeline merged into `src/a4d/` on 2026-04-23.
 **Branch**: `migration`
 
 ---
@@ -87,48 +87,66 @@ upload-tables              # tables/*.parquet → BigQuery
 
 ```
 src/a4d/
-├── extract/patient.py     # Excel → raw parquet
+├── extract/
+│   ├── patient.py         # Patient: Excel → raw parquet
+│   ├── product.py         # Product: Excel month sheets → raw parquet
+│   └── wide_format.py     # Mandalay wide-format handlers (column/cell)
 ├── clean/
-│   ├── patient.py         # Main cleaning pipeline
-│   ├── schema.py          # 83-column meta schema
+│   ├── patient.py         # Patient cleaning pipeline
+│   ├── product.py         # Product cleaning pipeline (R steps 2.0-2.21)
+│   ├── schema.py          # 83-column patient schema
+│   ├── schema_product.py  # 19-column product schema
 │   ├── converters.py      # Safe type conversion + ErrorCollector
 │   ├── validators.py      # Case-insensitive allowed-values
 │   ├── transformers.py    # Explicit transformations
 │   └── date_parser.py     # Flexible date parsing
 ├── tables/
 │   ├── patient.py         # static/monthly/annual aggregation
+│   ├── product.py         # product_data aggregation
+│   ├── clinic.py          # clinic static table
 │   └── logs.py            # Error log aggregation
 ├── pipeline/
-│   ├── patient.py         # Orchestration + parallel workers
-│   ├── tracker.py         # Per-tracker execution
+│   ├── patient.py         # Patient orchestration + parallel workers
+│   ├── product.py         # Product orchestration (mirrors patient)
+│   ├── tracker.py         # Per-tracker execution (patient + product)
 │   └── models.py          # Result dataclasses
 ├── gcp/
 │   ├── storage.py         # GCS operations
+│   ├── drive.py           # Google Drive (clinic_data.xlsx)
 │   └── bigquery.py        # BigQuery load
 ├── reference/
 │   ├── synonyms.py        # Column name mapping (YAML)
+│   ├── products.py        # Stock_Summary product reference loader
 │   ├── provinces.py       # Allowed province validation
 │   └── loaders.py         # YAML loading utilities
 ├── state/                 # State management (exists, not yet wired up)
 ├── config.py              # Pydantic settings from A4D_* env vars
 ├── logging.py             # loguru setup
 ├── errors.py              # Shared error types
-└── cli.py                 # Typer CLI (6 commands)
+└── cli.py                 # Typer CLI (patient + product commands, run-pipeline)
 ```
 
-### State Management (Designed, Not Yet Active)
+### State Management (Incremental Processing)
 
 ```
 1. Container starts (stateless, fresh)
 2. Query BigQuery metadata table
-   SELECT file_name, file_hash FROM tracker_metadata
-3. Compare with current file hashes
-4. Process only: new + changed + previously failed
-5. Update metadata table (append new records)
+   SELECT file_name, clinic_code, md5, complete FROM tracker_metadata
+3. Compare with current file MD5s
+4. Process only: new + changed + previously incomplete
+5. Re-publish metadata table (full replace) at end of run
 6. Container shuts down (state persists in BigQuery)
 ```
 
-Currently: pipeline processes all trackers found in `data_root`. Incremental logic exists in `state/` but is not wired into `pipeline/patient.py` yet.
+Wired up via the `a4d.state` module ([src/a4d/state/](../../src/a4d/state/)) and exposed
+through the `--incremental` CLI flag on `process-patient`, `process-product`, and
+`run-pipeline`. Source precedence is BigQuery → local
+`output_root/tables/tracker_metadata.parquet` → empty manifest, so local devs
+without `gcloud auth` get the local-parquet fallback automatically.
+
+The flag is **opt-in**: default behaviour is unchanged (process every tracker
+found in `data_root`). Flipping the default to incremental is a separate
+decision after a soak window.
 
 ---
 
@@ -226,6 +244,7 @@ with file_logger("clinic_001_patient", output_root) as log:
 | 5 | Pipeline integration: `pipeline/patient.py` + parallel processing |
 | 6 | GCP: `gcp/storage.py`, `gcp/bigquery.py`, CLI commands |
 | 7 | Validation: 174 trackers compared, 8 bugs fixed, production verdict |
+| 9 | Product pipeline: merged WIP product modules into `src/a4d/`; `run-pipeline` runs both arms. |
 
 ---
 
@@ -238,18 +257,13 @@ with file_logger("clinic_001_patient", output_root) as log:
 - Compare dashboard reports with R pipeline baseline
 - Fix any issues discovered during first real run
 
-### Phase 9: Product Pipeline
+### Production Scheduling
 
-- `extract/product.py` — same pattern as patient extraction
-- `clean/product.py` — same pattern as patient cleaning
-- `tables/product.py` — product aggregation tables
-- Validate against R product pipeline outputs
-
-### State Management (Incremental Processing)
-
-- `state/` module exists with BigQuery state design
-- Wire into `pipeline/patient.py` so only changed/new trackers are processed
-- Required before production scheduling (Cloud Run + Cloud Scheduler)
+Cloud Run + Cloud Scheduler wiring (cron, image build, deploy manifest). The
+state module shipped behind the `--incremental` CLI flag — see the
+[State Management](#state-management-incremental-processing) section above.
+The default behaviour remains "process every tracker"; flipping the default to
+incremental is a separate decision after a soak window.
 
 ---
 
