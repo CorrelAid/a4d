@@ -118,8 +118,22 @@ def parse_log_file(log_file: Path) -> pl.DataFrame:
     if not records:
         return pl.DataFrame()
 
-    # Create DataFrame with proper types
-    df = pl.DataFrame(records)
+    # Create DataFrame with proper types. schema_overrides pins the dtype of
+    # nullable columns so a log file whose first ~100 rows happen to have
+    # error_code=None / no exception / no file_name doesn't infer pl.Null
+    # and fail when later rows append actual strings or when concat'd with
+    # log files where these columns *are* populated.
+    df = pl.DataFrame(
+        records,
+        schema_overrides={
+            "error_code": pl.Utf8,
+            "file_name": pl.Utf8,
+            "tracker_year": pl.Int32,
+            "tracker_month": pl.Int32,
+            "exception_type": pl.Utf8,
+            "exception_value": pl.Utf8,
+        },
+    )
 
     # Cast categorical columns for efficiency
     df = df.with_columns(
