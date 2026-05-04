@@ -23,6 +23,7 @@ ErrorCode = Literal[
     "invalid_tracker",  # Tracker-level issues (missing columns, etc.)
     "function_call",  # Generic function execution error
     "critical_abort",  # Fatal error, tracker cannot be processed
+    "typo_rescued",  # Known source-data typo substituted before parsing (informational)
 ]
 
 

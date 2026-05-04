@@ -12,8 +12,9 @@ The pattern is:
 """
 
 import polars as pl
+from loguru import logger
 
-from a4d.clean.date_parser import parse_date_flexible
+from a4d.clean.date_parser import parse_date_flexible, rescue_date_typos
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 
@@ -126,6 +127,59 @@ def safe_convert_column(
     return df
 
 
+def _apply_typo_rescue(
+    df: pl.DataFrame,
+    column: str,
+    error_collector: ErrorCollector,
+    file_name_col: str,
+    patient_id_col: str,
+) -> pl.DataFrame:
+    """Rewrite known month-name typos in-place before parsing.
+
+    Builds a rescue_map from unique strings, logs each affected row to
+    error_collector + loguru with code "typo_rescued", then applies the
+    substitutions column-wide. No-op if no typos match.
+    """
+    rescue_map: dict[str, str] = {}
+    for s in df[column].drop_nulls().unique().to_list():
+        rescued, was_rescued = rescue_date_typos(s)
+        if was_rescued:
+            rescue_map[s] = rescued
+
+    if not rescue_map:
+        return df
+
+    select_cols = [c for c in (file_name_col, patient_id_col) if c in df.columns]
+    for original, rescued_val in rescue_map.items():
+        if select_cols:
+            affected = df.filter(pl.col(column) == original).select(select_cols)
+            for row in affected.iter_rows(named=True):
+                file_name = row.get(file_name_col) or "unknown"
+                patient_id = row.get(patient_id_col) or "unknown"
+                logger.bind(error_code="typo_rescued").warning(
+                    f"date typo rescued in {column}: {original!r} -> {rescued_val!r} "
+                    f"(file={file_name!r}, {patient_id_col}={patient_id!r})"
+                )
+                error_collector.add_error(
+                    file_name=str(file_name),
+                    patient_id=str(patient_id),
+                    column=column,
+                    original_value=original,
+                    error_message=f"date typo rescued: '{original}' -> '{rescued_val}'",
+                    error_code="typo_rescued",
+                    function_name="parse_date_column",
+                )
+
+    repl_expr = pl.col(column)
+    for original, rescued_val in rescue_map.items():
+        repl_expr = (
+            pl.when(pl.col(column) == original)
+            .then(pl.lit(rescued_val))
+            .otherwise(repl_expr)
+        )
+    return df.with_columns(repl_expr.alias(column))
+
+
 def parse_date_column(
     df: pl.DataFrame,
     column: str,
@@ -161,20 +215,35 @@ def parse_date_column(
     if column not in df.columns:
         return df
 
+    # Substitute known month-name typos (e.g. "MACH" -> "MAR") before parsing,
+    # logging each affected row so the source tracker remains visible to
+    # data-quality triage. Skipped silently when no typos match.
+    df = _apply_typo_rescue(df, column, error_collector, file_name_col, patient_id_col)
+
     # Store original values for error reporting
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
 
-    # Apply parse_date_flexible to each value
-    # NOTE: Using list-based approach instead of map_elements() because
-    # map_elements() with return_dtype=pl.Date fails when ALL values are None
-    # (all-NA columns like hospitalisation_date).
-    # Explicit Series creation with dtype=pl.Date works because it doesn't
-    # require non-null values.
-    column_values = df[column].cast(pl.Utf8).to_list()
-    parsed_dates = [
-        parse_date_flexible(val, error_val=settings.error_val_date) for val in column_values
-    ]
-    parsed_series = pl.Series(f"_parsed_{column}", parsed_dates, dtype=pl.Date)
+    # Parse each distinct string once, then map back. Tracker data has heavy
+    # duplication in date columns (e.g. "1/1/2024" repeating per row), so
+    # dedup-then-map is much faster than a per-row Python call.
+    # All-null columns short-circuit: map_elements can't infer Date dtype on
+    # an empty-after-drop_nulls Series.
+    col_str = df[column].cast(pl.Utf8)
+    unique_strs = col_str.drop_nulls().unique().to_list()
+    if unique_strs:
+        lookup = {
+            s: parse_date_flexible(s, error_val=settings.error_val_date)
+            for s in unique_strs
+        }
+        # Polars 1.34 ignores return_dtype=pl.Date when every mapped output is
+        # None and falls back to the input series' dtype (Utf8). Cast explicitly
+        # so the downstream `_parsed == error_date` comparison stays Date-vs-Date.
+        parsed_series = col_str.map_elements(
+            lambda v: lookup.get(v) if v is not None else None,
+            return_dtype=pl.Date,
+        ).cast(pl.Date).alias(f"_parsed_{column}")
+    else:
+        parsed_series = pl.Series(f"_parsed_{column}", [None] * df.height, dtype=pl.Date)
     df = df.with_columns(parsed_series)
 
     # Detect failures: parsed to error date
