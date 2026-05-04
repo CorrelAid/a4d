@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     error_val_character: str = "Undefined"
     error_val_date: str = "9999-09-09"
 
+    # Accepted tracker year range (raise on out-of-range sheet-name or filename)
+    min_tracker_year: int = 2017
+    max_tracker_year: int = 2030
+
     @property
     def output_root(self) -> Path:
         """Computed output root path."""
