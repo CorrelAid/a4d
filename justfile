@@ -1,7 +1,5 @@
 # a4d Python Pipeline - Development Commands
 
-set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
-
 # Default recipe (show available commands)
 default:
     @just --list
@@ -30,18 +28,10 @@ info:
     @uv pip list
 
 # Clean cache and build artifacts
-[unix]
 clean:
     rm -rf .ruff_cache .pytest_cache htmlcov .coverage dist build src/*.egg-info
     find . -type d -name __pycache__ -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
-
-[windows]
-clean:
-    Remove-Item -Path .ruff_cache, .pytest_cache, htmlcov, .coverage, dist, build -Recurse -Force -ErrorAction SilentlyContinue
-    Get-ChildItem src -Filter *.egg-info -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-    Get-ChildItem -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Recurse -File -Filter *.pyc | Remove-Item -Force -ErrorAction SilentlyContinue
 
 # ── Code Quality ──────────────────────────────────────────────────────────────
 
@@ -133,7 +123,6 @@ run *ARGS:
 # --provenance=false: suppress BuildKit attestation manifests so the registry
 # shows one image entry instead of three (image + attestation + index)
 # Build Docker image tagged as :latest and :<git-sha>
-[unix]
 docker-build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -148,7 +137,6 @@ docker-smoke:
     docker run --rm {{IMAGE}} uv run a4d --help
 
 # Push both :latest and :<git-sha> tags to Artifact Registry
-[unix]
 docker-push: docker-build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -158,7 +146,6 @@ docker-push: docker-build
     echo "Pushed: {{IMAGE}} and {{REGISTRY}}:${GIT_SHA}"
 
 # Delete all images from Artifact Registry except :latest
-[unix]
 docker-clean:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -187,7 +174,6 @@ docker-list:
 
 # Creates dated snapshots e.g. patient_data_static_20260227 with 7-day expiry.
 # Snapshot all BigQuery pipeline tables (safe to run before deploy)
-[unix]
 backup-bq:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -211,7 +197,6 @@ backup-bq:
     echo "Done. Snapshots expire in 7 days."
 
 # Build, push and update the Cloud Run Job to use the latest image
-[unix]
 deploy: docker-push
     gcloud run jobs update a4d-pipeline \
         --image={{IMAGE}} \
