@@ -236,9 +236,17 @@ def select_tracker_metadata(
     table_ref = f"{project_id}.{dataset}.tracker_metadata"
     full_query = f"SELECT file_name, clinic_code, md5, complete FROM `{table_ref}`"
 
+    full_schema = {
+        "file_name": pl.Utf8,
+        "clinic_code": pl.Utf8,
+        "md5": pl.Utf8,
+        "complete": pl.Boolean,
+    }
+
     try:
-        rows = client.query(full_query).to_dataframe()
-        return pl.from_pandas(rows)
+        rows = list(client.query(full_query).result())
+        data = {col: [r[col] for r in rows] for col in full_schema}
+        return pl.DataFrame(data, schema=full_schema)
     except NotFound:
         logger.info(f"BigQuery table not found, no previous manifest: {table_ref}")
         return None
@@ -253,10 +261,12 @@ def select_tracker_metadata(
                 "retrying without it and forcing full reprocess"
             )
             try:
-                rows = client.query(
+                rows = list(client.query(
                     f"SELECT file_name, clinic_code, md5 FROM `{table_ref}`"
-                ).to_dataframe()
-                df = pl.from_pandas(rows)
+                ).result())
+                fallback_schema = {k: v for k, v in full_schema.items() if k != "complete"}
+                data = {col: [r[col] for r in rows] for col in fallback_schema}
+                df = pl.DataFrame(data, schema=fallback_schema)
                 return df.with_columns(pl.lit(False).alias("complete"))
             except GoogleAPIError as retry_err:
                 logger.warning(
