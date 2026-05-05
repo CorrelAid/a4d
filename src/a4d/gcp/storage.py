@@ -145,8 +145,7 @@ def upload_output(
 
     def _blob_name(file_path: Path) -> str:
         relative = file_path.relative_to(source_dir)
-        name = f"{prefix}/{relative}" if prefix else str(relative)
-        return name.replace("\\", "/")
+        return f"{prefix}/{relative}" if prefix else str(relative)
 
     uploaded: list[str] = []
 
