@@ -32,7 +32,7 @@ def parse_log_file(log_file: Path) -> pl.DataFrame:
     records = []
 
     try:
-        with open(log_file, encoding="utf-8") as f:
+        with open(log_file) as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
 
