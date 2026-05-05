@@ -2,31 +2,23 @@
 
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 from google.api_core.exceptions import GoogleAPIError, NotFound
 
 from a4d.gcp.bigquery import select_tracker_metadata
 
 
-def _query_result(df: pd.DataFrame) -> MagicMock:
-    """Build a MagicMock that mimics client.query(...).to_dataframe()."""
+def _query_result(rows: list[dict]) -> MagicMock:
+    """Build a MagicMock that mimics client.query(...).result()."""
     job = MagicMock()
-    job.to_dataframe.return_value = df
+    job.result.return_value = rows
     return job
 
 
 def test_happy_path_returns_dataframe():
-    df = pd.DataFrame(
-        {
-            "file_name": ["T1"],
-            "clinic_code": ["A"],
-            "md5": ["abc"],
-            "complete": [True],
-        }
-    )
+    rows = [{"file_name": "T1", "clinic_code": "A", "md5": "abc", "complete": True}]
     client = MagicMock()
-    client.query.return_value = _query_result(df)
+    client.query.return_value = _query_result(rows)
 
     result = select_tracker_metadata(client=client, dataset="tracker", project_id="proj")
 
@@ -49,16 +41,10 @@ def test_schema_fallback_when_complete_column_missing():
     client = MagicMock()
     # First query (with `complete`) raises a column-missing GoogleAPIError;
     # second query (without `complete`) succeeds with the legacy schema.
-    fallback_df = pd.DataFrame(
-        {
-            "file_name": ["T1"],
-            "clinic_code": ["A"],
-            "md5": ["abc"],
-        }
-    )
+    fallback_rows = [{"file_name": "T1", "clinic_code": "A", "md5": "abc"}]
     client.query.side_effect = [
         GoogleAPIError("Unrecognized name: complete at [1:14]"),
-        _query_result(fallback_df),
+        _query_result(fallback_rows),
     ]
 
     result = select_tracker_metadata(client=client, dataset="tracker", project_id="proj")
