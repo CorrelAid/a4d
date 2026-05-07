@@ -172,6 +172,7 @@ def add_product_metadata(
     tracker_month: int,
     tracker_year: int,
     file_name: str,
+    clinic_id: str,
 ) -> pl.DataFrame:
     """Append sheet/tracker metadata columns (R step 1.8)."""
     return df.with_columns(
@@ -180,6 +181,7 @@ def add_product_metadata(
             pl.lit(float(tracker_year), dtype=pl.Float64).alias("product_table_year"),
             pl.lit(sheet_name, dtype=pl.String).alias("product_sheet_name"),
             pl.lit(file_name, dtype=pl.String).alias("file_name"),
+            pl.lit(clinic_id, dtype=pl.String).alias("clinic_id"),
         ]
     )
 
@@ -353,6 +355,7 @@ def read_all_product_sheets(
 
     year = get_tracker_year(tracker_file, month_sheets)
     filename = tracker_file.stem
+    clinic_id = tracker_file.parent.name
 
     per_sheet: list[pl.DataFrame] = []
     for sheet_name in month_sheets:
@@ -394,7 +397,7 @@ def read_all_product_sheets(
             continue
 
         df = remove_header_rows(df)
-        df = add_product_metadata(df, sheet_name, month, year, filename)
+        df = add_product_metadata(df, sheet_name, month, year, filename, clinic_id)
         _count_orphan_released_units(df, sheet_name, filename, error_collector)
         df = replace_extra_totals(df)
 
