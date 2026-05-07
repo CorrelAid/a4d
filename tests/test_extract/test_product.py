@@ -218,13 +218,14 @@ def test_extract_product_data_returns_empty_for_short_section():
     assert out.width == 0
 
 
-def test_add_product_metadata_appends_four_cols():
+def test_add_product_metadata_appends_five_cols():
     df = pl.DataFrame({"product": ["A"]}, schema={"product": pl.String})
-    out = add_product_metadata(df, "Jun24", 6, 2024, "tracker.xlsx")
+    out = add_product_metadata(df, "Jun24", 6, 2024, "tracker.xlsx", "CL001")
     assert out["product_table_month"].to_list() == ["06"]
     assert out["product_table_year"].to_list() == [2024.0]
     assert out["product_sheet_name"].to_list() == ["Jun24"]
     assert out["file_name"].to_list() == ["tracker.xlsx"]
+    assert out["clinic_id"].to_list() == ["CL001"]
 
 
 def test_remove_header_rows_drops_repeated_header_and_empty():
@@ -285,8 +286,10 @@ def test_read_all_product_sheets_end_to_end(tmp_path: Path):
     assert "product" in out.columns
     assert "product_table_year" in out.columns
     assert "product_sheet_name" in out.columns
+    assert "clinic_id" in out.columns
     assert out["product_sheet_name"].to_list() == ["Jun24", "Jun24"]
     assert out["product_table_year"].to_list() == [2024.0, 2024.0]
+    assert out["clinic_id"].to_list() == [tracker_path.parent.name] * 2
     # No unknown columns; collector should be empty.
     assert len(collector) == 0
 

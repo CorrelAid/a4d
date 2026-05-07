@@ -32,6 +32,7 @@ def get_product_data_schema() -> dict[str, type[pl.DataType] | pl.DataType]:
         "orig_product_released_to": pl.String,
         "product_unit_capacity": pl.Int32,
         "product_remarks": pl.String,
+        "clinic_id": pl.String,
     }
 
 
