@@ -946,6 +946,17 @@ def run_pipeline_cmd(
         bool,
         typer.Option("--skip-product", help="Skip the product pipeline arm."),
     ] = False,
+    skip_patient: Annotated[
+        bool,
+        typer.Option(
+            "--skip-patient",
+            help=(
+                "Skip the patient pipeline arm. Note: leaves "
+                "tracker_metadata.complete=False for all trackers, so the "
+                "next --incremental run will re-queue everything."
+            ),
+        ),
+    ] = False,
     incremental: Annotated[
         bool,
         typer.Option(
@@ -1005,6 +1016,12 @@ def run_pipeline_cmd(
     from a4d.reference.loaders import find_reference_data_dir
     from a4d.tables.clinic import create_table_clinic_static
 
+    if skip_patient and skip_product:
+        console.print(
+            "[bold red]Error: --skip-patient and --skip-product are mutually exclusive[/bold red]\n"
+        )
+        raise typer.Exit(1)
+
     if force and incremental:
         console.print(
             "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
@@ -1022,6 +1039,7 @@ def run_pipeline_cmd(
         ("Download", "yes" if not skip_download else "skipped (--skip-download)"),
         ("Upload", "yes" if not skip_upload else "skipped (--skip-upload)"),
         ("Product", "yes" if not skip_product else "skipped (--skip-product)"),
+        ("Patient", "yes" if not skip_patient else "skipped (--skip-patient)"),
         ("Incremental", "yes" if incremental else "no"),
         ("Force", "yes" if force else "no"),
     ]
@@ -1083,35 +1101,38 @@ def run_pipeline_cmd(
     # --force on `migration` was a vestigial no-op (declared, plumbed, never
     # read). With --force now actually wired through, opting in wipes both arms;
     # without it, run-pipeline keeps its prior preserve-outputs contract.
-    console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
-    try:
-        result = run_patient_pipeline(
-            tracker_files=shared_tracker_files,
-            max_workers=_workers,
-            clean_output=force,
-            show_progress=True,
-            console_log_level="WARNING",
-        )
+    if not skip_patient:
+        console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
+        try:
+            result = run_patient_pipeline(
+                tracker_files=shared_tracker_files,
+                max_workers=_workers,
+                clean_output=force,
+                show_progress=True,
+                console_log_level="WARNING",
+            )
 
-        console.print(
-            f"  ✓ Processed {result.total_trackers} trackers "
-            f"({result.successful_trackers} ok, {result.failed_trackers} failed)\n"
-        )
+            console.print(
+                f"  ✓ Processed {result.total_trackers} trackers "
+                f"({result.successful_trackers} ok, {result.failed_trackers} failed)\n"
+            )
 
-        _render_failed_trackers(
-            result,
-            mode="bullets",
-            title="Failed trackers",
-            leading_newline=False,
-        )
+            _render_failed_trackers(
+                result,
+                mode="bullets",
+                title="Failed trackers",
+                leading_newline=False,
+            )
 
-        if not result.success:
-            console.print("[bold red]✗ Pipeline failed – aborting upload steps[/bold red]\n")
-            raise typer.Exit(1)
+            if not result.success:
+                console.print("[bold red]✗ Pipeline failed – aborting upload steps[/bold red]\n")
+                raise typer.Exit(1)
 
-    except Exception as e:
-        console.print(f"\n[bold red]Error during processing: {e}[/bold red]\n")
-        raise typer.Exit(1) from e
+        except Exception as e:
+            console.print(f"\n[bold red]Error during processing: {e}[/bold red]\n")
+            raise typer.Exit(1) from e
+    else:
+        console.print("[bold]Steps 2–3/5:[/bold] Skipping patient pipeline (--skip-patient)\n")
 
     tables_dir = settings.output_root / "tables"
     logs_dir = settings.output_root / "logs"
@@ -1176,10 +1197,12 @@ def run_pipeline_cmd(
             )
 
     # Step 3e – Product-patient link validation (logging-only, post-tables).
-    # Skips silently if either arm's table is missing (e.g. --skip-product).
+    # Skips silently if either arm's table is missing (e.g. --skip-product), or
+    # when --skip-patient leaves a stale patient_data_static.parquet on disk
+    # whose contents don't match this run's product output.
     product_table = tables_dir / "product_data.parquet"
     patient_static = tables_dir / "patient_data_static.parquet"
-    if product_table.exists() and patient_static.exists():
+    if not skip_patient and product_table.exists() and patient_static.exists():
         console.print("[bold]Step 3e/5:[/bold] Validating product-patient links...")
         try:
             from a4d.tables.product import link_product_patient
