@@ -43,6 +43,7 @@ class TestHelp:
         assert result.exit_code == 0
         assert "--skip-download" in result.output
         assert "--skip-upload" in result.output
+        assert "--skip-patient" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +141,59 @@ class TestRunPipeline:
         )
 
         assert result.exit_code == 1
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_skip_patient_runs_product_only(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        mock_settings.data_root = tmp_path / "data"
+        mock_settings.output_root = tmp_path / "output"
+        mock_settings.project_id = "test-project"
+        mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
+
+        (tmp_path / "data").mkdir()
+        (tmp_path / "output").mkdir()
+
+        mock_product = MagicMock()
+        mock_product.success = True
+        mock_product.total_trackers = 0
+        mock_product.successful_trackers = 0
+        mock_product.failed_trackers = 0
+        mock_product.tracker_results = []
+        mock_run_product.return_value = mock_product
+
+        result = runner.invoke(
+            app,
+            [
+                "run-pipeline",
+                "--skip-patient",
+                "--skip-download",
+                "--skip-upload",
+                "--skip-drive-download",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
+        mock_run_patient.assert_not_called()
+        mock_run_product.assert_called_once()
+
+    def test_skip_patient_and_skip_product_mutually_exclusive(self, tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "run-pipeline",
+                "--skip-patient",
+                "--skip-product",
+                "--skip-download",
+                "--skip-upload",
+                "--skip-drive-download",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------
