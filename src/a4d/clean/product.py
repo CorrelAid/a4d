@@ -55,6 +55,23 @@ BUDDHIST_ERA_THRESHOLD: int = 2400
 # (e.g. a raw cell holding `29` parsing to 1900-01-29).
 YEAR_FLOOR_DELTA: int = 5
 
+# End-of-block summary-row residue scrub for product_entry_date. Two flavours
+# observed in the corpus, both junk written into the date column between
+# product sub-blocks: (1) literal marker strings, (2) tiny ints typed as a
+# day-of-month into the wrong row (e.g. "30" in 2025 NPH row 81). Nulled
+# before parse_date_flexible runs so the cleaned output is NULL rather than
+# 9999-09-09 (parse-failure sentinel) or 1900-01-29 (Excel-leap-year-bug
+# artefact). Product-only — patient pipeline must stay untouched.
+PRODUCT_DATE_NA_MARKERS: frozenset[str] = frozenset({"amount left"})
+
+# Excel serial for 2000-01-01. A4D trackers are 2017+, so a strict floor would
+# be 42736 (2017-01-01); 36526 is deliberately looser to leave a ~17-year buffer
+# that _validate_entry_dates handles via YEAR_FLOOR_DELTA. The scrub here only
+# needs to catch unambiguous residue (raw day-of-month ints landing as
+# 1900-0X-XX via Excel's leap-year bug); legitimate-looking but out-of-range
+# serials are left for the year-floor check so they show up in the audit log.
+MIN_PLAUSIBLE_EXCEL_SERIAL: int = 36526
+
 
 def clean_product_data(
     df_raw: pl.DataFrame,
@@ -295,18 +312,64 @@ def _add_row_index(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_row_index("index", offset=1)
 
 
+def _null_entry_date_residues(df: pl.DataFrame) -> pl.DataFrame:
+    """Pre-clean for step 2.6 — null end-of-block summary-row residue cells.
+
+    Two patterns observed between product sub-blocks in tracker source files,
+    both nulled before any date parsing runs:
+
+    1. Marker strings (case-insensitive, whitespace-trimmed) listed in
+       ``PRODUCT_DATE_NA_MARKERS``. Currently only ``"Amount Left"`` —
+       observed in 2018 Mahosot Nov18/Dec18, six per sheet between sub-blocks.
+       Add more only after a corpus sweep finds them.
+    2. Tiny Excel serials below ``MIN_PLAUSIBLE_EXCEL_SERIAL`` (2000-01-01).
+       Catches stray day-of-month integers typed into the wrong row
+       (e.g. raw ``30`` in 2025 NPH row 81 → 1900-01-29 via the pre-Mar-1900
+       leap-year-bug epoch).
+
+    Without this scrub the residue surfaces in cleaned output as either
+    ``9999-09-09`` (parse-failure sentinel for "Amount Left") or
+    ``1900-01-29`` (Excel-leap-year-bug artefact for tiny serials). Both
+    are junk; nulling at source makes the output match R semantics
+    (which silently NA-coerces) for the marker case, and produces cleaner
+    data than R for the tiny-serial case.
+    """
+    if "product_entry_date" not in df.columns:
+        return df
+
+    raw = pl.col("product_entry_date").cast(pl.Utf8).str.strip_chars()
+    is_marker = raw.str.to_lowercase().is_in(list(PRODUCT_DATE_NA_MARKERS))
+    as_num = raw.cast(pl.Float64, strict=False)
+    is_tiny_serial = (
+        as_num.is_not_null()
+        & (as_num > 0)
+        & (as_num < MIN_PLAUSIBLE_EXCEL_SERIAL)
+    )
+
+    return df.with_columns(
+        pl.when(is_marker | is_tiny_serial)
+        .then(pl.lit(None, dtype=pl.Utf8))
+        .otherwise(pl.col("product_entry_date").cast(pl.Utf8))
+        .alias("product_entry_date")
+    )
+
+
 def _format_dates(
     df: pl.DataFrame, error_collector: ErrorCollector
 ) -> pl.DataFrame:
     """Step 2.6 — parse ``product_entry_date`` with the flexible date parser.
 
-    Two preprocessing steps run before delegating to ``parse_date_column``:
+    Three preprocessing steps run before delegating to ``parse_date_column``:
 
-    1. Strip a trailing time component (``" HH:MM[:SS]"``) from Excel
+    1. Null end-of-block summary-row residue (marker strings and
+       tiny-int Excel serials) via ``_null_entry_date_residues``, so they
+       become NULL in the cleaned output instead of the parse-failure
+       sentinel or 1900-01-29 Excel-leap-year artefacts.
+    2. Strip a trailing time component (``" HH:MM[:SS]"``) from Excel
        datetimes cast to string. Uses a precise regex rather than splitting
        on the first space, so date strings that legitimately contain
        spaces (e.g. ``"24 Feb 2020"``) survive intact.
-    2. Normalize separator typos observed in the corpus (2026-04-29):
+    3. Normalize separator typos observed in the corpus (2026-04-29):
        ``"--"`` → ``"-"``, period-then-letter → space, underscore → space.
        Each rule is unambiguous and does not collide with valid date
        formats. Product-scoped only; ``parse_date_flexible`` is shared
@@ -316,6 +379,7 @@ def _format_dates(
         return df
     if df.schema["product_entry_date"] == pl.Date:
         return df
+    df = _null_entry_date_residues(df)
     df = df.with_columns(
         pl.col("product_entry_date")
         .cast(pl.Utf8)
