@@ -11,6 +11,7 @@ from a4d.clean.product import (
     _extract_balance_from_received,
     _fill_product_names_and_sort,
     _format_dates,
+    _null_entry_date_residues,
     _split_multi_product_cells,
     _switch_misplaced_columns,
     _validate_entry_dates,
@@ -112,6 +113,122 @@ def test_validate_entry_dates_logs_year_floor_but_preserves_date():
     assert err.error_code == "invalid_value"
     assert err.patient_id == "P2"
     assert "before" in err.error_message
+
+
+def test_null_entry_date_residues_nulls_amount_left_marker():
+    """End-of-block "Amount Left" markers (case-insensitive, whitespace-trimmed)
+    are nulled before parsing. Regression for 2018 Mahosot Nov18/Dec18 where
+    six rows per sheet had "Amount Left" in the entry_date column, surfacing
+    as 9999-09-09 parse-failure sentinels in cleaned output."""
+    df = pl.DataFrame(
+        {
+            "product_entry_date": [
+                "Amount Left",
+                "amount left",
+                " AMOUNT LEFT ",
+                "2018-12-05",
+            ],
+        },
+        schema={"product_entry_date": pl.String},
+    )
+
+    out = _null_entry_date_residues(df)
+
+    assert out["product_entry_date"].to_list() == [None, None, None, "2018-12-05"]
+
+
+def test_null_entry_date_residues_nulls_tiny_excel_serials():
+    """Numeric cells below the 2000-01-01 floor (Excel serial 36526) are
+    nulled. Regression for 2025 NPH Jul25/Aug25/Dec25 row 81 where a stray
+    "30" surfaced as 1900-01-29 via the pre-Mar-1900 leap-year-bug epoch."""
+    df = pl.DataFrame(
+        {
+            "product_entry_date": ["30", "59", "366", "36525", "36526", "45000"],
+        },
+        schema={"product_entry_date": pl.String},
+    )
+
+    out = _null_entry_date_residues(df)
+
+    parsed = out["product_entry_date"].to_list()
+    assert parsed[0] is None  # 30 — within Excel leap-year-bug range
+    assert parsed[1] is None  # 59 — top of leap-year-bug range
+    assert parsed[2] is None  # 366 — first day of 1901
+    assert parsed[3] is None  # 36525 — 1999-12-31, just below floor
+    assert parsed[4] == "36526"  # 2000-01-01 — at floor, preserved
+    assert parsed[5] == "45000"  # ~2023, well above floor
+
+
+def test_null_entry_date_residues_preserves_real_dates():
+    """Standard date string formats survive the residue scrub unchanged.
+    Regression guard: marker / tiny-serial detection must not catch
+    legitimate inputs."""
+    df = pl.DataFrame(
+        {
+            "product_entry_date": [
+                "2018-12-05",
+                "05/12/2018",
+                "Mar-18",
+                "24 Feb 2020",
+                None,
+            ],
+        },
+        schema={"product_entry_date": pl.String},
+    )
+
+    out = _null_entry_date_residues(df)
+
+    assert out["product_entry_date"].to_list() == [
+        "2018-12-05",
+        "05/12/2018",
+        "Mar-18",
+        "24 Feb 2020",
+        None,
+    ]
+
+
+def test_null_entry_date_residues_missing_column_is_noop():
+    df = pl.DataFrame({"product": ["P1"]})
+    out = _null_entry_date_residues(df)
+    assert out.equals(df)
+
+
+def test_format_dates_residue_cells_become_null_after_parsing():
+    """End-to-end: residue cells flowing through _format_dates emerge as
+    NULL in the parsed Date column, not 9999-09-09 or 1900-01-29."""
+    df = pl.DataFrame(
+        {
+            "product": ["P1", "P2", "P3", "P4", "P5"],
+            "product_entry_date": [
+                "Amount Left",
+                "30",
+                "2018-12-05",
+                "45000",
+                None,
+            ],
+            "file_name": ["t.xlsx"] * 5,
+        },
+        schema={
+            "product": pl.String,
+            "product_entry_date": pl.String,
+            "file_name": pl.String,
+        },
+    )
+    collector = ErrorCollector()
+
+    out = _format_dates(df, collector)
+
+    parsed = out["product_entry_date"].to_list()
+    assert parsed[0] is None  # "Amount Left" — nulled
+    assert parsed[1] is None  # tiny serial 30 — nulled
+    assert parsed[2] == date(2018, 12, 5)
+    assert parsed[3] is not None and parsed[3].year >= 2000  # 45000 → real post-2000 date
+    assert parsed[4] is None
+    # No parse-failure errors logged because residue cells were nulled
+    # before parse_date_flexible saw them.
+    assert all(
+        err.error_code != "invalid_value" for err in collector.errors
+    )
 
 
 def test_switch_misplaced_columns_scoped_per_sheet():
