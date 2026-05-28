@@ -135,7 +135,7 @@ def clean_product_data(
     df = _extract_unit_capacity(df)                        # 2.21
     # 2.22 cross-month combine happens at the table stage (S4-T1), not here.
 
-    # Final schema conformance: guarantees 19 columns in schema order.
+    # Final schema conformance: guarantees 20 columns in schema order.
     df = apply_schema(df)
     # R-parity: UNIT_COLS treat absence as 0 (helper_product_data.R:292-297),
     # so re-run the recode after schema seeding fills any newly-added column.

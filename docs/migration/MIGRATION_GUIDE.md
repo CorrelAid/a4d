@@ -95,7 +95,7 @@ src/a4d/
 │   ├── patient.py         # Patient cleaning pipeline
 │   ├── product.py         # Product cleaning pipeline (R steps 2.0-2.21)
 │   ├── schema.py          # 83-column patient schema
-│   ├── schema_product.py  # 19-column product schema
+│   ├── schema_product.py  # 20-column product schema
 │   ├── converters.py      # Safe type conversion + ErrorCollector
 │   ├── validators.py      # Case-insensitive allowed-values
 │   ├── transformers.py    # Explicit transformations

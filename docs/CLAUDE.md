@@ -13,7 +13,7 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 | `clean/patient.py` | Type conversion, validation, transformations → cleaned parquet |
 | `clean/product.py` | Product cleaning pipeline (R steps 2.0-2.21) → cleaned product parquet |
 | `clean/schema.py` | 83-column patient meta schema matching R output |
-| `clean/schema_product.py` | 19-column product meta schema + helpers |
+| `clean/schema_product.py` | 20-column product meta schema + helpers |
 | `clean/converters.py` | Safe type conversion with ErrorCollector |
 | `clean/validators.py` | Case-insensitive allowed-values validation |
 | `clean/transformers.py` | Explicit transformations (regimen, BP splitting, FBG) |

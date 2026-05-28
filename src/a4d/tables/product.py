@@ -1,7 +1,7 @@
 """Product table creation.
 
 Covers R Script 3 (steps 3.1-3.3): merge all cleaned product parquets into
-a single ``product_data`` table with the canonical 19-column schema.
+a single ``product_data`` table with the canonical 20-column schema.
 """
 
 from pathlib import Path
@@ -41,7 +41,7 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
     1. Concatenate every cleaned product parquet.
     2. Preserve ``product_released_to`` as ``orig_product_released_to`` and
        normalise ``product_released_to`` via ``fix_patient_id``.
-    3. Apply the 19-column product schema with type enforcement; values that
+    3. Apply the 20-column product schema with type enforcement; values that
        fail conversion are replaced by the error sentinels from ``settings``.
 
     Args:

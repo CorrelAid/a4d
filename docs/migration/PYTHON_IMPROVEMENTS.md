@@ -204,7 +204,7 @@ invalid_mask = (
 
 ## Migration Validation Status
 
-✅ **Schema**: 100% match (83 patient columns + 19 product columns)
+✅ **Schema**: 100% match (83 patient columns + 20 product columns)
 ✅ **Extraction**: Improved (unconditional header merge fixes insulin_total_units)
 ✅ **Cleaning**: Improved (insulin_type, insulin_subtype, product date parsing)
 ℹ️ **Precision**: Acceptable float differences (~10⁻¹⁵ BMI, ~10⁻¹⁴ product running balance)
