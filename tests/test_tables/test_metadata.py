@@ -45,7 +45,9 @@ def fake_output_root(tmp_path: Path) -> Path:
 
     # A2: only patient outputs (product arm skipped).
     (output_root / "patient_data_raw" / "2024_A2_Tracker_patient_raw.parquet").write_bytes(b"")
-    (output_root / "patient_data_cleaned" / "2024_A2_Tracker_patient_cleaned.parquet").write_bytes(b"")
+    (output_root / "patient_data_cleaned" / "2024_A2_Tracker_patient_cleaned.parquet").write_bytes(
+        b""
+    )
 
     # B1: no outputs.
     return output_root
@@ -93,12 +95,15 @@ def test_metadata_presence_flags(fake_trackers: Path, fake_output_root: Path):
 
     b1 = next(r for r in rows if r["file_name"] == "2024_B1_Tracker")
     assert b1["clinic_code"] == "CLINIC_B"
-    assert all(b1[s] is False for s in (
-        "patient_data_raw",
-        "patient_data_cleaned",
-        "product_data_raw",
-        "product_data_cleaned",
-    ))
+    assert all(
+        b1[s] is False
+        for s in (
+            "patient_data_raw",
+            "patient_data_cleaned",
+            "product_data_raw",
+            "product_data_cleaned",
+        )
+    )
     assert b1["complete"] is False
 
 
@@ -121,7 +126,12 @@ def test_metadata_handles_missing_output_subdirs(fake_trackers: Path, tmp_path: 
     df = pl.read_parquet(output_root / "tables" / "tracker_metadata.parquet")
 
     assert df.height == 3
-    for col in ("patient_data_raw", "patient_data_cleaned", "product_data_raw", "product_data_cleaned"):
+    for col in (
+        "patient_data_raw",
+        "patient_data_cleaned",
+        "product_data_raw",
+        "product_data_cleaned",
+    ):
         assert df[col].to_list() == [False, False, False]
     assert df["complete"].to_list() == [False, False, False]
 

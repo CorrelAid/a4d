@@ -44,9 +44,9 @@ def _read_stock_summary() -> pl.DataFrame:
         cat = row[1] if len(row) > 1 else None
         categories.append(str(cat).strip() if cat is not None else None)
 
-    return pl.DataFrame(
-        {"product": products, "product_category": categories}
-    ).unique(subset=["product"], keep="first", maintain_order=True)
+    return pl.DataFrame({"product": products, "product_category": categories}).unique(
+        subset=["product"], keep="first", maintain_order=True
+    )
 
 
 def load_known_products() -> list[str]:

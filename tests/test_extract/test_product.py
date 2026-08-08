@@ -125,13 +125,13 @@ def test_replace_extra_totals_masks_after_total_column():
     'total' (case-insensitive), the released value is nulled."""
     df = pl.DataFrame(
         {
-            "product":                ["A", "B"],
-            "Total Released":         ["Total", None],
+            "product": ["A", "B"],
+            "Total Released": ["Total", None],
             "product_units_released": ["10", "20"],
         },
         schema={
-            "product":                pl.String,
-            "Total Released":         pl.String,
+            "product": pl.String,
+            "Total Released": pl.String,
             "product_units_released": pl.String,
         },
     )
@@ -144,15 +144,15 @@ def test_replace_extra_totals_preserves_clean_rows():
     product_units_released unchanged."""
     df = pl.DataFrame(
         {
-            "product":                ["A", "B"],
-            "product_received_from":  ["DKSH", None],
-            "product_released_to":    ["P1", "P2"],
+            "product": ["A", "B"],
+            "product_received_from": ["DKSH", None],
+            "product_released_to": ["P1", "P2"],
             "product_units_released": ["10", "20"],
         },
         schema={
-            "product":                pl.String,
-            "product_received_from":  pl.String,
-            "product_released_to":    pl.String,
+            "product": pl.String,
+            "product_received_from": pl.String,
+            "product_released_to": pl.String,
             "product_units_released": pl.String,
         },
     )
@@ -164,13 +164,13 @@ def test_replace_extra_totals_case_insensitive():
     """'total' / 'TOTAL' / 'Total' all trigger masking."""
     df = pl.DataFrame(
         {
-            "product":                ["A"],
-            "TOTAL":                  ["TOTAL"],
+            "product": ["A"],
+            "TOTAL": ["TOTAL"],
             "product_units_released": ["10"],
         },
         schema={
-            "product":                pl.String,
-            "TOTAL":                  pl.String,
+            "product": pl.String,
+            "TOTAL": pl.String,
             "product_units_released": pl.String,
         },
     )
@@ -181,10 +181,10 @@ def test_replace_extra_totals_case_insensitive():
 def test_extract_product_data_promotes_headers_and_types_strings():
     """First row becomes column names; all values are coerced to pl.String."""
     rows = [
-        ["Cover", None, None],          # 1: pre-section
-        ["Product", "Date", "Units"],   # 2: header
-        ["Insulin", "2024-06-01", 100], # 3
-        ["Strips", "2024-06-02", 50],   # 4
+        ["Cover", None, None],  # 1: pre-section
+        ["Product", "Date", "Units"],  # 2: header
+        ["Insulin", "2024-06-01", 100],  # 3
+        ["Strips", "2024-06-02", 50],  # 4
     ]
     ws = _make_ws(rows)
 
@@ -231,8 +231,8 @@ def test_add_product_metadata_appends_five_cols():
 def test_remove_header_rows_drops_repeated_header_and_empty():
     df = pl.DataFrame(
         {
-            "product":             ["Product", "Insulin", None,    "Patient Data Summary"],
-            "product_entry_date":  [None,      "2024-06", None,    None],
+            "product": ["Product", "Insulin", None, "Patient Data Summary"],
+            "product_entry_date": [None, "2024-06", None, None],
         },
         schema={"product": pl.String, "product_entry_date": pl.String},
     )
@@ -256,12 +256,12 @@ def test_read_all_product_sheets_end_to_end(tmp_path: Path):
     ws = wb.create_sheet("Jun24")
 
     rows = [
-        [None, None, None, None, None],                               # 1: pre-section
-        ["Product", "Date", "Units Received", "From", "Released"],   # 2: header
-        ["Insulin", "2024-06-01", 100, "DKSH", 5],                   # 3: data
-        ["Strips", "2024-06-02", 50, "DKSH", None],                  # 4: data
-        ["Patient Recruitment", None, None, None, None],              # 5: terminator
-        ["Patient Name", "Patient ID", None, None, None],             # 6: end
+        [None, None, None, None, None],  # 1: pre-section
+        ["Product", "Date", "Units Received", "From", "Released"],  # 2: header
+        ["Insulin", "2024-06-01", 100, "DKSH", 5],  # 3: data
+        ["Strips", "2024-06-02", 50, "DKSH", None],  # 4: data
+        ["Patient Recruitment", None, None, None, None],  # 5: terminator
+        ["Patient Name", "Patient ID", None, None, None],  # 6: end
     ]
     for row in rows:
         ws.append(row)
@@ -271,11 +271,11 @@ def test_read_all_product_sheets_end_to_end(tmp_path: Path):
 
     mapper = _make_mapper(
         {
-            "Product":        "product",
-            "Date":           "product_entry_date",
+            "Product": "product",
+            "Date": "product_entry_date",
             "Units Received": "product_units_received",
-            "From":           "product_received_from",
-            "Released":       "product_units_released",
+            "From": "product_received_from",
+            "Released": "product_units_released",
         }
     )
     collector = ErrorCollector()
@@ -313,17 +313,19 @@ def test_count_orphan_released_units_logs_per_sheet():
     produce exactly 1 ErrorCollector entry naming the sheet and count."""
     df = pl.DataFrame(
         {
-            "product_released_to":    [None, None, None, "P1", "P2"],
+            "product_released_to": [None, None, None, "P1", "P2"],
             "product_units_released": ["10", "20", "30", "40", None],
         },
         schema={
-            "product_released_to":    pl.String,
+            "product_released_to": pl.String,
             "product_units_released": pl.String,
         },
     )
     collector = ErrorCollector()
 
-    _count_orphan_released_units(df, sheet_name="Jul24", file_name="t.xlsx", error_collector=collector)
+    _count_orphan_released_units(
+        df, sheet_name="Jul24", file_name="t.xlsx", error_collector=collector
+    )
 
     assert len(collector) == 1
     err = collector.errors[0]
@@ -338,11 +340,11 @@ def test_count_orphan_released_units_zero_rows_no_log():
     """Clean fixture (all releases have a recipient) emits no log."""
     df = pl.DataFrame(
         {
-            "product_released_to":    ["P1", "P2", None],
+            "product_released_to": ["P1", "P2", None],
             "product_units_released": ["10", "20", None],
         },
         schema={
-            "product_released_to":    pl.String,
+            "product_released_to": pl.String,
             "product_units_released": pl.String,
         },
     )
@@ -355,11 +357,11 @@ def test_count_orphan_released_units_treats_whitespace_as_null():
     """Whitespace-only product_released_to (e.g. ' ') counts as orphan."""
     df = pl.DataFrame(
         {
-            "product_released_to":    [" ", "\t", "P1"],
+            "product_released_to": [" ", "\t", "P1"],
             "product_units_released": ["10", "20", "30"],
         },
         schema={
-            "product_released_to":    pl.String,
+            "product_released_to": pl.String,
             "product_units_released": pl.String,
         },
     )
@@ -373,11 +375,11 @@ def test_count_orphan_released_units_no_collector_is_noop():
     """When no collector is passed (e.g. preview path), the helper is a no-op."""
     df = pl.DataFrame(
         {
-            "product_released_to":    [None],
+            "product_released_to": [None],
             "product_units_released": ["10"],
         },
         schema={
-            "product_released_to":    pl.String,
+            "product_released_to": pl.String,
             "product_units_released": pl.String,
         },
     )

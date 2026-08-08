@@ -173,9 +173,7 @@ def _apply_typo_rescue(
     repl_expr = pl.col(column)
     for original, rescued_val in rescue_map.items():
         repl_expr = (
-            pl.when(pl.col(column) == original)
-            .then(pl.lit(rescued_val))
-            .otherwise(repl_expr)
+            pl.when(pl.col(column) == original).then(pl.lit(rescued_val)).otherwise(repl_expr)
         )
     return df.with_columns(repl_expr.alias(column))
 
@@ -231,17 +229,18 @@ def parse_date_column(
     col_str = df[column].cast(pl.Utf8)
     unique_strs = col_str.drop_nulls().unique().to_list()
     if unique_strs:
-        lookup = {
-            s: parse_date_flexible(s, error_val=settings.error_val_date)
-            for s in unique_strs
-        }
+        lookup = {s: parse_date_flexible(s, error_val=settings.error_val_date) for s in unique_strs}
         # Polars 1.34 ignores return_dtype=pl.Date when every mapped output is
         # None and falls back to the input series' dtype (Utf8). Cast explicitly
         # so the downstream `_parsed == error_date` comparison stays Date-vs-Date.
-        parsed_series = col_str.map_elements(
-            lambda v: lookup.get(v) if v is not None else None,
-            return_dtype=pl.Date,
-        ).cast(pl.Date).alias(f"_parsed_{column}")
+        parsed_series = (
+            col_str.map_elements(
+                lambda v: lookup.get(v) if v is not None else None,
+                return_dtype=pl.Date,
+            )
+            .cast(pl.Date)
+            .alias(f"_parsed_{column}")
+        )
     else:
         parsed_series = pl.Series(f"_parsed_{column}", [None] * df.height, dtype=pl.Date)
     df = df.with_columns(parsed_series)

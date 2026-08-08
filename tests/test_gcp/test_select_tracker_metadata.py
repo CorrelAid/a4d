@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from google.api_core.exceptions import GoogleAPIError, NotFound
 
 from a4d.gcp.bigquery import select_tracker_metadata

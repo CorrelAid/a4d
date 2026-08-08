@@ -164,7 +164,10 @@ def validate_allowed_values(
                 patient_id="unknown",
                 column=column,
                 original_value=original_val,
-                error_message=f"Value '{original_val}' not in allowed values (CSV-subset check): {allowed_values}",
+                error_message=(
+                    f"Value '{original_val}' not in allowed values "
+                    f"(CSV-subset check): {allowed_values}"
+                ),
                 error_code="invalid_value",
                 function_name="validate_allowed_values",
             )

@@ -167,8 +167,7 @@ def test_row_count_delta_fires_when_counts_differ() -> None:
     coll = ErrorCollector()
     check_row_count_delta(_explode_multi_product_cells(raw), cleaned, coll)
     assert any(
-        "ROW_COUNT_DELTA" in e.error_message and "delta=-2" in e.error_message
-        for e in coll.errors
+        "ROW_COUNT_DELTA" in e.error_message and "delta=-2" in e.error_message for e in coll.errors
     )
 
 

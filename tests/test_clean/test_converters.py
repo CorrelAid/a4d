@@ -388,21 +388,19 @@ def test_parse_date_column_logs_unparseable_dates():
     """
     df = pl.DataFrame(
         {
-            "file_name":  ["test.xlsx", "test.xlsx", "test.xlsx"],
+            "file_name": ["test.xlsx", "test.xlsx", "test.xlsx"],
             "patient_id": ["P1", "P2", "P3"],
             "entry_date": ["2024-03-15", "garbage_value_xyz", "2024-04-20"],
         },
         schema={
-            "file_name":  pl.String,
+            "file_name": pl.String,
             "patient_id": pl.String,
             "entry_date": pl.String,
         },
     )
     collector = ErrorCollector()
 
-    result = parse_date_column(
-        df=df, column="entry_date", error_collector=collector
-    )
+    result = parse_date_column(df=df, column="entry_date", error_collector=collector)
 
     parsed = result["entry_date"].to_list()
     assert parsed[0] == date(2024, 3, 15)

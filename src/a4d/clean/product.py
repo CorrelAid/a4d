@@ -90,22 +90,22 @@ def clean_product_data(
         Cleaned product DataFrame.
     """
     df = _normalize_empty_strings_to_null(df_raw)  # 2.0 (see helper docstring)
-    df = _split_multi_product_cells(df)           # 2.1
-    df = _switch_misplaced_columns(df)            # 2.3
-    df = _remove_uninformative_rows(df)           # 2.4
-    df = _add_row_index(df)                       # 2.5
-    df = _format_dates(df, error_collector)       # 2.6
+    df = _split_multi_product_cells(df)  # 2.1
+    df = _switch_misplaced_columns(df)  # 2.3
+    df = _remove_uninformative_rows(df)  # 2.4
+    df = _add_row_index(df)  # 2.5
+    df = _format_dates(df, error_collector)  # 2.6
     _check_entry_dates_match_sheet(df, error_collector)  # 2.6a (R-parity log)
     df = _validate_entry_dates(df, error_collector)  # 2.6b
-    df = _fill_product_names_and_sort(df)         # 2.7
-    df = _extract_balance_from_received(df)       # 2.8
-    df = _recode_na_units_to_zero(df)             # 2.9
-    df = _clean_received_from(df)                 # 2.10
+    df = _fill_product_names_and_sort(df)  # 2.7
+    df = _extract_balance_from_received(df)  # 2.8
+    df = _recode_na_units_to_zero(df)  # 2.9
+    df = _clean_received_from(df)  # 2.10
     df = _clean_units_received(df, error_collector)  # 2.11
-    df = _recode_na_units_to_zero(df)             # 2.12
-    df = _remove_empty_data_rows(df)              # 2.13
-    df = _compute_balance_status(df)              # 2.14
-    df = _compute_running_balance(df)             # 2.15
+    df = _recode_na_units_to_zero(df)  # 2.12
+    df = _remove_empty_data_rows(df)  # 2.13
+    df = _compute_balance_status(df)  # 2.14
+    df = _compute_running_balance(df)  # 2.15
 
     # 2.16 — type cast numeric/date columns via ErrorCollector; strip strings
     # so trailing whitespace from openpyxl matches R's readxl trim-on-read.
@@ -130,9 +130,9 @@ def clean_product_data(
         df = df.drop("index")
 
     df = _validate_negative_balances(df, error_collector)  # 2.18
-    df = _report_unknown_products(df, error_collector)     # 2.19
-    df = _add_product_categories(df)                       # 2.20
-    df = _extract_unit_capacity(df)                        # 2.21
+    df = _report_unknown_products(df, error_collector)  # 2.19
+    df = _add_product_categories(df)  # 2.20
+    df = _extract_unit_capacity(df)  # 2.21
     # 2.22 cross-month combine happens at the table stage (S4-T1), not here.
 
     # Final schema conformance: guarantees 20 columns in schema order.
@@ -173,10 +173,7 @@ def _normalize_empty_strings_to_null(df: pl.DataFrame) -> pl.DataFrame:
     product_units_received).
     """
     exprs = [
-        pl.when(pl.col(c).str.strip_chars() == "")
-        .then(None)
-        .otherwise(pl.col(c))
-        .alias(c)
+        pl.when(pl.col(c).str.strip_chars() == "").then(None).otherwise(pl.col(c)).alias(c)
         for c, dtype in df.schema.items()
         if dtype == pl.String
     ]
@@ -234,11 +231,7 @@ def _split_multi_product_cells(df: pl.DataFrame) -> pl.DataFrame:
 
     if "product_received_from" in df.columns:
         df = df.with_columns(
-            pl.when(
-                has_paren_and_kw
-                & no_slash
-                & pl.col("product_received_from").is_not_null()
-            )
+            pl.when(has_paren_and_kw & no_slash & pl.col("product_received_from").is_not_null())
             .then(number_str)
             .otherwise(pl.col("product_units_received"))
             .alias("product_units_received")
@@ -246,11 +239,7 @@ def _split_multi_product_cells(df: pl.DataFrame) -> pl.DataFrame:
 
     if "product_released_to" in df.columns:
         df = df.with_columns(
-            pl.when(
-                has_paren_and_kw
-                & no_slash
-                & pl.col("product_released_to").is_not_null()
-            )
+            pl.when(has_paren_and_kw & no_slash & pl.col("product_released_to").is_not_null())
             .then(number_str)
             .otherwise(pl.col("product_units_released"))
             .alias("product_units_released")
@@ -340,11 +329,7 @@ def _null_entry_date_residues(df: pl.DataFrame) -> pl.DataFrame:
     raw = pl.col("product_entry_date").cast(pl.Utf8).str.strip_chars()
     is_marker = raw.str.to_lowercase().is_in(list(PRODUCT_DATE_NA_MARKERS))
     as_num = raw.cast(pl.Float64, strict=False)
-    is_tiny_serial = (
-        as_num.is_not_null()
-        & (as_num > 0)
-        & (as_num < MIN_PLAUSIBLE_EXCEL_SERIAL)
-    )
+    is_tiny_serial = as_num.is_not_null() & (as_num > 0) & (as_num < MIN_PLAUSIBLE_EXCEL_SERIAL)
 
     return df.with_columns(
         pl.when(is_marker | is_tiny_serial)
@@ -354,9 +339,7 @@ def _null_entry_date_residues(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _format_dates(
-    df: pl.DataFrame, error_collector: ErrorCollector
-) -> pl.DataFrame:
+def _format_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
     """Step 2.6 — parse ``product_entry_date`` with the flexible date parser.
 
     Three preprocessing steps run before delegating to ``parse_date_column``:
@@ -389,14 +372,10 @@ def _format_dates(
         .str.replace_all(r"_", " ")
         .alias("product_entry_date")
     )
-    return parse_date_column(
-        df, "product_entry_date", error_collector, patient_id_col="product"
-    )
+    return parse_date_column(df, "product_entry_date", error_collector, patient_id_col="product")
 
 
-def _check_entry_dates_match_sheet(
-    df: pl.DataFrame, error_collector: ErrorCollector
-) -> None:
+def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorCollector) -> None:
     """R-parity warning for entry dates that disagree with the sheet header.
 
     Mirrors R's ``check_entry_dates`` (read_product_data.R): one log entry
@@ -434,7 +413,8 @@ def _check_entry_dates_match_sheet(
         "product_entry_date",
         table_year.alias("_table_year"),
         table_month.alias("_table_month"),
-        "product_sheet_name" if "product_sheet_name" in df.columns
+        "product_sheet_name"
+        if "product_sheet_name" in df.columns
         else pl.lit("unknown").alias("product_sheet_name"),
     ]
     offenders = df.filter(is_real_date & mismatch).select(select_cols)
@@ -454,9 +434,7 @@ def _check_entry_dates_match_sheet(
         )
 
 
-def _validate_entry_dates(
-    df: pl.DataFrame, error_collector: ErrorCollector
-) -> pl.DataFrame:
+def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
     """Step 2.6b — flag fat-fingered Gregorian entry dates outside the tracker window.
 
     A row is flagged when its parsed Gregorian year falls outside
@@ -664,10 +642,9 @@ def _extract_balance_from_received(df: pl.DataFrame) -> pl.DataFrame:
         return df
 
     balance_mask = pl.col("product_units_received").cast(pl.Utf8).str.contains("(?i)Balance")
-    sheet_triggered = (
-        balance_mask.any().over("product_sheet_name")
-        & pl.col("product_received_from").is_null().any().over("product_sheet_name")
-    )
+    sheet_triggered = balance_mask.any().over("product_sheet_name") & pl.col(
+        "product_received_from"
+    ).is_null().any().over("product_sheet_name")
 
     if not df.select(sheet_triggered.any()).item():
         return df
@@ -693,9 +670,17 @@ def _extract_balance_from_received(df: pl.DataFrame) -> pl.DataFrame:
     # supplier — it's the label the typist put on the end-of-product-block
     # subtotal row.
     df = df.with_columns(
-        pl.when(pl.col("_sheet_triggered") & pl.col("_balance_mask") & pl.col("product_units_released").is_not_null())
+        pl.when(
+            pl.col("_sheet_triggered")
+            & pl.col("_balance_mask")
+            & pl.col("product_units_released").is_not_null()
+        )
         .then(pl.col("product_units_released").cast(pl.Utf8))
-        .when(pl.col("_sheet_triggered") & pl.col("_balance_mask") & pl.col("product_received_from").is_not_null())
+        .when(
+            pl.col("_sheet_triggered")
+            & pl.col("_balance_mask")
+            & pl.col("product_received_from").is_not_null()
+        )
         .then(pl.col("product_received_from").cast(pl.Utf8))
         .when(pl.col("product_received_from") == "Total")
         .then(pl.lit(None, dtype=pl.Utf8))
@@ -703,7 +688,11 @@ def _extract_balance_from_received(df: pl.DataFrame) -> pl.DataFrame:
         .alias("product_received_from")
     )
     df = df.with_columns(
-        pl.when(pl.col("_sheet_triggered") & pl.col("_balance_mask") & pl.col("product_received_from").is_not_null())
+        pl.when(
+            pl.col("_sheet_triggered")
+            & pl.col("_balance_mask")
+            & pl.col("product_received_from").is_not_null()
+        )
         .then(pl.lit(None, dtype=pl.Utf8))
         .otherwise(pl.col("product_units_released"))
         .alias("product_units_released")
@@ -782,14 +771,12 @@ def _clean_units_received(
     if "product_units_received" not in df.columns:
         return df
 
-    marker_mask = pl.col("product_units_received").cast(pl.Utf8).str.contains(
-        "(?i)START|END|BALANCE"
+    marker_mask = (
+        pl.col("product_units_received").cast(pl.Utf8).str.contains("(?i)START|END|BALANCE")
     )
     casted = pl.col("product_units_received").cast(pl.Float64, strict=False)
 
-    failure_mask = (
-        pl.col("product_units_received").is_not_null() & ~marker_mask & casted.is_null()
-    )
+    failure_mask = pl.col("product_units_received").is_not_null() & ~marker_mask & casted.is_null()
     failures = df.filter(failure_mask)
     for row in failures.iter_rows(named=True):
         original = row["product_units_received"]
@@ -868,11 +855,7 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
     ``"start"`` because the cumsum below seeds from
     ``product_balance.first().over(group)``.
     """
-    group = (
-        ["product_sheet_name", "product"]
-        if "product_sheet_name" in df.columns
-        else ["product"]
-    )
+    group = ["product_sheet_name", "product"] if "product_sheet_name" in df.columns else ["product"]
 
     if "product_balance_status" not in df.columns:
         raise RuntimeError(
@@ -880,14 +863,12 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
             "run _compute_balance_status (step 2.14) first"
         )
     if df.height > 0:
-        first_status = df.select(
-            pl.col("product_balance_status").first().over(group).alias("_fs")
-        )["_fs"]
+        first_status = df.select(pl.col("product_balance_status").first().over(group).alias("_fs"))[
+            "_fs"
+        ]
         if not (first_status == "start").all():
             bad_groups = (
-                df.with_columns(
-                    pl.col("product_balance_status").first().over(group).alias("_fs")
-                )
+                df.with_columns(pl.col("product_balance_status").first().over(group).alias("_fs"))
                 .filter(pl.col("_fs") != "start")
                 .select(group)
                 .unique()
@@ -925,10 +906,7 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
         )
 
     df = df.with_columns(
-        pl.when(
-            (pl.col("product_balance_status") == "start")
-            & pl.col("product_balance").is_null()
-        )
+        pl.when((pl.col("product_balance_status") == "start") & pl.col("product_balance").is_null())
         .then(pl.col("product_units_received") - pl.col("product_units_released"))
         .otherwise(pl.col("product_balance"))
         .alias("product_balance")
@@ -941,10 +919,7 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.col("product_units_received") - pl.col("product_units_released"))
     )
     df = df.with_columns(
-        (
-            pl.col("product_balance").first().over(group)
-            + delta.cum_sum().over(group)
-        )
+        (pl.col("product_balance").first().over(group) + delta.cum_sum().over(group))
         .round(10)
         .alias("product_balance")
     )
@@ -999,9 +974,7 @@ def _report_unknown_products(
 
     # R logs unknowns per-sheet; replicate by keying errors on
     # (file_name, product_sheet_name, product) triples.
-    cols = [
-        c for c in ("file_name", "product_sheet_name", "product") if c in df.columns
-    ]
+    cols = [c for c in ("file_name", "product_sheet_name", "product") if c in df.columns]
     unknowns = (
         df.filter(pl.col("product").is_not_null())
         .with_columns(pl.col("product").str.to_lowercase().alias("_lower"))
@@ -1036,9 +1009,7 @@ def _add_product_categories(df: pl.DataFrame) -> pl.DataFrame:
     # columns: product (lowercased), product_category
     categories = load_product_categories()
 
-    df = df.with_columns(
-        pl.col("product").cast(pl.Utf8).str.to_lowercase().alias("_product_join")
-    )
+    df = df.with_columns(pl.col("product").cast(pl.Utf8).str.to_lowercase().alias("_product_join"))
     df = df.join(
         categories.rename({"product": "_product_join"}),
         on="_product_join",
@@ -1055,15 +1026,11 @@ def _extract_unit_capacity(df: pl.DataFrame) -> pl.DataFrame:
     to 1 as well.
     """
     if "product" not in df.columns:
-        return df.with_columns(
-            pl.lit(1, dtype=pl.Int32).alias("product_unit_capacity")
-        )
+        return df.with_columns(pl.lit(1, dtype=pl.Int32).alias("product_unit_capacity"))
 
     paren = pl.col("product").cast(pl.Utf8).str.extract(r"\(([^()]+)\)", 1)
     paren_normalized = (
-        pl.when(paren.str.contains("(?i)singles"))
-        .then(pl.lit("1s"))
-        .otherwise(paren)
+        pl.when(paren.str.contains("(?i)singles")).then(pl.lit("1s")).otherwise(paren)
     )
     # Digits immediately followed by an optional apostrophe and then "s"
     # (covers "(10s)", "(5's)"). Non-matching paren content → null → 1.

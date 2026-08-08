@@ -113,9 +113,7 @@ def _join_for_cell_checks(raw: pl.DataFrame, cleaned: pl.DataFrame) -> pl.DataFr
     raw_n = _normalize_join_keys(raw)
     cleaned_n = _normalize_join_keys(cleaned)
 
-    raw_renamed = raw_n.rename(
-        {c: f"{c}_raw" for c in raw_n.columns if c not in ROW_KEY}
-    )
+    raw_renamed = raw_n.rename({c: f"{c}_raw" for c in raw_n.columns if c not in ROW_KEY})
     cleaned_renamed = cleaned_n.rename(
         {c: f"{c}_clean" for c in cleaned_n.columns if c not in ROW_KEY}
     )
@@ -142,9 +140,7 @@ def check_unexpected_nulls(
         # null in cleaned, non-empty (after strip) in raw
         raw_str = pl.col(raw_col).cast(pl.Utf8).str.strip_chars()
         suspect = joined.filter(
-            pl.col(clean_col).is_null()
-            & raw_str.is_not_null()
-            & (raw_str.str.len_chars() > 0)
+            pl.col(clean_col).is_null() & raw_str.is_not_null() & (raw_str.str.len_chars() > 0)
         )
         if suspect.is_empty():
             continue
@@ -250,7 +246,11 @@ def check_out_of_range(
         max_v = float(bounds["max"])
 
         pids = raw_n["patient_id"].to_list()
-        files = raw_n[file_name_col].to_list() if file_name_col in raw_n.columns else [""] * raw_n.height
+        files = (
+            raw_n[file_name_col].to_list()
+            if file_name_col in raw_n.columns
+            else [""] * raw_n.height
+        )
         for v, pid, fname in zip(parsed.to_list(), pids, files, strict=True):
             if v is None:
                 continue
@@ -261,9 +261,7 @@ def check_out_of_range(
                     patient_id=pid or "unknown",
                     column=column,
                     original_value=v,
-                    error_message=(
-                        f"OUT_OF_RANGE_RAW: value {v} outside [{min_v}, {max_v}]"
-                    ),
+                    error_message=(f"OUT_OF_RANGE_RAW: value {v} outside [{min_v}, {max_v}]"),
                     error_code="invalid_value",
                     function_name="check_out_of_range",
                 )
@@ -282,9 +280,7 @@ def validate_patient_run(run_dir: Path) -> ErrorCollector | None:
         return None
 
     collector = ErrorCollector()
-    logger.info(
-        f"Patient validation: raw={raw.shape}, cleaned_monthly={cleaned.shape}"
-    )
+    logger.info(f"Patient validation: raw={raw.shape}, cleaned_monthly={cleaned.shape}")
 
     check_missing_patients(raw, cleaned, collector)
     joined = _join_for_cell_checks(raw, cleaned)

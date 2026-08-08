@@ -1,6 +1,5 @@
 """Tests for Google Drive download module."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
