@@ -3,7 +3,7 @@ id: 2
 title: Retire the PDF/notebook analysis docs for an automated, script-based report
 labels: [wayfinder:grilling]
 status: open
-blocked_by: []
+blocked_by: [3]
 assignee: null
 claimed_at: null
 resolution: null
@@ -17,7 +17,15 @@ spawned_by: null
 Rests on [Does product-pipeline's test suite meet the same cell-by-cell rigor
 as patient's?](01-product-pipeline-test-rigor.md), closed as superseded: that
 session decided R-vs-Python output comparison is an analysis activity, not a
-pytest concern, and that this ticket is where it belongs. It also decided the
+pytest concern, and that this ticket is where it belongs.
+
+**Now blocked on** [Merge product-pipeline (PR #6) into
+migration](03-merge-product-pipeline.md) — the user corrected the original
+sequencing here: this ticket's comparison script only makes sense to build
+once patient and product live on one branch, not before, and isn't part of
+what makes the merge itself trustworthy (tests green + implementation review
+is judged sufficient for that). This ticket used to block the merge; now the
+merge blocks this ticket instead. It also decided the
 comparison's goal is not R-parity — Python may correctly diverge from R (R can
 be wrong) — so the automated report must judge divergence against the
 **original source Excel trackers** (available under `a4dphase2_upload` on the

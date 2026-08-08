@@ -17,8 +17,8 @@ flowchart TB
 
   S2026_08_08 ~~~ Sopen
 
+  U3 --->|blocked| U2
   U8 --->|blocked| U3
-  U2 --->|blocked| U3
   U3 --->|blocked| U4
   U3 --->|blocked| U5
   U4 --->|blocked| U5
@@ -34,9 +34,9 @@ flowchart TB
   U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2 tfrontier
+  class U3 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U6,U9 tblocked
+  class U2,U4,U5,U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a

@@ -24,11 +24,11 @@ checked cell-by-cell.
 flowchart TD
   subgraph FRONTIER["Frontier · 1"]
     direction TB
-    T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+    T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
   end
   subgraph BLOCKED["Blocked · 5"]
     direction TB
-    T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
+    T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
@@ -44,8 +44,8 @@ flowchart TD
     T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
   end
 
-  T2 --> T3
   T2 --> T6
+  T3 --> T2
   T3 --> T4
   T3 --> T5
   T3 --> T6
@@ -58,9 +58,9 @@ flowchart TD
   T8 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2 frontier
+  class T3 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T6,T9 blocked
+  class T2,T4,T5,T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
@@ -117,6 +117,14 @@ flowchart TD
 - User sequencing preference: make `product-pipeline` ready first, then merge,
   then make `migration` ready, then promote. Tickets are blocked accordingly
   even where the underlying dependency is looser than the sequencing implies.
+  "Ready" for the merge means tests green (ticket 8) plus ordinary pre-merge
+  hygiene (code style, an implementation review confirming R's steps are
+  actually migrated, doc alignment with patient) — **not** R/Python output
+  parity. The comparison script (ticket 2) is explicitly post-merge: it only
+  makes sense once patient and product share one branch, and the user judges
+  green tests + a clean review sufficient grounds to merge without it
+  (corrected mid-session on 2026-08-08, after ticket 2 had originally been
+  wired as a merge blocker).
 - Redraw command: `~/.claude/skills/wayfinder/scripts/render-map.sh docs/wayfinder`
 
 ## Where this map stands
@@ -151,19 +159,24 @@ place and green.
 
 **Ticket 8's decision is not yet implemented** — the actual missing test
 files, the CI coverage gate, and removing `test_r_validation.py` from pytest
-still need writing. That work effectively is what "make product-pipeline
-ready" (the precondition for ticket 3, the merge) requires, so it's the
-natural next work whether picked up as this map's next session or folded
-into readying the merge.
+still need writing. That work, plus the pre-merge hygiene the user named
+(code style, an implementation review confirming R's steps are actually
+migrated, doc alignment with patient), is what "make product-pipeline ready"
+(ticket 3's precondition) requires, and is now the map's only path forward.
 
-The frontier is now just [Retire the PDF/notebook analysis docs for an
-automated, script-based report](tickets/02-documentation-strategy.md) —
-lower priority per the user's own framing on that ticket, but nothing else is
-takeable until it closes, since ticket 3 (the merge) is blocked on both
-ticket 2 and ticket 8. Ticket 9 (snapshot tests) is blocked on ticket 6
-(promotion) by the user's explicit request. Everything else — the merge, the
-CI fix, the production run, and the promotion to `dev` — stays blocked per
-the user's sequencing preference.
+**Ticket 2 was re-sequenced this session**: it no longer blocks the merge —
+the user corrected this, since the comparison script only makes sense once
+patient and product share a branch, and green tests + a clean review is
+judged sufficient trust to merge without it first. Ticket 2 is now blocked
+on ticket 3 instead of the reverse (`blocked_by: [3]`).
+
+With that change, the frontier is empty of open, unblocked tickets — every
+remaining open ticket is blocked on work, not on a decision. There is
+nothing left to *grill*; the only path forward is doing the implementation
+ticket 8 already decided (the missing product tests, the coverage gate, the
+pre-merge hygiene pass) so ticket 3 (the merge) can unblock. Ticket 9
+(snapshot tests) stays blocked on ticket 6 (promotion) by the user's
+explicit request, and ticket 2 now waits on the merge rather than gating it.
 
 Key facts already gathered while charting (verified via `git`/`gh`, not
 assumed): PR #6 (`product-pipeline` -> `migration`) is open but
@@ -262,8 +275,8 @@ flowchart TB
 
   S2026_08_08 ~~~ Sopen
 
+  U3 --->|blocked| U2
   U8 --->|blocked| U3
-  U2 --->|blocked| U3
   U3 --->|blocked| U4
   U3 --->|blocked| U5
   U4 --->|blocked| U5
@@ -279,9 +292,9 @@ flowchart TB
   U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2 tfrontier
+  class U3 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U6,U9 tblocked
+  class U2,U4,U5,U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
