@@ -55,6 +55,21 @@ flowchart TD
 
 ## Notes
 
+- **This map carries execution** (overrides wayfinder's plan-only default): once
+  a ticket's decision is made — or immediately, for Task-type tickets — the
+  same session also implements it, using `tdd` / `systematic-debugging` /
+  `executing-plans` (the superpowers skills) where applicable, rather than
+  stopping at the decision.
+  - Guardrail: commits/pushes to any branch are fine, fully revertable.
+  - Guardrail: merging a pull request is a human-only action, never the agent's
+    — prepare the merge, stop short of clicking it.
+  - Guardrail: triggering the real production GCP run / spending GCP budget is
+    the user's job. Read-only GCP access (logs, BigQuery, GCS listings) and
+    sandbox/POC runs are fine.
+- A daily cloud routine (`a4d-migration-wayfinder-daily`, 9am Europe/Berlin)
+  works this map one session at a time — claims the top frontier ticket, does
+  what it can autonomously, and posts findings/questions for HITL tickets
+  rather than answering them itself.
 - Domain: A4D medical tracker data pipeline, R-to-Python migration. See
   [CLAUDE.md](../../CLAUDE.md) and [docs/CLAUDE.md](../CLAUDE.md) for the
   codebase map, and [MIGRATION_GUIDE.md](../migration/MIGRATION_GUIDE.md) for
