@@ -10,10 +10,12 @@ Tests cleaning on real extracted data, validating:
 import pytest
 
 from a4d.clean.patient import clean_patient_data
+from a4d.clean.product import clean_product_data
 from a4d.errors import ErrorCollector
 from a4d.extract.patient import read_all_patient_sheets
+from a4d.extract.product import read_all_product_sheets
 
-from .conftest import EXPECTED_SCHEMA_COLS, skip_if_missing
+from .conftest import EXPECTED_SCHEMA_COLS, EXPECTED_SCHEMA_COLS_PRODUCT, skip_if_missing
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
@@ -131,3 +133,97 @@ class TestClean2022PenangLegacy:
         assert "dob" in df_clean.columns
         assert "province" in df_clean.columns
         assert "sex" in df_clean.columns
+
+
+class TestCleanProduct2024Penang:
+    """Test product cleaning on 2024 Penang extracted data."""
+
+    def test_clean_produces_correct_schema(self, tracker_2024_penang):
+        """Should produce exactly 20 columns after cleaning (product meta schema)."""
+        skip_if_missing(tracker_2024_penang)
+
+        df_raw = read_all_product_sheets(tracker_2024_penang)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
+
+    def test_clean_drops_uninformative_rows(self, tracker_2024_penang):
+        """Unlike patient, product cleaning drops blank/uninformative template rows."""
+        skip_if_missing(tracker_2024_penang)
+
+        df_raw = read_all_product_sheets(tracker_2024_penang)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        assert len(df_clean) == 244
+        assert len(df_clean) < len(df_raw)
+
+    def test_clean_creates_derived_columns(self, tracker_2024_penang):
+        """Should create derived columns (balance_status, category, unit_capacity)."""
+        skip_if_missing(tracker_2024_penang)
+
+        df_raw = read_all_product_sheets(tracker_2024_penang)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        assert "product_balance_status" in df_clean.columns
+        assert "product_category" in df_clean.columns
+        assert "product_unit_capacity" in df_clean.columns
+
+    def test_clean_tracks_errors(self, tracker_2024_penang):
+        """Should track data quality errors in ErrorCollector."""
+        skip_if_missing(tracker_2024_penang)
+
+        df_raw = read_all_product_sheets(tracker_2024_penang)
+        collector = ErrorCollector()
+        clean_product_data(df_raw, collector)
+
+        assert len(collector) >= 0
+
+    def test_clean_has_required_columns(self, tracker_2024_penang):
+        """Should have all required columns in final schema."""
+        skip_if_missing(tracker_2024_penang)
+
+        df_raw = read_all_product_sheets(tracker_2024_penang)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        required_columns = [
+            "product",
+            "product_table_year",
+            "product_table_month",
+            "product_units_released",
+            "product_units_received",
+            "product_balance",
+        ]
+        for col in required_columns:
+            assert col in df_clean.columns, f"Missing required column: {col}"
+
+
+class TestCleanProduct2023Sibu:
+    """Test product cleaning on 2023 Sibu (edge case)."""
+
+    def test_clean_after_duplicate_handling(self, tracker_2023_sibu):
+        skip_if_missing(tracker_2023_sibu)
+
+        df_raw = read_all_product_sheets(tracker_2023_sibu)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
+        assert len(df_clean) == 67
+
+
+class TestCleanProduct2022PenangLegacy:
+    """Test product cleaning on 2022 Penang (legacy format)."""
+
+    def test_clean_legacy_format(self, tracker_2022_penang):
+        skip_if_missing(tracker_2022_penang)
+
+        df_raw = read_all_product_sheets(tracker_2022_penang)
+        collector = ErrorCollector()
+        df_clean = clean_product_data(df_raw, collector)
+
+        assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
+        assert len(df_clean) == 237

@@ -11,11 +11,20 @@ import polars as pl
 
 
 def _rows_to_df(rows: list[dict], schema: dict) -> pl.DataFrame:
-    """Build a DataFrame from row-dicts using explicit schema (avoids inference pitfalls)."""
+    """Build a DataFrame from row-dicts using explicit schema (avoids inference pitfalls).
+
+    A source column that was entirely null (e.g. "Units Released" before the
+    comma-cell split populates it) infers dtype ``Null`` from ``df.schema``;
+    pinning the output to that dtype would silently drop the new string
+    values this function writes into it. Widen ``Null`` columns to ``Utf8``
+    (same fix as ``tables/logs.py``'s ``schema_overrides``, same root cause).
+    """
     if not rows:
         return pl.DataFrame(schema=schema)
+    safe_schema = {name: (pl.Utf8 if dtype == pl.Null else dtype) for name, dtype in schema.items()}
     columns = {name: [row.get(name) for row in rows] for name in schema}
-    return pl.DataFrame(columns, schema=schema)
+    return pl.DataFrame(columns, schema=safe_schema)
+
 
 _RELEASED_TO_WIDE = "Released To (select from drop down list)"
 _TOTAL = "Total Units Released"
@@ -91,13 +100,13 @@ def handle_wide_format_cells(df: pl.DataFrame, filename: str) -> pl.DataFrame:
     date_col = _find_col("Date")
     received_from = _find_col("Received From")
 
-    if not all([released_to, units_released, date_col, received_from]):
+    # Individual None checks (not all([...])) so ty/mypy narrow each name to
+    # `str` below instead of leaving them as `str | None`.
+    if released_to is None or units_released is None or date_col is None or received_from is None:
         return df
 
     pattern = re.compile(r"(-\s*\d)|(,\s*)")
-    if not any(
-        v is not None and pattern.search(str(v)) for v in df[released_to].to_list()
-    ):
+    if not any(v is not None and pattern.search(str(v)) for v in df[released_to].to_list()):
         return df
 
     cols = df.columns
@@ -130,11 +139,7 @@ def handle_wide_format_cells(df: pl.DataFrame, filename: str) -> pl.DataFrame:
 
     result = _rows_to_df(new_rows, dict(df.schema))
 
-    comma_mask = (
-        pl.col(released_to)
-        .str.contains(",", literal=True)
-        .fill_null(False)
-    )
+    comma_mask = pl.col(released_to).str.contains(",", literal=True).fill_null(False)
     result = result.with_columns(
         [
             pl.when(comma_mask).then(None).otherwise(pl.col(units_released)).alias(units_released),
