@@ -64,7 +64,7 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
 
 
 def _render_pipeline_header(
-    data_root: str,
+    data_root: str | Path,
     output_root: str | Path,
     workers: int,
     *,
