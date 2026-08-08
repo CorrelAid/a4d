@@ -22,21 +22,22 @@ checked cell-by-cell.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 2"]
+  subgraph FRONTIER["Frontier · 1"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
-  subgraph BLOCKED["Blocked · 4"]
+  subgraph BLOCKED["Blocked · 5"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
+    T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 1"]
+  subgraph DECIDED["Decided · 2"]
     direction TB
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
+    T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -51,16 +52,17 @@ flowchart TD
   T4 --> T5
   T4 --> T6
   T5 --> T6
+  T6 --> T9
   T7 --> T8
   T8 --> T3
   T8 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T8 frontier
+  class T2 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T6 blocked
+  class T3,T4,T5,T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T7 decided
+  class T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -119,31 +121,49 @@ flowchart TD
 
 ## Where this map stands
 
-Two tickets resolved. [Does product-pipeline's test suite meet the same
+Three tickets resolved. [Does product-pipeline's test suite meet the same
 cell-by-cell rigor as patient's?](tickets/01-product-pipeline-test-rigor.md)
 was superseded — it presupposed R-parity was the goal and that patient's
 exception-dict pytest pattern was the bar to replicate for product; the user
 rejected both, and it split into tickets 7 and 8. [Is the product pipeline
 (and patient's own claimed completeness) actually complete and sound, audited
 against R's product logic and patient's structure?](tickets/07-pipeline-completeness-audit.md)
-is now decided (research, read-only): R-logic coverage is essentially
+is decided (research, read-only): R-logic coverage is essentially
 complete on both pipelines, but product has real structural test gaps
 (no integration/e2e tests, no coverage of `wide_format.py`, no
 `test_tables/test_product.py`) and patient's "174 trackers validated" claim
 has no committed record of an actual passing run. Full detail:
 [research/07-pipeline-completeness-audit.md](research/07-pipeline-completeness-audit.md).
+[Does the pytest suite reach unit/integration/e2e/regression parity between
+patient and product, excluding any R-comparison/USB-drive-dependent
+tests?](tickets/08-pytest-suite-parity.md) is now decided: parity means an
+85%+ coverage floor enforced in CI plus product gaining the three
+integration/e2e files it's missing (mirroring patient's existing
+fixture/skip-if-missing convention) and `test_tables/test_product.py`;
+`test_r_validation.py` leaves pytest entirely, with no product equivalent.
+Mid-session the user clarified "regression test" means golden-master/snapshot
+testing (fixed input, output snapshotted per stage, diffed on future
+changes) rather than R-comparison or edge-case testing — that work doesn't
+need real/sensitive data and was split off into [Add golden-master/snapshot
+regression tests for patient and product](tickets/09-snapshot-regression-tests.md),
+which the user wants deferred until both pipelines' other test suites are in
+place and green.
 
-The frontier is now [Retire the PDF/notebook analysis docs for an automated,
-script-based report](tickets/02-documentation-strategy.md) and [Does the
-pytest suite reach unit/integration/e2e/regression parity between patient and
-product, excluding any R-comparison/USB-drive-dependent tests?](tickets/08-pytest-suite-parity.md)
-— ticket 8 is newly unblocked now that the completeness audit landed, and has
-first claim on being worked next since it sits directly on the sequencing
-path to the merge (ticket 3) and promotion (ticket 6); ticket 2 remains
-lower priority per the user's own framing on that ticket. Everything else —
-the merge, the CI fix, the production run, and the promotion to `dev` — stays
-blocked behind the pytest-parity and documentation-strategy tickets per the
-user's sequencing preference.
+**Ticket 8's decision is not yet implemented** — the actual missing test
+files, the CI coverage gate, and removing `test_r_validation.py` from pytest
+still need writing. That work effectively is what "make product-pipeline
+ready" (the precondition for ticket 3, the merge) requires, so it's the
+natural next work whether picked up as this map's next session or folded
+into readying the merge.
+
+The frontier is now just [Retire the PDF/notebook analysis docs for an
+automated, script-based report](tickets/02-documentation-strategy.md) —
+lower priority per the user's own framing on that ticket, but nothing else is
+takeable until it closes, since ticket 3 (the merge) is blocked on both
+ticket 2 and ticket 8. Ticket 9 (snapshot tests) is blocked on ticket 6
+(promotion) by the user's explicit request. Everything else — the merge, the
+CI fix, the production run, and the promotion to `dev` — stays blocked per
+the user's sequencing preference.
 
 Key facts already gathered while charting (verified via `git`/`gh`, not
 assumed): PR #6 (`product-pipeline` -> `migration`) is open but
@@ -177,6 +197,18 @@ not a repeatable test. Its two PDF reports haven't been read yet.
   infrastructure but no committed record of an actual passing run (CI
   excludes it, USB-drive-gated). Full inventory and gap lists:
   [research/07-pipeline-completeness-audit.md](research/07-pipeline-completeness-audit.md).
+- [Does the pytest suite reach unit/integration/e2e/regression parity between
+  patient and product, excluding any R-comparison/USB-drive-dependent
+  tests?](tickets/08-pytest-suite-parity.md) — decided: parity = 85%+ coverage
+  enforced in CI, product gets the three missing integration/e2e files built
+  on patient's existing fixture/skip-if-missing convention plus
+  `test_tables/test_product.py`; `test_r_validation.py` leaves pytest
+  entirely with no product equivalent. "Regression test" was reframed
+  mid-session to mean golden-master/snapshot testing (not R-comparison or
+  edge-case testing) and split off into
+  [Add golden-master/snapshot regression tests for patient and
+  product](tickets/09-snapshot-regression-tests.md), deferred until both
+  pipelines' other test suites are green.
 
 ## Assumptions in force
 
@@ -194,11 +226,11 @@ folded into Decisions so far above.)
 - Cloud Scheduler / production scheduling cutover (mentioned in the Migration
   Guide's state-management open item) — not yet sharp enough to ticket; may
   turn out to be a separate map entirely once `dev` is reached.
-- The completeness audit's concrete gap lists (7 items for product, 4 for
-  patient — see the research file's §4) are candidate `task`-type tickets,
-  but not yet ticketed: which of them belong to "pytest parity" specifically
-  (ticket 8, now unblocked) vs. stand as separate follow-up work isn't
-  decided yet, and ticketing them individually now would prejudge that.
+- Patient's own gaps from the completeness audit (no committed record of an
+  actual 174-tracker passing run; `PYTHON_IMPROVEMENTS.md` undercounting
+  known divergences; no `pipeline/patient.py` unit test) aren't ticketed yet
+  — they don't block the merge/promotion path the way product's gaps do, but
+  will need a home before the map can call itself done.
 
 ## Out of scope
 
@@ -216,6 +248,7 @@ flowchart TB
     direction LR
     U1["<b>1</b><br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
     U7["<b>7</b><br/>Is the product pipeline<br/>(and patient's own<br/>claimed completeness)<br/>actually complete and<br/>sound, audited against<br/>R's product logic and<br/>patient's structure?"]
+    U8["<b>8</b><br/>Does the pytest suite<br/>reach unit/integration/e<br/>2e/regression parity<br/>between patient and<br/>product, excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -224,7 +257,7 @@ flowchart TB
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
-    U8["<b>8</b><br/>Does the pytest suite<br/>reach unit/integration/e<br/>2e/regression parity<br/>between patient and<br/>product, excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
+    U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
   end
 
   S2026_08_08 ~~~ Sopen
@@ -242,13 +275,15 @@ flowchart TB
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
+  U8 -.->|spawned| U9
+  U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U8 tfrontier
+  class U2 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U6 tblocked
+  class U3,U4,U5,U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U7 tdecided
+  class U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
