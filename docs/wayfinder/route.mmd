@@ -5,17 +5,21 @@ flowchart TB
     U7["<b>7</b><br/>Is the product pipeline<br/>(and patient's own<br/>claimed completeness)<br/>actually complete and<br/>sound, audited against<br/>R's product logic and<br/>patient's structure?"]
     U8["<b>8</b><br/>Does the pytest suite<br/>reach unit/integration/e<br/>2e/regression parity<br/>between patient and<br/>product, excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
+  subgraph S2026_08_08b["Session 2026-08-08b"]
+    direction LR
+    U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
   end
 
-  S2026_08_08 ~~~ Sopen
+  S2026_08_08 ~~~ S2026_08_08b
+  S2026_08_08b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -34,10 +38,10 @@ flowchart TB
   U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U3 tfrontier
+  class U2,U4 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U2,U4,U5,U6,U9 tblocked
+  class U5,U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U7,U8 tdecided
+  class U3,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

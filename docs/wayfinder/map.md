@@ -22,20 +22,20 @@ checked cell-by-cell.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 1"]
-    direction TB
-    T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
-  end
-  subgraph BLOCKED["Blocked · 5"]
+  subgraph FRONTIER["Frontier · 2"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
+  end
+  subgraph BLOCKED["Blocked · 3"]
+    direction TB
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 2"]
+  subgraph DECIDED["Decided · 3"]
     direction TB
+    T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
@@ -58,11 +58,11 @@ flowchart TD
   T8 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T3 frontier
+  class T2,T4 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T2,T4,T5,T6,T9 blocked
+  class T5,T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T7,T8 decided
+  class T3,T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -157,39 +157,44 @@ regression tests for patient and product](tickets/09-snapshot-regression-tests.m
 which the user wants deferred until both pipelines' other test suites are in
 place and green.
 
-**Ticket 8's decision is not yet implemented** — the actual missing test
-files, the CI coverage gate, and removing `test_r_validation.py` from pytest
-still need writing. That work, plus the pre-merge hygiene the user named
-(code style, an implementation review confirming R's steps are actually
-migrated, doc alignment with patient), is what "make product-pipeline ready"
-(ticket 3's precondition) requires, and is now the map's only path forward.
+**Four tickets resolved.** [Merge product-pipeline (PR #6) into
+migration](tickets/03-merge-product-pipeline.md) is done: ticket 8's test
+files, the product-only coverage gate, `test_r_validation.py` removal, a
+repo-wide ruff/ty cleanup, an implementation review that found and fixed two
+real logging-parity gaps (product never populated `TrackerResult.data_errors`
+or created a logs/errors table, unlike patient), and doc alignment (verified,
+no changes needed) are all implemented and pushed to `product-pipeline`. PR
+#6's conflicts (`gcp/bigquery.py`, `cli.py`) are resolved — it is now
+`mergeable: MERGEABLE`. Landing it is left to the user (human-only merge
+guardrail). Full detail: [ticket 3](tickets/03-merge-product-pipeline.md).
 
-**Ticket 2 was re-sequenced this session**: it no longer blocks the merge —
-the user corrected this, since the comparison script only makes sense once
-patient and product share a branch, and green tests + a clean review is
-judged sufficient trust to merge without it first. Ticket 2 is now blocked
-on ticket 3 instead of the reverse (`blocked_by: [3]`).
+**Ticket 2 was re-sequenced** (same session ticket 3 closed in — the user
+corrected this): it no longer blocks the merge, since the comparison script
+only makes sense once patient and product share a branch, and green tests +
+a clean review is judged sufficient trust to merge without it first. Ticket 2
+is blocked on ticket 3 instead of the reverse (`blocked_by: [3]`) — and since
+ticket 3 is now closed, ticket 2 is unblocked.
 
-With that change, the frontier is empty of open, unblocked tickets — every
-remaining open ticket is blocked on work, not on a decision. There is
-nothing left to *grill*; the only path forward is doing the implementation
-ticket 8 already decided (the missing product tests, the coverage gate, the
-pre-merge hygiene pass) so ticket 3 (the merge) can unblock. Ticket 9
-(snapshot tests) stays blocked on ticket 6 (promotion) by the user's
-explicit request, and ticket 2 now waits on the merge rather than gating it.
+**The frontier is now tickets 2 and 4** (both unblocked by ticket 3's
+closure): [Retire the PDF/notebook analysis docs for an automated,
+script-based report](tickets/02-documentation-strategy.md) (now buildable —
+patient and product share a branch) and [Diagnose and fix why CI is red at
+migration HEAD](tickets/04-fix-migration-ci.md), which now has a concrete
+lead rather than a cold investigation: after ticket 3's ruff/ty fixes, PR
+#6's CI fails on 7 `--help`-output assertion tests that only fail in the
+GitHub Actions runner (Typer/Rich renders the help panel differently there
+than locally, even with `COLUMNS=200` already forced) — unrelated to product
+code, affecting patient/CLI help tests broadly.
 
 Key facts already gathered while charting (verified via `git`/`gh`, not
-assumed): PR #6 (`product-pipeline` -> `migration`) is open but
-`mergeable: CONFLICTING`, with no CI runs and an unchecked test plan. PR #2
-(`migration` -> `dev`) is open and mergeable, but CI has failed on `migration`
-HEAD for its last 3 runs. `product-pipeline` has more test files than
-`migration` (41 vs. 26) but no R-comparison pytest for product at all —
-`test_r_validation.py` is byte-identical on both branches, patient-only.
+assumed): PR #2 (`migration` -> `dev`) is open and mergeable, but CI has
+failed on `migration` HEAD for its last 3 runs (ticket 4's target).
 `source_vs_output_product.py` is deliberately group-granularity only ("v1"),
 not cell-by-cell, per its own docstring. `PYTHON_IMPROVEMENTS.md`'s parity
 claims cite a notebook (`Ali_internship/residual_dig.ipynb`, not in the
 tracked tree) and a patient-only comparison script — i.e. one-off analysis,
-not a repeatable test. Its two PDF reports haven't been read yet.
+not a repeatable test. Its two PDF reports haven't been read yet — ticket 2's
+remit.
 
 ## Decisions so far
 
@@ -222,6 +227,19 @@ not a repeatable test. Its two PDF reports haven't been read yet.
   [Add golden-master/snapshot regression tests for patient and
   product](tickets/09-snapshot-regression-tests.md), deferred until both
   pipelines' other test suites are green.
+- [Merge product-pipeline (PR #6) into migration](tickets/03-merge-product-pipeline.md)
+  — decided and implemented: ticket 8's tests written (85%+ coverage
+  narrowed to product-only code, per a mid-session user correction —
+  repo-wide coverage was 73%, not close to 85%, and most of the gap is
+  patient/CLI code unrelated to product parity), `test_r_validation.py`
+  removed, repo-wide ruff/ty cleanup (blocking, since CI runs both
+  unscoped), an implementation review that found and fixed two real
+  logging-parity gaps (product never populated `TrackerResult.data_errors`
+  or created a logs/errors table, unlike patient — both now mirror patient
+  exactly), and doc alignment verified with no changes needed. PR #6's
+  merge conflicts resolved; it is now `mergeable: MERGEABLE`. CI still
+  fails on 7 `--help`-rendering tests unrelated to product code — handed to
+  ticket 4 with a concrete lead rather than fixed here.
 
 ## Assumptions in force
 
@@ -263,17 +281,21 @@ flowchart TB
     U7["<b>7</b><br/>Is the product pipeline<br/>(and patient's own<br/>claimed completeness)<br/>actually complete and<br/>sound, audited against<br/>R's product logic and<br/>patient's structure?"]
     U8["<b>8</b><br/>Does the pytest suite<br/>reach unit/integration/e<br/>2e/regression parity<br/>between patient and<br/>product, excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
+  subgraph S2026_08_08b["Session 2026-08-08b"]
+    direction LR
+    U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
   end
 
-  S2026_08_08 ~~~ Sopen
+  S2026_08_08 ~~~ S2026_08_08b
+  S2026_08_08b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -292,11 +314,11 @@ flowchart TB
   U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U3 tfrontier
+  class U2,U4 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U2,U4,U5,U6,U9 tblocked
+  class U5,U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U7,U8 tdecided
+  class U3,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
