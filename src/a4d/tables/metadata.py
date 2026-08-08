@@ -26,7 +26,7 @@ _SUBDIRS: tuple[str, ...] = (
     "product_data_raw",
 )
 
-_SCHEMA: dict[str, pl.DataType] = {
+_SCHEMA: dict[str, type[pl.DataType] | pl.DataType] = {
     "file_name": pl.String,
     "clinic_code": pl.String,
     "md5": pl.String,
