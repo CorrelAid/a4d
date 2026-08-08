@@ -3,7 +3,7 @@ id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
-blocked_by: [1, 2, 3, 4, 5]
+blocked_by: [8, 2, 3, 4, 5]
 assignee: null
 claimed_at: null
 resolution: null
@@ -14,9 +14,13 @@ spawned_by: null
 
 ## Premise
 
-Depends on every other ticket on this map: [Does product-pipeline's test suite
-meet the same cell-by-cell rigor as patient's?](01-product-pipeline-test-rigor.md),
-[Retire the PDF/notebook analysis docs for an automated, script-based
+Depends on every other ticket on this map: [Does the pytest suite reach
+unit/integration/e2e/regression parity between patient and product, excluding
+any R-comparison/USB-drive-dependent tests?](08-pytest-suite-parity.md) (and,
+transitively, [Is the product pipeline (and patient's own claimed
+completeness) actually complete and sound, audited against R's product logic
+and patient's structure?](07-pipeline-completeness-audit.md)), [Retire the
+PDF/notebook analysis docs for an automated, script-based
 report](02-documentation-strategy.md), [Merge product-pipeline (PR #6) into
 migration](03-merge-product-pipeline.md), [Diagnose and fix why CI is red at
 migration HEAD](04-fix-migration-ci.md), and [Define and execute the real GCP

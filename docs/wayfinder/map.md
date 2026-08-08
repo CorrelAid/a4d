@@ -24,8 +24,8 @@ checked cell-by-cell.
 flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
-    T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+    T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
   subgraph BLOCKED["Blocked · 4"]
     direction TB
@@ -34,9 +34,15 @@ flowchart TD
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
   end
+  subgraph DECIDED["Decided · 1"]
+    direction TB
+    T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
+  end
+  subgraph DROPPED["Out of scope · 1"]
+    direction TB
+    T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
+  end
 
-  T1 --> T3
-  T1 --> T6
   T2 --> T3
   T2 --> T6
   T3 --> T4
@@ -45,11 +51,18 @@ flowchart TD
   T4 --> T5
   T4 --> T6
   T5 --> T6
+  T7 --> T8
+  T8 --> T3
+  T8 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T1,T2 frontier
+  class T2,T8 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T3,T4,T5,T6 blocked
+  classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
+  class T7 decided
+  classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
+  class T1 dropped
 ```
 <!-- graph:end -->
 
@@ -93,6 +106,12 @@ flowchart TD
   values), not spot-checks — this is why the patient pipeline validation took
   as long as it did (174 trackers), and the product pipeline is held to the
   same bar.
+- Standing preference (decided in the [test-rigor](tickets/01-product-pipeline-test-rigor.md)
+  session): the migration is not 1:1 R-parity. Python may correctly diverge
+  from R — R can be wrong. Judge divergence against the original source Excel
+  trackers (`a4dphase2_upload` on the test-data drive), not against R's output
+  alone. R-vs-Python comparison is *analysis* (a judgment call), not a pytest
+  concern — pytest covers unit/integration/e2e/regression only.
 - User sequencing preference: make `product-pipeline` ready first, then merge,
   then make `migration` ready, then promote. Tickets are blocked accordingly
   even where the underlying dependency is looser than the sequencing implies.
@@ -100,30 +119,71 @@ flowchart TD
 
 ## Where this map stands
 
-Nothing is decided yet — this map was just charted. The frontier is tickets
-[Does product-pipeline's test suite meet the same cell-by-cell rigor as
-patient's?](tickets/01-product-pipeline-test-rigor.md) and [Retire the
-PDF/notebook analysis docs for an automated, script-based report](tickets/02-documentation-strategy.md),
-both unblocked. Everything else — the merge, the CI fix, the production run,
-and the promotion to `dev` — is blocked behind those two per the user's
-sequencing preference.
+Two tickets resolved. [Does product-pipeline's test suite meet the same
+cell-by-cell rigor as patient's?](tickets/01-product-pipeline-test-rigor.md)
+was superseded — it presupposed R-parity was the goal and that patient's
+exception-dict pytest pattern was the bar to replicate for product; the user
+rejected both, and it split into tickets 7 and 8. [Is the product pipeline
+(and patient's own claimed completeness) actually complete and sound, audited
+against R's product logic and patient's structure?](tickets/07-pipeline-completeness-audit.md)
+is now decided (research, read-only): R-logic coverage is essentially
+complete on both pipelines, but product has real structural test gaps
+(no integration/e2e tests, no coverage of `wide_format.py`, no
+`test_tables/test_product.py`) and patient's "174 trackers validated" claim
+has no committed record of an actual passing run. Full detail:
+[research/07-pipeline-completeness-audit.md](research/07-pipeline-completeness-audit.md).
+
+The frontier is now [Retire the PDF/notebook analysis docs for an automated,
+script-based report](tickets/02-documentation-strategy.md) and [Does the
+pytest suite reach unit/integration/e2e/regression parity between patient and
+product, excluding any R-comparison/USB-drive-dependent tests?](tickets/08-pytest-suite-parity.md)
+— ticket 8 is newly unblocked now that the completeness audit landed, and has
+first claim on being worked next since it sits directly on the sequencing
+path to the merge (ticket 3) and promotion (ticket 6); ticket 2 remains
+lower priority per the user's own framing on that ticket. Everything else —
+the merge, the CI fix, the production run, and the promotion to `dev` — stays
+blocked behind the pytest-parity and documentation-strategy tickets per the
+user's sequencing preference.
 
 Key facts already gathered while charting (verified via `git`/`gh`, not
 assumed): PR #6 (`product-pipeline` -> `migration`) is open but
 `mergeable: CONFLICTING`, with no CI runs and an unchecked test plan. PR #2
 (`migration` -> `dev`) is open and mergeable, but CI has failed on `migration`
-HEAD for its last 3 runs. `product-pipeline` has a real test suite (41 test
-files vs. 26 on `migration`) and detailed, already-written diff documentation
-in `PYTHON_IMPROVEMENTS.md` — but that documentation cites an analysis
-notebook that isn't in the repo, and its two PDF reports haven't been read yet.
+HEAD for its last 3 runs. `product-pipeline` has more test files than
+`migration` (41 vs. 26) but no R-comparison pytest for product at all —
+`test_r_validation.py` is byte-identical on both branches, patient-only.
+`source_vs_output_product.py` is deliberately group-granularity only ("v1"),
+not cell-by-cell, per its own docstring. `PYTHON_IMPROVEMENTS.md`'s parity
+claims cite a notebook (`Ali_internship/residual_dig.ipynb`, not in the
+tracked tree) and a patient-only comparison script — i.e. one-off analysis,
+not a repeatable test. Its two PDF reports haven't been read yet.
 
 ## Decisions so far
 
-(none yet)
+- [Does product-pipeline's test suite meet the same cell-by-cell rigor as
+  patient's?](tickets/01-product-pipeline-test-rigor.md) — superseded: R-parity
+  isn't the goal (source trackers are the arbiter, not R's output);
+  R-vs-Python comparison is analysis, not pytest; neither pipeline's
+  completeness has actually been audited yet. Split into tickets 7 and 8;
+  ticket 2 now owns the analysis-report side.
+- [Is the product pipeline (and patient's own claimed completeness) actually
+  complete and sound, audited against R's product logic and patient's
+  structure?](tickets/07-pipeline-completeness-audit.md) — decided: R-logic
+  coverage is essentially complete function-for-function on both pipelines
+  (one diagnostic-only R gap on product); product has real structural test
+  gaps (no integration/e2e tests, no `wide_format.py` coverage, no
+  `test_tables/test_product.py`, group-granularity-only source-vs-output
+  check); patient's "174 trackers validated" claim has genuine test
+  infrastructure but no committed record of an actual passing run (CI
+  excludes it, USB-drive-gated). Full inventory and gap lists:
+  [research/07-pipeline-completeness-audit.md](research/07-pipeline-completeness-audit.md).
 
 ## Assumptions in force
 
-(none yet)
+(none currently — the one assumption this map carried, patient's completeness
+being unverified, was confirmed rather than overturned by
+[the completeness audit](tickets/07-pipeline-completeness-audit.md) and is now
+folded into Decisions so far above.)
 
 ## Not yet specified
 
@@ -134,6 +194,11 @@ notebook that isn't in the repo, and its two PDF reports haven't been read yet.
 - Cloud Scheduler / production scheduling cutover (mentioned in the Migration
   Guide's state-management open item) — not yet sharp enough to ticket; may
   turn out to be a separate map entirely once `dev` is reached.
+- The completeness audit's concrete gap lists (7 items for product, 4 for
+  patient — see the research file's §4) are candidate `task`-type tickets,
+  but not yet ticketed: which of them belong to "pytest parity" specifically
+  (ticket 8, now unblocked) vs. stand as separate follow-up work isn't
+  decided yet, and ticketing them individually now would prejudge that.
 
 ## Out of scope
 
@@ -147,31 +212,44 @@ decision did to the rest of the map — and are where the real structure lives.
 <!-- route:start -->
 ```mermaid
 flowchart TB
-  subgraph Sopen["Not yet worked"]
+  subgraph S2026_08_08["Session 2026-08-08"]
     direction LR
     U1["<b>1</b><br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
+    U7["<b>7</b><br/>Is the product pipeline<br/>(and patient's own<br/>claimed completeness)<br/>actually complete and<br/>sound, audited against<br/>R's product logic and<br/>patient's structure?"]
+  end
+  subgraph Sopen["Not yet worked"]
+    direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
+    U8["<b>8</b><br/>Does the pytest suite<br/>reach unit/integration/e<br/>2e/regression parity<br/>between patient and<br/>product, excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
 
+  S2026_08_08 ~~~ Sopen
 
-  U1 --->|blocked| U3
+  U8 --->|blocked| U3
   U2 --->|blocked| U3
   U3 --->|blocked| U4
   U3 --->|blocked| U5
   U4 --->|blocked| U5
-  U1 --->|blocked| U6
+  U8 --->|blocked| U6
   U2 --->|blocked| U6
   U3 --->|blocked| U6
   U4 --->|blocked| U6
   U5 --->|blocked| U6
+  U1 -.->|spawned| U7
+  U1 -.->|spawned| U8
+  U7 --->|blocked| U8
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U1,U2 tfrontier
+  class U2,U8 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U3,U4,U5,U6 tblocked
+  classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
+  class U7 tdecided
+  classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
+  class U1 tdropped
 ```
 <!-- route:end -->
