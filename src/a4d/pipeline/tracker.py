@@ -101,10 +101,13 @@ def process_tracker_patient(
             error=None,
             cleaning_errors=error_count,
             error_breakdown=error_breakdown if error_breakdown else None,
+            data_errors=error_collector.errors.copy(),
         )
 
     except Exception as e:
-        logger.bind(error_code="critical_abort").exception(f"Failed to process tracker: {tracker_file.name}")
+        logger.bind(error_code="critical_abort").exception(
+            f"Failed to process tracker: {tracker_file.name}"
+        )
         return TrackerResult(
             tracker_file=tracker_file,
             tracker_name=tracker_name,
@@ -177,10 +180,13 @@ def process_tracker_product(
             error=None,
             cleaning_errors=error_count,
             error_breakdown=error_breakdown if error_breakdown else None,
+            data_errors=error_collector.errors.copy(),
         )
 
     except Exception as e:
-        logger.bind(error_code="critical_abort").exception(f"Failed to process tracker: {tracker_file.name}")
+        logger.bind(error_code="critical_abort").exception(
+            f"Failed to process tracker: {tracker_file.name}"
+        )
         return TrackerResult(
             tracker_file=tracker_file,
             tracker_name=tracker_name,

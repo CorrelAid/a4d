@@ -8,8 +8,8 @@ clustering configuration matching the R pipeline.
 from pathlib import Path
 
 import polars as pl
-from google.cloud import bigquery
 from google.api_core.exceptions import GoogleAPIError, NotFound
+from google.cloud import bigquery
 from loguru import logger
 
 from a4d.config import settings
@@ -28,6 +28,7 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     ],
     "clinic_data_static": ["clinic_id"],
     "logs": ["level", "error_code", "file_name", "function"],
+    "errors": ["file_name", "error_code", "patient_id", "column"],
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
@@ -40,6 +41,7 @@ PARQUET_TO_TABLE: dict[str, str] = {
     "product_data.parquet": "product_data",
     "clinic_data_static.parquet": "clinic_data_static",
     "table_logs.parquet": "logs",
+    "table_errors.parquet": "errors",
     "tracker_metadata.parquet": "tracker_metadata",
 }
 
@@ -261,17 +263,15 @@ def select_tracker_metadata(
                 "retrying without it and forcing full reprocess"
             )
             try:
-                rows = list(client.query(
-                    f"SELECT file_name, clinic_code, md5 FROM `{table_ref}`"
-                ).result())
+                rows = list(
+                    client.query(f"SELECT file_name, clinic_code, md5 FROM `{table_ref}`").result()
+                )
                 fallback_schema = {k: v for k, v in full_schema.items() if k != "complete"}
                 data = {col: [r[col] for r in rows] for col in fallback_schema}
                 df = pl.DataFrame(data, schema=fallback_schema)
                 return df.with_columns(pl.lit(False).alias("complete"))
             except GoogleAPIError as retry_err:
-                logger.warning(
-                    f"BigQuery schema-fallback query failed: {retry_err}"
-                )
+                logger.warning(f"BigQuery schema-fallback query failed: {retry_err}")
                 return None
         logger.warning(f"BigQuery query failed for {table_ref}: {e}")
         return None

@@ -17,6 +17,7 @@ from a4d.pipeline.patient import (
 )
 from a4d.pipeline.product import process_product_tables, run_product_pipeline
 from a4d.state import filter_unchanged_trackers, load_previous_manifest
+from a4d.tables.errors import create_table_errors
 from a4d.tables.logs import create_table_logs
 
 # google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
@@ -48,26 +49,15 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     tables_table.add_column("Path", style="green")
     tables_table.add_column("Records", justify="right", style="magenta")
 
-    # Add patient tables first, then product, then logs table
-    for name in ["static", "monthly", "annual", "product_data"]:
+    # Add patient tables first, then product, then logs/errors tables
+    for name in ["static", "monthly", "annual", "product_data", "logs", "errors"]:
         if name in tables:
             path = tables[name]
             try:
-                df = pl.read_parquet(path)
-                record_count = f"{len(df):,}"
+                record_count = f"{pl.read_parquet(path).__len__():,}"
             except Exception:
                 record_count = "?"
             tables_table.add_row(name, str(path.name), record_count)
-
-    # Add logs table last
-    if "logs" in tables:
-        path = tables["logs"]
-        try:
-            df = pl.read_parquet(path)
-            record_count = f"{len(df):,}"
-        except Exception:
-            record_count = "?"
-        tables_table.add_row("logs", str(path.name), record_count)
 
     console.print(tables_table)
     console.print()
@@ -143,9 +133,7 @@ def _resolve_tracker_files(
     """
     if file:
         if incremental:
-            console.print(
-                "[yellow]Warning: --incremental is ignored when --file is set[/yellow]"
-            )
+            console.print("[yellow]Warning: --incremental is ignored when --file is set[/yellow]")
         return [file], f"{file} (single file)"
 
     from a4d.config import settings as _settings
@@ -300,9 +288,7 @@ def process_patient_cmd(
     console.print("\n[bold blue]A4D Patient Pipeline[/bold blue]\n")
 
     if force and incremental:
-        console.print(
-            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
-        )
+        console.print("[yellow]Warning: --incremental is ignored when --force is set[/yellow]")
         incremental = False
 
     _output_root = output_root or _settings.output_root
@@ -313,24 +299,21 @@ def process_patient_cmd(
     )
 
     if tracker_files is not None and len(tracker_files) == 0:
-        console.print(
-            "[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n"
-        )
+        console.print("[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n")
         raise typer.Exit(0)
 
-    _render_pipeline_header(
-        data_root_display, _output_root, _workers, skip_tables=skip_tables
-    )
+    _render_pipeline_header(data_root_display, _output_root, _workers, skip_tables=skip_tables)
 
     # Step 1: Extract + clean (table creation handled below for visible progress)
-    console.print("[bold]Step 1/3:[/bold] Extracting and cleaning tracker files...")
+    console.print("[bold]Step 1/4:[/bold] Extracting and cleaning tracker files...")
     try:
         result = run_patient_pipeline(
             tracker_files=tracker_files,
             max_workers=_workers,
             output_root=output_root,
             skip_tables=True,  # tables created below with console feedback
-            clean_output=force or not incremental,  # incremental keeps prior outputs; --force always wipes
+            clean_output=force
+            or not incremental,  # incremental keeps prior outputs; --force always wipes
             show_progress=True,
             console_log_level="ERROR",
         )
@@ -338,28 +321,44 @@ def process_patient_cmd(
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
 
-    # Step 2+3: Table and log creation with console feedback
+    # Steps 2-4: Table and log/error creation with console feedback
     tables: dict[str, Path] = {}
     if not skip_tables and result.successful_trackers > 0:
         cleaned_dir = _output_root / "patient_data_cleaned"
         tables_dir = _output_root / "tables"
         logs_dir = _output_root / "logs"
 
-        console.print("[bold]Step 2/3:[/bold] Creating patient tables...")
+        console.print("[bold]Step 2/4:[/bold] Creating patient tables...")
         try:
             tables = process_patient_tables(cleaned_dir, tables_dir)
         except Exception as e:
             console.print(f"[bold red]Error creating tables: {e}[/bold red]")
 
         if logs_dir.exists():
-            console.print("[bold]Step 3/3:[/bold] Creating logs table...")
+            console.print("[bold]Step 3/4:[/bold] Creating logs table...")
             try:
                 logs_table_path = create_table_logs(logs_dir, tables_dir)
                 tables["logs"] = logs_table_path
             except Exception as e:
                 console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
+
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
     elif skip_tables:
         console.print("[dim]Steps 2–3: Skipped (--skip-tables)[/dim]")
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            tables_dir = _output_root / "tables"
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
 
     # Display results
     console.print("\n[bold]Pipeline Results[/bold]\n")
@@ -513,9 +512,7 @@ def create_tables_cmd(
         # raw .xlsx files, which create-tables doesn't otherwise require.
         if settings.data_root.exists():
             console.print("  • Creating tracker metadata table...")
-            metadata_path = create_table_tracker_metadata(
-                settings.data_root, input_dir.parent
-            )
+            metadata_path = create_table_tracker_metadata(settings.data_root, input_dir.parent)
             tables["tracker_metadata"] = metadata_path
         else:
             console.print(
@@ -615,9 +612,7 @@ def process_product_cmd(
     console.print("\n[bold blue]A4D Product Pipeline[/bold blue]\n")
 
     if force and incremental:
-        console.print(
-            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
-        )
+        console.print("[yellow]Warning: --incremental is ignored when --force is set[/yellow]")
         incremental = False
 
     _output_root = output_root or _settings.output_root
@@ -628,23 +623,20 @@ def process_product_cmd(
     )
 
     if tracker_files is not None and len(tracker_files) == 0:
-        console.print(
-            "[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n"
-        )
+        console.print("[bold green]✓ No trackers need reprocessing — exiting[/bold green]\n")
         raise typer.Exit(0)
 
-    _render_pipeline_header(
-        data_root_display, _output_root, _workers, skip_tables=skip_tables
-    )
+    _render_pipeline_header(data_root_display, _output_root, _workers, skip_tables=skip_tables)
 
-    console.print("[bold]Step 1/2:[/bold] Extracting and cleaning product data...")
+    console.print("[bold]Step 1/4:[/bold] Extracting and cleaning product data...")
     try:
         result = run_product_pipeline(
             tracker_files=tracker_files,
             max_workers=_workers,
             output_root=output_root,
             skip_tables=True,
-            clean_output=force or not incremental,  # incremental keeps prior outputs; --force always wipes
+            clean_output=force
+            or not incremental,  # incremental keeps prior outputs; --force always wipes
             show_progress=True,
             console_log_level="ERROR",
         )
@@ -652,18 +644,44 @@ def process_product_cmd(
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
 
+    # Steps 2-4 mirror process_patient_cmd: table, then logs, then errors.
     tables: dict[str, Path] = {}
     if not skip_tables and result.successful_trackers > 0:
         cleaned_dir = _output_root / "product_data_cleaned"
         tables_dir = _output_root / "tables"
+        logs_dir = _output_root / "logs"
 
-        console.print("[bold]Step 2/2:[/bold] Creating product table...")
+        console.print("[bold]Step 2/4:[/bold] Creating product table...")
         try:
             tables = process_product_tables(cleaned_dir, tables_dir)
         except Exception as e:
             console.print(f"[bold red]Error creating tables: {e}[/bold red]")
+
+        if logs_dir.exists():
+            console.print("[bold]Step 3/4:[/bold] Creating logs table...")
+            try:
+                logs_table_path = create_table_logs(logs_dir, tables_dir)
+                tables["logs"] = logs_table_path
+            except Exception as e:
+                console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
+
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
     elif skip_tables:
-        console.print("[dim]Step 2: Skipped (--skip-tables)[/dim]")
+        console.print("[dim]Steps 2-3: Skipped (--skip-tables)[/dim]")
+        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        try:
+            tables_dir = _output_root / "tables"
+            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
+            errors_table_path = create_table_errors(all_data_errors, tables_dir)
+            tables["errors"] = errors_table_path
+        except Exception as e:
+            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
 
     console.print("\n[bold]Pipeline Results[/bold]\n")
 
@@ -681,7 +699,8 @@ def process_product_cmd(
         raise typer.Exit(0)
     else:
         console.print(
-            f"\n[bold red]✗ Product pipeline completed with {result.failed_trackers} failures[/bold red]\n"
+            f"\n[bold red]✗ Product pipeline completed with "
+            f"{result.failed_trackers} failures[/bold red]\n"
         )
         raise typer.Exit(1)
 
@@ -913,7 +932,9 @@ def download_reference_data_cmd() -> None:
         console.print("Downloading clinic_data.xlsx from Google Drive...")
         path = download_clinic_data(reference_dir)
         size_kb = path.stat().st_size / 1024
-        console.print(f"  [bold green]✓[/bold green] clinic_data.xlsx ({size_kb:.1f} KB) -> {path}\n")
+        console.print(
+            f"  [bold green]✓[/bold green] clinic_data.xlsx ({size_kb:.1f} KB) -> {path}\n"
+        )
     except Exception as e:
         console.print(f"  [bold red]✗ Download failed: {e}[/bold red]\n")
         raise typer.Exit(1) from e
@@ -1023,9 +1044,7 @@ def run_pipeline_cmd(
         raise typer.Exit(1)
 
     if force and incremental:
-        console.print(
-            "[yellow]Warning: --incremental is ignored when --force is set[/yellow]"
-        )
+        console.print("[yellow]Warning: --incremental is ignored when --force is set[/yellow]")
         incremental = False
 
     _workers = workers if workers is not None else settings.max_workers
@@ -1043,9 +1062,7 @@ def run_pipeline_cmd(
         ("Incremental", "yes" if incremental else "no"),
         ("Force", "yes" if force else "no"),
     ]
-    _render_pipeline_header(
-        settings.data_root, settings.output_root, _workers, extras=extras
-    )
+    _render_pipeline_header(settings.data_root, settings.output_root, _workers, extras=extras)
 
     # Step 0 – Download reference data from Google Drive
     if not skip_drive_download:
@@ -1166,7 +1183,8 @@ def run_pipeline_cmd(
             )
             console.print(
                 f"  ✓ Processed {product_result.total_trackers} product trackers "
-                f"({product_result.successful_trackers} ok, {product_result.failed_trackers} failed)\n"
+                f"({product_result.successful_trackers} ok, "
+                f"{product_result.failed_trackers} failed)\n"
             )
             _render_failed_trackers(
                 product_result,
@@ -1192,9 +1210,7 @@ def run_pipeline_cmd(
             create_table_tracker_metadata(settings.data_root, settings.output_root)
             console.print("  ✓ Tracker metadata table created\n")
         except Exception as e:
-            console.print(
-                f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n"
-            )
+            console.print(f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n")
 
     # Step 3e – Product-patient link validation (logging-only, post-tables).
     # Skips silently if either arm's table is missing (e.g. --skip-product), or
@@ -1209,13 +1225,9 @@ def run_pipeline_cmd(
 
             product_df = pl.read_parquet(product_table)
             mismatched = link_product_patient(product_df, patient_static)
-            console.print(
-                f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n"
-            )
+            console.print(f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n")
         except Exception as e:
-            console.print(
-                f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n"
-            )
+            console.print(f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n")
 
     # Step 4 – Upload tables/ and logs/ to GCS under a timestamped prefix
     # Each run gets an isolated path: YYYY/MM/DD/HHMMSS/tables/ and .../logs/
@@ -1229,7 +1241,9 @@ def run_pipeline_cmd(
                 uploaded += upload_output(source_dir=tables_dir, prefix=f"{run_ts}/tables")
             if logs_dir.exists():
                 uploaded += upload_output(source_dir=logs_dir, prefix=f"{run_ts}/logs")
-            console.print(f"  ✓ Uploaded {len(uploaded)} files to gs://{settings.upload_bucket}/{run_ts}/\n")
+            console.print(
+                f"  ✓ Uploaded {len(uploaded)} files to gs://{settings.upload_bucket}/{run_ts}/\n"
+            )
         except Exception as e:
             console.print(f"\n[bold red]Error during GCS upload: {e}[/bold red]\n")
             raise typer.Exit(1) from e

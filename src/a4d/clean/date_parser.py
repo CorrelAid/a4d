@@ -138,7 +138,9 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
         return result
     except (ValueError, date_parser.ParserError) as e:
         # If parsing fails, log warning and return error date
-        logger.bind(error_code="invalid_value").warning(f"Could not parse date '{date_str}': {e}. Returning error value {error_val}")
+        logger.bind(error_code="invalid_value").warning(
+            f"Could not parse date '{date_str}': {e}. Returning error value {error_val}"
+        )
         try:
             return datetime.strptime(error_val, "%Y-%m-%d").date()
         except ValueError:
