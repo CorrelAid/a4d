@@ -66,10 +66,20 @@ flowchart TD
   - Guardrail: triggering the real production GCP run / spending GCP budget is
     the user's job. Read-only GCP access (logs, BigQuery, GCS listings) and
     sandbox/POC runs are fine.
+  - Guardrail: the cloud routine's checkout has no GCP credentials and no
+    access to the real tracker files (patient/clinic data — sensitive, not
+    committed to the repo, not shared with the cloud sandbox). It must work
+    only with what's already in the repo (code, fixtures, synthetic test
+    data). If a ticket turns out to need real trackers or live GCP auth to
+    proceed, it stops and hands that specific piece back to the user to run
+    locally — it never fabricates substitute data or asks for real patient
+    data to be pasted into the session.
 - A daily cloud routine (`a4d-migration-wayfinder-daily`, 9am Europe/Berlin)
   works this map one session at a time — claims the top frontier ticket, does
   what it can autonomously, and posts findings/questions for HITL tickets
-  rather than answering them itself.
+  rather than answering them itself. Kept on cloud rather than local
+  `launchd` deliberately: it only needs to fetch code and run it, not touch
+  sensitive data or production GCP — see guardrails above.
 - Domain: A4D medical tracker data pipeline, R-to-Python migration. See
   [CLAUDE.md](../../CLAUDE.md) and [docs/CLAUDE.md](../CLAUDE.md) for the
   codebase map, and [MIGRATION_GUIDE.md](../migration/MIGRATION_GUIDE.md) for
