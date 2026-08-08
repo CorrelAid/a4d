@@ -1,7 +1,9 @@
 """Pipeline result models for tracking processing outputs."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from a4d.errors import DataError
 
 
 @dataclass
@@ -20,6 +22,8 @@ class TrackerResult:
                         with error values (999999, "Undefined", etc.)
         error_breakdown: Breakdown of errors by type (error_code → count).
                         Example: {"type_conversion": 10, "invalid_value": 5}
+        data_errors: Individual data quality error records for aggregation into
+                    the errors table. Empty list if no errors or processing failed.
     """
 
     tracker_file: Path
@@ -30,6 +34,7 @@ class TrackerResult:
     error: str | None = None
     cleaning_errors: int = 0
     error_breakdown: dict[str, int] | None = None
+    data_errors: list[DataError] = field(default_factory=list)
 
 
 @dataclass

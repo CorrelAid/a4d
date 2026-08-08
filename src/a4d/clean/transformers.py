@@ -324,7 +324,9 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 
     # Log warning if any ranges were found
     if has_ranges:
-        logger.bind(error_code="invalid_value").warning("Found ranges in testing_frequency column. Replacing with mean values.")
+        logger.bind(error_code="invalid_value").warning(
+            "Found ranges in testing_frequency column. Replacing with mean values."
+        )
 
     return df
 

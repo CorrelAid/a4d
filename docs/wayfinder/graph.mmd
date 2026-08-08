@@ -1,0 +1,29 @@
+flowchart TD
+  subgraph FRONTIER["Frontier · 2"]
+    direction TB
+    T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
+    T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+  end
+  subgraph BLOCKED["Blocked · 4"]
+    direction TB
+    T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
+    T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
+    T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
+    T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
+  end
+
+  T1 --> T3
+  T1 --> T6
+  T2 --> T3
+  T2 --> T6
+  T3 --> T4
+  T3 --> T5
+  T3 --> T6
+  T4 --> T5
+  T4 --> T6
+  T5 --> T6
+
+  classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
+  class T1,T2 frontier
+  classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
+  class T3,T4,T5,T6 blocked

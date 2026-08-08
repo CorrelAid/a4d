@@ -1,0 +1,27 @@
+flowchart TB
+  subgraph Sopen["Not yet worked"]
+    direction LR
+    U1["<b>1</b><br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
+    U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+    U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
+    U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
+    U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
+    U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
+  end
+
+
+  U1 --->|blocked| U3
+  U2 --->|blocked| U3
+  U3 --->|blocked| U4
+  U3 --->|blocked| U5
+  U4 --->|blocked| U5
+  U1 --->|blocked| U6
+  U2 --->|blocked| U6
+  U3 --->|blocked| U6
+  U4 --->|blocked| U6
+  U5 --->|blocked| U6
+
+  classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
+  class U1,U2 tfrontier
+  classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
+  class U3,U4,U5,U6 tblocked
