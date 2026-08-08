@@ -53,9 +53,7 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
     """
     df = read_cleaned_product_data(cleaned_files)
 
-    df = df.with_columns(
-        pl.col("product_released_to").alias("orig_product_released_to")
-    )
+    df = df.with_columns(pl.col("product_released_to").alias("orig_product_released_to"))
 
     error_collector = ErrorCollector()
     df = fix_patient_id(
@@ -146,8 +144,7 @@ def link_product_patient(
 
     sentinel = settings.error_val_character
     candidates = product_df.filter(
-        pl.col("product_released_to").is_not_null()
-        & (pl.col("product_released_to") != sentinel)
+        pl.col("product_released_to").is_not_null() & (pl.col("product_released_to") != sentinel)
     )
 
     joined = candidates.join(

@@ -98,7 +98,9 @@ def emit_finding(
     )
 
 
-def is_close(a: float | None, b: float | None, *, abs_tol: float = 1e-6, rel_tol: float = 1e-4) -> bool:
+def is_close(
+    a: float | None, b: float | None, *, abs_tol: float = 1e-6, rel_tol: float = 1e-4
+) -> bool:
     """Null-aware float comparison with abs and relative tolerance.
 
     Both null -> equal. Either-side null -> not equal.

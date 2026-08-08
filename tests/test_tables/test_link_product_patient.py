@@ -31,9 +31,7 @@ def _write_patient_static(path: Path, rows: list[tuple[str, str]]) -> Path:
     return path
 
 
-def test_all_match_returns_zero_no_warnings(
-    tmp_path: Path, captured_warnings: list[str]
-) -> None:
+def test_all_match_returns_zero_no_warnings(tmp_path: Path, captured_warnings: list[str]) -> None:
     patient_path = _write_patient_static(
         tmp_path / "patient.parquet",
         [
@@ -67,9 +65,7 @@ def test_all_match_returns_zero_no_warnings(
     assert captured_warnings == []
 
 
-def test_mixed_filters_null_and_sentinel(
-    tmp_path: Path, captured_warnings: list[str]
-) -> None:
+def test_mixed_filters_null_and_sentinel(tmp_path: Path, captured_warnings: list[str]) -> None:
     patient_path = _write_patient_static(
         tmp_path / "patient.parquet",
         [("tracker_a.xlsx", "KD_QB001"), ("tracker_a.xlsx", "KD_QB002")],
@@ -101,18 +97,14 @@ def test_mixed_filters_null_and_sentinel(
 
     assert count == 2
     # One warning per distinct (file, id) mismatch pair → 1 group → 1 warning
-    mismatch_warnings = [
-        w for w in captured_warnings if "Unmatched product_released_to" in w
-    ]
+    mismatch_warnings = [w for w in captured_warnings if "Unmatched product_released_to" in w]
     assert len(mismatch_warnings) == 1
     assert "tracker_a.xlsx" in mismatch_warnings[0]
     assert "KD_QB999" in mismatch_warnings[0]
     assert "count=2" in mismatch_warnings[0]
 
 
-def test_cross_file_isolation(
-    tmp_path: Path, captured_warnings: list[str]
-) -> None:
+def test_cross_file_isolation(tmp_path: Path, captured_warnings: list[str]) -> None:
     """Same patient_id matches in one file but not in another."""
     patient_path = _write_patient_static(
         tmp_path / "patient.parquet",
@@ -128,9 +120,7 @@ def test_cross_file_isolation(
     count = link_product_patient(product_df, patient_path)
 
     assert count == 1
-    mismatch_warnings = [
-        w for w in captured_warnings if "Unmatched product_released_to" in w
-    ]
+    mismatch_warnings = [w for w in captured_warnings if "Unmatched product_released_to" in w]
     assert len(mismatch_warnings) == 1
     assert "tracker_b.xlsx" in mismatch_warnings[0]
     assert "KD_QB001" in mismatch_warnings[0]

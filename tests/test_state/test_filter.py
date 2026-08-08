@@ -92,9 +92,7 @@ def test_mixed_classification(tmp_path: Path):
         }
     )
 
-    queued, summary = filter_unchanged_trackers(
-        [new, changed, incomplete, unchanged], manifest
-    )
+    queued, summary = filter_unchanged_trackers([new, changed, incomplete, unchanged], manifest)
 
     assert set(queued) == {new, changed, incomplete}
     assert summary.queued == 3

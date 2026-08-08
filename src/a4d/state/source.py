@@ -61,9 +61,7 @@ def load_previous_manifest(
     if local_parquet.exists():
         try:
             df = pl.read_parquet(local_parquet)
-            logger.info(
-                f"Loaded manifest from local parquet ({df.height} rows): {local_parquet}"
-            )
+            logger.info(f"Loaded manifest from local parquet ({df.height} rows): {local_parquet}")
             return _build_manifest(df)
         except Exception as e:
             logger.warning(f"Failed to read local manifest {local_parquet}: {e}")

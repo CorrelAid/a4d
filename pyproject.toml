@@ -45,6 +45,9 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+# r-archive/ is the archived R pipeline, preserved for reference -- not
+# maintained code, never linted or reformatted (see CLAUDE.md).
+extend-exclude = ["r-archive"]
 lint.select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings

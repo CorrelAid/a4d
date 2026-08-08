@@ -12,7 +12,7 @@ hash current trackers when filtering against the previous run's manifest.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -75,7 +75,7 @@ def create_table_tracker_metadata(
             [p.name for p in target.iterdir() if p.is_file()] if target.exists() else []
         )
 
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
     rows: list[dict] = []
     for tracker_path in tracker_files:
         file_name = tracker_path.stem

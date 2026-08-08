@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 ManifestKey = tuple[str, str]
 """(clinic_code, file_name) — file_name is the path stem, matching
 ``tracker_metadata.parquet``'s ``file_name`` column."""

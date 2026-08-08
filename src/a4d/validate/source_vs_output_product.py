@@ -60,14 +60,8 @@ def check_missing_groups(
     raw_exploded: pl.DataFrame, cleaned: pl.DataFrame, collector: ErrorCollector
 ) -> None:
     """MISSING_GROUP + PHANTOM_GROUP: anti-joins on (file, sheet, product)."""
-    raw_keys = (
-        raw_exploded.filter(pl.col("product").is_not_null())
-        .select(GROUP_KEY)
-        .unique()
-    )
-    cleaned_keys = (
-        cleaned.filter(pl.col("product").is_not_null()).select(GROUP_KEY).unique()
-    )
+    raw_keys = raw_exploded.filter(pl.col("product").is_not_null()).select(GROUP_KEY).unique()
+    cleaned_keys = cleaned.filter(pl.col("product").is_not_null()).select(GROUP_KEY).unique()
 
     missing = raw_keys.join(cleaned_keys, on=GROUP_KEY, how="anti")
     for row in missing.iter_rows(named=True):

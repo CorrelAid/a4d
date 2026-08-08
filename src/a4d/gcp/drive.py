@@ -44,7 +44,10 @@ def download_clinic_data(destination: Path) -> Path:
 
     # clinic_data is a Google Sheets file — must use export endpoint, not alt=media.
     # R pipeline equivalent: googledrive::drive_download(..., type = "xlsx")
-    url = f"{_DRIVE_API_URL}/{CLINIC_DATA_FILE_ID}/export?mimeType={_XLSX_MIME}&supportsAllDrives=true"
+    url = (
+        f"{_DRIVE_API_URL}/{CLINIC_DATA_FILE_ID}/export"
+        f"?mimeType={_XLSX_MIME}&supportsAllDrives=true"
+    )
     response = session.get(url, stream=True)
     if not response.ok:
         logger.error(f"Drive API error {response.status_code}: {response.text}")

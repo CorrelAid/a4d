@@ -243,7 +243,9 @@ def test_unexpected_null_fires_when_raw_has_value_cleaned_does_not() -> None:
     joined = _join_for_cell_checks(raw, cleaned)
     check_unexpected_nulls(joined, coll)
     msgs = [e.error_message for e in coll.errors if e.column == "hba1c_updated"]
-    assert msgs and "UNEXPECTED_NULL" in msgs[0] and "was_parseable=True" in msgs[0]
+    assert msgs
+    assert "UNEXPECTED_NULL" in msgs[0]
+    assert "was_parseable=True" in msgs[0]
 
 
 def test_out_of_range_height_skips_cm_value() -> None:
@@ -286,9 +288,7 @@ def test_out_of_range_height_fires_after_auto_conversion() -> None:
     )
     coll = ErrorCollector()
     check_out_of_range(raw, coll)
-    assert any(
-        e.column == "height" and "OUT_OF_RANGE_RAW" in e.error_message for e in coll.errors
-    )
+    assert any(e.column == "height" and "OUT_OF_RANGE_RAW" in e.error_message for e in coll.errors)
 
 
 def test_out_of_range_weight_fires_for_obvious_outlier() -> None:

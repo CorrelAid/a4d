@@ -222,13 +222,12 @@ def test_format_dates_residue_cells_become_null_after_parsing():
     assert parsed[0] is None  # "Amount Left" — nulled
     assert parsed[1] is None  # tiny serial 30 — nulled
     assert parsed[2] == date(2018, 12, 5)
-    assert parsed[3] is not None and parsed[3].year >= 2000  # 45000 → real post-2000 date
+    assert parsed[3] is not None  # 45000 → real post-2000 date
+    assert parsed[3].year >= 2000
     assert parsed[4] is None
     # No parse-failure errors logged because residue cells were nulled
     # before parse_date_flexible saw them.
-    assert all(
-        err.error_code != "invalid_value" for err in collector.errors
-    )
+    assert all(err.error_code != "invalid_value" for err in collector.errors)
 
 
 def test_switch_misplaced_columns_scoped_per_sheet():
@@ -236,16 +235,16 @@ def test_switch_misplaced_columns_scoped_per_sheet():
     the same file pass through untouched (regression for 2018_Penang_DC)."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Jul18", "Jul18", "Nov18",            "Nov18"],
-            "product":                ["A",     "A",     "A",                "A"],
-            "product_units_received": ["70",    None,    "Remaining Stock",  None],
-            "product_received_from":  ["DKSH",  None,    "72",               None],
+            "product_sheet_name": ["Jul18", "Jul18", "Nov18", "Nov18"],
+            "product": ["A", "A", "A", "A"],
+            "product_units_received": ["70", None, "Remaining Stock", None],
+            "product_received_from": ["DKSH", None, "72", None],
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
             "product_units_received": pl.String,
-            "product_received_from":  pl.String,
+            "product_received_from": pl.String,
         },
     )
 
@@ -267,18 +266,18 @@ def test_extract_balance_from_received_scoped_per_sheet():
     donor names were blanked because Sep18+ used the Balance convention)."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Aug18", "Sep18",         "Sep18"],
-            "product":                ["A",     "A",             "A"],
-            "product_units_received": ["20",    "Start Balance", None],
-            "product_units_released": [None,    "2",             None],
-            "product_received_from":  ["GE100", None,            None],
+            "product_sheet_name": ["Aug18", "Sep18", "Sep18"],
+            "product": ["A", "A", "A"],
+            "product_units_received": ["20", "Start Balance", None],
+            "product_units_released": [None, "2", None],
+            "product_received_from": ["GE100", None, None],
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
             "product_units_received": pl.String,
             "product_units_released": pl.String,
-            "product_received_from":  pl.String,
+            "product_received_from": pl.String,
         },
     )
 
@@ -302,18 +301,18 @@ def test_extract_balance_from_received_clears_released_on_all_balance_sheet():
     clear pass becomes a no-op."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Oct19",         "Oct19"],
-            "product":                ["GE100",         "GE100"],
+            "product_sheet_name": ["Oct19", "Oct19"],
+            "product": ["GE100", "GE100"],
             "product_units_received": ["Start Balance", "End Balance"],
-            "product_units_released": ["1",             "1"],
-            "product_received_from":  [None,            None],
+            "product_units_released": ["1", "1"],
+            "product_received_from": [None, None],
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
             "product_units_received": pl.String,
             "product_units_released": pl.String,
-            "product_received_from":  pl.String,
+            "product_received_from": pl.String,
         },
     )
 
@@ -333,18 +332,18 @@ def test_extract_balance_from_received_preserves_supplier_on_triggered_sheet():
     preserves received_from."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Mar20",         "Mar20", "Mar20"],
-            "product":                ["Performa",      "Performa", "Performa"],
-            "product_units_received": ["START BALANCE", "100",   "END BALANCE"],
-            "product_units_released": [None,            None,    None],
-            "product_received_from":  ["43",            "DKSH",  "87"],
+            "product_sheet_name": ["Mar20", "Mar20", "Mar20"],
+            "product": ["Performa", "Performa", "Performa"],
+            "product_units_received": ["START BALANCE", "100", "END BALANCE"],
+            "product_units_released": [None, None, None],
+            "product_received_from": ["43", "DKSH", "87"],
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
             "product_units_received": pl.String,
             "product_units_released": pl.String,
-            "product_received_from":  pl.String,
+            "product_received_from": pl.String,
         },
     )
 
@@ -370,18 +369,18 @@ def test_extract_balance_from_received_nulls_total_subtotal_label():
     # least one row with null received_from. Last row supplies the null.
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Mar20",         "Mar20",    "Mar20",    "Mar20",       "Mar20"],
-            "product":                ["Performa",      "Performa", "Performa", "Performa",    "Performa"],
-            "product_units_received": ["START BALANCE", "100",      "0",        "END BALANCE", "50"],
-            "product_units_released": [None,            None,       None,       None,          None],
-            "product_received_from":  ["43",            "DKSH",     "Total",    "87",          None],
+            "product_sheet_name": ["Mar20", "Mar20", "Mar20", "Mar20", "Mar20"],
+            "product": ["Performa", "Performa", "Performa", "Performa", "Performa"],
+            "product_units_received": ["START BALANCE", "100", "0", "END BALANCE", "50"],
+            "product_units_released": [None, None, None, None, None],
+            "product_received_from": ["43", "DKSH", "Total", "87", None],
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
             "product_units_received": pl.String,
             "product_units_released": pl.String,
-            "product_received_from":  pl.String,
+            "product_received_from": pl.String,
         },
     )
 
@@ -401,16 +400,16 @@ def test_clean_received_from_copies_start_balance_and_strips_numeric_supplier():
     while alphabetic / mixed-alphanumeric values survive."""
     df = pl.DataFrame(
         {
-            "product_units_received": ["START", "5",    "3",  "2"],
-            "product_received_from":  ["DKSH",  "DKSH", "43", "DKSH 43"],
-            "product_balance":        [None,    None,   None, None],
-            "product_sheet_name":     ["Jan",   "Jan",  "Jan", "Jan"],
+            "product_units_received": ["START", "5", "3", "2"],
+            "product_received_from": ["DKSH", "DKSH", "43", "DKSH 43"],
+            "product_balance": [None, None, None, None],
+            "product_sheet_name": ["Jan", "Jan", "Jan", "Jan"],
         },
         schema={
             "product_units_received": pl.String,
-            "product_received_from":  pl.String,
-            "product_balance":        pl.String,
-            "product_sheet_name":     pl.String,
+            "product_received_from": pl.String,
+            "product_balance": pl.String,
+            "product_sheet_name": pl.String,
         },
     )
 
@@ -428,16 +427,16 @@ def test_clean_received_from_no_start_preserves_balance():
     Only the alpha-strip on received_from runs."""
     df = pl.DataFrame(
         {
-            "product_units_received": ["5",    "3"],
-            "product_received_from":  ["DKSH", "43"],
-            "product_balance":        ["100",  "200"],  # pre-existing sentinels
-            "product_sheet_name":     ["Jan",  "Jan"],
+            "product_units_received": ["5", "3"],
+            "product_received_from": ["DKSH", "43"],
+            "product_balance": ["100", "200"],  # pre-existing sentinels
+            "product_sheet_name": ["Jan", "Jan"],
         },
         schema={
             "product_units_received": pl.String,
-            "product_received_from":  pl.String,
-            "product_balance":        pl.String,
-            "product_sheet_name":     pl.String,
+            "product_received_from": pl.String,
+            "product_balance": pl.String,
+            "product_sheet_name": pl.String,
         },
     )
 
@@ -453,16 +452,16 @@ def test_clean_received_from_preserves_balance_on_sheets_without_start():
     propagate balance assignments (or wipes) to other sheets."""
     df = pl.DataFrame(
         {
-            "product_units_received": ["START", "5",    "3",     "2"],
-            "product_received_from":  ["DKSH",  "DKSH", "Acme",  "BMS"],
-            "product_balance":        [None,    None,   "50",    "75"],
-            "product_sheet_name":     ["Jan",   "Jan",  "Feb",   "Feb"],
+            "product_units_received": ["START", "5", "3", "2"],
+            "product_received_from": ["DKSH", "DKSH", "Acme", "BMS"],
+            "product_balance": [None, None, "50", "75"],
+            "product_sheet_name": ["Jan", "Jan", "Feb", "Feb"],
         },
         schema={
             "product_units_received": pl.String,
-            "product_received_from":  pl.String,
-            "product_balance":        pl.String,
-            "product_sheet_name":     pl.String,
+            "product_received_from": pl.String,
+            "product_balance": pl.String,
+            "product_sheet_name": pl.String,
         },
     )
 
@@ -484,11 +483,11 @@ def test_format_dates_normalizes_separator_typos():
         {
             "product": ["P1", "P2", "P3", "P4", "P5"],
             "product_entry_date": [
-                "24.Feb 2020",          # CDA period-after-day typo
-                "22-Jan_2024",          # Likas underscore-before-year typo
-                "16-Apr--2022",         # Mukdahan double-dash typo
+                "24.Feb 2020",  # CDA period-after-day typo
+                "22-Jan_2024",  # Likas underscore-before-year typo
+                "16-Apr--2022",  # Mukdahan double-dash typo
                 "2020-02-24 00:00:00",  # Excel datetime cast — time must strip
-                "16-Apr-2022",          # canonical dd-Mon-yyyy — must parse
+                "16-Apr-2022",  # canonical dd-Mon-yyyy — must parse
             ],
         },
         schema={
@@ -520,7 +519,7 @@ def test_format_dates_preserves_year_typo_sentinels():
             "product": ["Mahosot", "NPH"],
             "product_entry_date": [
                 "2009-12-04 00:00:00",  # Mahosot Excel datetime, year typo
-                "1 jun 20203",          # NPH 5-digit year
+                "1 jun 20203",  # NPH 5-digit year
             ],
         },
         schema={
@@ -607,46 +606,46 @@ def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero():
     surfaced by Ali_internship/product_balance_diff_v1.ipynb."""
     df = pl.DataFrame(
         {
-            "file_name":              ["2019_SB.xlsx"],
-            "product_sheet_name":     ["Jun19"],
-            "product":                ["Accu-Chek Performa Test Strip"],
-            "product_entry_date":     [None],
+            "file_name": ["2019_SB.xlsx"],
+            "product_sheet_name": ["Jun19"],
+            "product": ["Accu-Chek Performa Test Strip"],
+            "product_entry_date": [None],
             "product_units_received": ["2019-06-28 00:00:00"],  # typo cell
             "product_units_released": [None],
-            "product_received_from":  [None],
-            "product_released_to":    [None],
+            "product_received_from": [None],
+            "product_released_to": [None],
             "product_units_returned": [None],
-            "product_returned_by":    [None],
-            "product_balance":        [None],
-            "product_table_month":    ["06"],
-            "product_table_year":     [2019.0],
+            "product_returned_by": [None],
+            "product_balance": [None],
+            "product_table_month": ["06"],
+            "product_table_year": [2019.0],
             "product_balance_status": [None],
-            "product_category":       [None],
-            "product_unit_capacity":  [None],
-            "product_units_notes":    [None],
+            "product_category": [None],
+            "product_unit_capacity": [None],
+            "product_units_notes": [None],
             "orig_product_released_to": [None],
-            "product_remarks":        [None],
+            "product_remarks": [None],
         },
         schema={
-            "file_name":              pl.String,
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
-            "product_entry_date":     pl.String,
+            "file_name": pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
+            "product_entry_date": pl.String,
             "product_units_received": pl.String,
             "product_units_released": pl.String,
-            "product_received_from":  pl.String,
-            "product_released_to":    pl.String,
+            "product_received_from": pl.String,
+            "product_released_to": pl.String,
             "product_units_returned": pl.String,
-            "product_returned_by":    pl.String,
-            "product_balance":        pl.String,
-            "product_table_month":    pl.String,
-            "product_table_year":     pl.Float64,
+            "product_returned_by": pl.String,
+            "product_balance": pl.String,
+            "product_table_month": pl.String,
+            "product_table_year": pl.Float64,
             "product_balance_status": pl.String,
-            "product_category":       pl.String,
-            "product_unit_capacity":  pl.String,
-            "product_units_notes":    pl.String,
+            "product_category": pl.String,
+            "product_unit_capacity": pl.String,
+            "product_units_notes": pl.String,
             "orig_product_released_to": pl.String,
-            "product_remarks":        pl.String,
+            "product_remarks": pl.String,
         },
     )
 
@@ -656,7 +655,8 @@ def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero():
     assert out["product_units_received"].to_list() == [0.0]
 
     units_errors = [
-        e for e in collector.errors
+        e
+        for e in collector.errors
         if e.column == "product_units_received" and e.function_name == "_clean_units_received"
     ]
     assert len(units_errors) == 1
@@ -677,24 +677,24 @@ def test_running_balance_eliminates_float_residue():
     2021_Lao Friends, Feb21, Mixtard 30 Penfill 3ml (5s))."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":     ["Feb21"] * 4,
-            "product":                ["Mixtard"] * 4,
-            "product_balance":        [1.8, None, None, None],
+            "product_sheet_name": ["Feb21"] * 4,
+            "product": ["Mixtard"] * 4,
+            "product_balance": [1.8, None, None, None],
             "product_balance_status": ["start", "change", "change", "end"],
             "product_units_received": [0.0, 0.0, 0.0, 0.0],
             "product_units_released": [0.0, 0.4, 1.4, 0.0],
             "product_units_returned": [0.0, 0.0, 0.0, 0.0],
-            "product_table_year":     [2020, 2020, 2020, 2020],  # < 2021 to skip end-row zeroing
+            "product_table_year": [2020, 2020, 2020, 2020],  # < 2021 to skip end-row zeroing
         },
         schema={
-            "product_sheet_name":     pl.String,
-            "product":                pl.String,
-            "product_balance":        pl.Float64,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
+            "product_balance": pl.Float64,
             "product_balance_status": pl.String,
             "product_units_received": pl.Float64,
             "product_units_released": pl.Float64,
             "product_units_returned": pl.Float64,
-            "product_table_year":     pl.Int32,
+            "product_table_year": pl.Int32,
         },
     )
 
@@ -715,20 +715,26 @@ def test_fill_product_names_and_sort_treats_sentinel_as_null_for_rank():
     balance order vs. R."""
     df = pl.DataFrame(
         {
-            "product_sheet_name":  ["Jun24"] * 5,
-            "product":             ["P"] * 5,
-            "product_entry_date":  [None, date(2024, 1, 15), date(9999, 9, 9), date(2024, 3, 15), None],
+            "product_sheet_name": ["Jun24"] * 5,
+            "product": ["P"] * 5,
+            "product_entry_date": [
+                None,
+                date(2024, 1, 15),
+                date(9999, 9, 9),
+                date(2024, 3, 15),
+                None,
+            ],
             "product_balance_status": ["start", "change", "change", "change", "end"],
             "product_table_month": [6] * 5,
-            "index":               [1, 2, 3, 4, 5],
+            "index": [1, 2, 3, 4, 5],
         },
         schema={
-            "product_sheet_name":      pl.String,
-            "product":                 pl.String,
-            "product_entry_date":      pl.Date,
-            "product_balance_status":  pl.String,
-            "product_table_month":     pl.Int32,
-            "index":                   pl.Int64,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
+            "product_entry_date": pl.Date,
+            "product_balance_status": pl.String,
+            "product_table_month": pl.Int32,
+            "index": pl.Int64,
         },
     )
 
@@ -758,20 +764,20 @@ def _check_dates_df(
     n = len(entry_dates)
     return pl.DataFrame(
         {
-            "product":              [f"P{i}" for i in range(n)],
-            "product_entry_date":   entry_dates,
-            "product_table_year":   [float(table_year)] * n,
-            "product_table_month":  [f"{table_month:02d}"] * n,
-            "product_sheet_name":   [f"{table_month:02d}"] * n,
-            "file_name":            ["t.xlsx"] * n,
+            "product": [f"P{i}" for i in range(n)],
+            "product_entry_date": entry_dates,
+            "product_table_year": [float(table_year)] * n,
+            "product_table_month": [f"{table_month:02d}"] * n,
+            "product_sheet_name": [f"{table_month:02d}"] * n,
+            "file_name": ["t.xlsx"] * n,
         },
         schema={
-            "product":              pl.String,
-            "product_entry_date":   pl.Date,
-            "product_table_year":   pl.Float64,
-            "product_table_month":  pl.String,
-            "product_sheet_name":   pl.String,
-            "file_name":            pl.String,
+            "product": pl.String,
+            "product_entry_date": pl.Date,
+            "product_table_year": pl.Float64,
+            "product_table_month": pl.String,
+            "product_sheet_name": pl.String,
+            "file_name": pl.String,
         },
     )
 
@@ -808,10 +814,10 @@ def test_check_entry_dates_logs_year_mismatch():
 def test_check_entry_dates_skips_sentinel_buddhist_and_null():
     df = _check_dates_df(
         entry_dates=[
-            None,                     # null — skip
-            date(9999, 9, 9),         # parse-failure sentinel — skip
-            date(2567, 11, 11),       # Buddhist-era — skip
-            date(2024, 6, 15),        # match — skip
+            None,  # null — skip
+            date(9999, 9, 9),  # parse-failure sentinel — skip
+            date(2567, 11, 11),  # Buddhist-era — skip
+            date(2024, 6, 15),  # match — skip
         ],
         table_month=6,
         table_year=2024,
@@ -844,24 +850,24 @@ def test_fat_finger_future_falls_into_input_order_rank_after_validation():
     collector = ErrorCollector()
     df = pl.DataFrame(
         {
-            "product":             ["P", "P", "P", "P"],
-            "product_entry_date":  [None, date(2099, 3, 15), date(2024, 6, 1), None],
+            "product": ["P", "P", "P", "P"],
+            "product_entry_date": [None, date(2099, 3, 15), date(2024, 6, 1), None],
             "product_balance_status": ["start", "change", "change", "end"],
-            "product_table_year":  [2024] * 4,
+            "product_table_year": [2024] * 4,
             "product_table_month": [6] * 4,
-            "product_sheet_name":  ["Jun24"] * 4,
-            "file_name":           ["t.xlsx"] * 4,
-            "index":               [1, 2, 3, 4],
+            "product_sheet_name": ["Jun24"] * 4,
+            "file_name": ["t.xlsx"] * 4,
+            "index": [1, 2, 3, 4],
         },
         schema={
-            "product":                pl.String,
-            "product_entry_date":     pl.Date,
+            "product": pl.String,
+            "product_entry_date": pl.Date,
             "product_balance_status": pl.String,
-            "product_table_year":     pl.Int32,
-            "product_table_month":    pl.Int32,
-            "product_sheet_name":     pl.String,
-            "file_name":              pl.String,
-            "index":                  pl.Int64,
+            "product_table_year": pl.Int32,
+            "product_table_month": pl.Int32,
+            "product_sheet_name": pl.String,
+            "file_name": pl.String,
+            "index": pl.Int64,
         },
     )
 

@@ -85,7 +85,11 @@ def find_product_section(ws) -> tuple[int, int]:
                     "patient data summary" in cell for cell in prev_norm
                 )
 
-                if (has_recruitment or has_data_summary_above) and has_patient_name and has_patient_id:
+                if (
+                    (has_recruitment or has_data_summary_above)
+                    and has_patient_name
+                    and has_patient_id
+                ):
                     end_row = curr_excel_row - 1
                     break
 
@@ -269,9 +273,8 @@ def _count_orphan_released_units(
     if "product_released_to" not in df.columns or "product_units_released" not in df.columns:
         return
 
-    released_to_blank = (
-        pl.col("product_released_to").is_null()
-        | (pl.col("product_released_to").cast(pl.String).str.strip_chars() == "")
+    released_to_blank = pl.col("product_released_to").is_null() | (
+        pl.col("product_released_to").cast(pl.String).str.strip_chars() == ""
     )
     has_released_units = pl.col("product_units_released").is_not_null() & (
         pl.col("product_units_released").cast(pl.String).str.strip_chars() != ""
@@ -309,9 +312,7 @@ def _harmonize(
 ) -> pl.DataFrame:
     """Rename columns via the mapper then drop any column not in the synonym schema (R step 1.5)."""
     unknown = [
-        col
-        for col in df.columns
-        if not mapper.is_known_column(col) and col not in mapper.synonyms
+        col for col in df.columns if not mapper.is_known_column(col) and col not in mapper.synonyms
     ]
     if unknown:
         logger.bind(error_code="invalid_tracker").warning(

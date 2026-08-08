@@ -31,7 +31,7 @@ def test_get_tracker_year_falls_back_to_filename():
 
 
 def test_get_tracker_year_raises_when_unparseable():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Could not determine year"):
         get_tracker_year(Path("clinic_tracker.xlsx"), ["January", "February"])
 
 
@@ -65,7 +65,7 @@ def test_extract_tracker_month_known_prefix():
 
 
 def test_extract_tracker_month_unknown_prefix():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Could not extract month"):
         extract_tracker_month("Foo24")
 
 

@@ -58,13 +58,26 @@ class TestForceFlag:
 
         r1 = runner.invoke(
             app,
-            ["process-patient", "--data-root", str(dummy_tracker_dir), "--output", str(out_default)],
+            [
+                "process-patient",
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out_default),
+            ],
         )
         assert r1.exit_code == 0, f"default run failed:\n{r1.output}"
 
         r2 = runner.invoke(
             app,
-            ["process-patient", "--data-root", str(dummy_tracker_dir), "--output", str(out_force), "--force"],
+            [
+                "process-patient",
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out_force),
+                "--force",
+            ],
         )
         assert r2.exit_code == 0, f"--force run failed:\n{r2.output}"
 
@@ -78,7 +91,14 @@ class TestForceFlag:
         for out in (out_a, out_b):
             r = runner.invoke(
                 app,
-                ["process-patient", "--data-root", str(dummy_tracker_dir), "--output", str(out), "--force"],
+                [
+                    "process-patient",
+                    "--data-root",
+                    str(dummy_tracker_dir),
+                    "--output",
+                    str(out),
+                    "--force",
+                ],
             )
             assert r.exit_code == 0, f"run into {out} failed:\n{r.output}"
 
@@ -102,7 +122,14 @@ class TestForceFlag:
 
         result = runner.invoke(
             app,
-            ["process-patient", "--data-root", str(dummy_tracker_dir), "--output", str(out), "--force"],
+            [
+                "process-patient",
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out),
+                "--force",
+            ],
         )
         assert result.exit_code == 0, f"--force run failed:\n{result.output}"
 
@@ -121,8 +148,10 @@ class TestForceIncrementalConflict:
             app,
             [
                 "process-patient",
-                "--data-root", str(dummy_tracker_dir),
-                "--output", str(out),
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out),
                 "--force",
                 "--incremental",
             ],
@@ -137,7 +166,14 @@ class TestForceIncrementalConflict:
 
         r_force = runner.invoke(
             app,
-            ["process-patient", "--data-root", str(dummy_tracker_dir), "--output", str(out_force), "--force"],
+            [
+                "process-patient",
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out_force),
+                "--force",
+            ],
         )
         assert r_force.exit_code == 0
 
@@ -145,8 +181,10 @@ class TestForceIncrementalConflict:
             app,
             [
                 "process-patient",
-                "--data-root", str(dummy_tracker_dir),
-                "--output", str(out_both),
+                "--data-root",
+                str(dummy_tracker_dir),
+                "--output",
+                str(out_both),
                 "--force",
                 "--incremental",
             ],

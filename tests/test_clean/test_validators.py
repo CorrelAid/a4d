@@ -333,11 +333,11 @@ def test_validate_allowed_values_csv_subset():
             "file_name": ["test.xlsx"] * 5,
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
             "insulin_subtype": [
-                "rapid-acting",                        # single valid
-                "pre-mixed,rapid-acting",              # two-token CSV valid
+                "rapid-acting",  # single valid
+                "pre-mixed,rapid-acting",  # two-token CSV valid
                 "pre-mixed,rapid-acting,long-acting",  # three-token CSV valid
-                "pre-mixed,unknown-thing",             # CSV with one bad token
-                "not-in-list",                         # single invalid
+                "pre-mixed,unknown-thing",  # CSV with one bad token
+                "not-in-list",  # single invalid
             ],
         }
     )
