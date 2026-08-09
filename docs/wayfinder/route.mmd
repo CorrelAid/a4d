@@ -21,21 +21,26 @@ flowchart TB
     direction LR
     U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
+  subgraph S2026_08_09d["Session 2026-08-09d"]
+    direction LR
+    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+    U14["<b>14</b><br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4<br/>real trackers"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
   S2026_08_09 ~~~ S2026_08_09b
   S2026_08_09b ~~~ S2026_08_09c
-  S2026_08_09c ~~~ Sopen
+  S2026_08_09c ~~~ S2026_08_09d
+  S2026_08_09d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -51,6 +56,7 @@ flowchart TB
   U11 --->|blocked| U6
   U12 --->|blocked| U6
   U13 --->|blocked| U6
+  U14 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -62,12 +68,13 @@ flowchart TB
   U2 --->|blocked| U12
   U10 --->|blocked| U12
   U3 --->|blocked| U13
+  U10 -.->|spawned| U14
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10,U11 tfrontier
+  class U2,U11,U14 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8,U13 tdecided
+  class U3,U4,U5,U7,U8,U10,U13 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

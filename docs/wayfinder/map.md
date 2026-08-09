@@ -39,8 +39,8 @@ flowchart TD
   subgraph FRONTIER["Frontier · 3"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -48,13 +48,14 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 6"]
+  subgraph DECIDED["Decided · 7"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
+    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -84,13 +85,14 @@ flowchart TD
   T12 --> T6
   T13 --> T6
   T13 --> T10
+  T14 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T10,T11 frontier
+  class T2,T11,T14 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T7,T8,T13 decided
+  class T3,T4,T5,T7,T8,T10,T13 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -269,17 +271,40 @@ Decisions-so-far entry above for detail. This unblocks [ticket
 10](tickets/10-performance-profiling.md) (performance re-profiling against
 the R baseline), since its other blocker (ticket 3) was already closed.
 
-**The frontier is now tickets 2, 10 and 11** (ticket 12 is still blocked on 2
-and 10): [Retire the PDF/notebook analysis docs for an automated,
-script-based report](tickets/02-documentation-strategy.md), [Profile the
-combined pipeline's performance against the R baseline before promoting to
-dev](tickets/10-performance-profiling.md) (freshly unblocked this session),
-and [Decide what CLI/TUI UX and error-log observability improvements
-admins/developers need before rollout](tickets/11-cli-ux-observability.md).
-Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11, 12, 13]` —
-tickets 3, 4, 5, 8, 13 are closed; tickets 2, 10, 11, 12 are what remain. The
-user has said they intend to keep working this map session by session on
-`migration` until confident enough to roll out, rather than promoting early.
+**Eight tickets resolved.** [Profile the combined pipeline's performance
+against the R baseline before promoting to dev](tickets/10-performance-profiling.md)
+is done — retitled in substance mid-session: the user dropped the R-baseline
+comparison entirely (R's already known to be slower; re-confirming that
+teaches nothing) and reframed it as a function-level performance/robustness
+profile of the Python pipeline itself, run with `pyinstrument` against the
+full 177-tracker real dataset (from the USB drive, at the user's suggestion,
+since current production trackers aren't available locally). That profile
+found `find_data_start_row` (`src/a4d/extract/patient.py`) was O(n^2) on
+read-only worksheets — each `.cell()` call re-parses a sheet's XML from row
+1 — and fixed it with a single sequential scan: 6.6x speedup on the full
+patient arm (145.8s -> 22.0s, 171 real trackers, 4 workers, identical
+output), pushed as `97479f8` with a regression test. Full combined
+patient+product run: 73.86s wall, ~556MB peak RSS (rough floor, not
+exhaustive). Also surfaced 4 product trackers failing outright
+("unable to find column \"product\"") — unrelated to the performance fix,
+not previously documented anywhere on this map — spawned as [ticket
+14](tickets/14-product-column-detection-failures.md) rather than fixed
+inline, now also blocking ticket 6. Full detail: [ticket
+10](tickets/10-performance-profiling.md).
+
+**The frontier is now tickets 2, 11 and 14**: [Retire the PDF/notebook
+analysis docs for an automated, script-based report](tickets/02-documentation-strategy.md),
+[Decide what CLI/TUI UX and error-log observability improvements
+admins/developers need before rollout](tickets/11-cli-ux-observability.md),
+and [Fix product pipeline's "unable to find column product" failures on 4
+real trackers](tickets/14-product-column-detection-failures.md) (freshly
+spawned this session, unblocked immediately — no premise ticket to wait on).
+Ticket 12 is still blocked on 2 and 10 (10 is now closed, so effectively just
+2). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11, 12,
+13, 14]` — tickets 3, 4, 5, 8, 10, 13 are closed; tickets 2, 11, 12, 14 are
+what remain. The user has said they intend to keep working this map session
+by session on `migration` until confident enough to roll out, rather than
+promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
@@ -376,6 +401,18 @@ ticket 12's git-tracked R cleanup.
   other blocker, ticket 3, was already closed). Full detail: [ticket
   13](tickets/13-dependency-audit.md).
 
+- [Profile the combined pipeline's performance against the R baseline before
+  rollout](tickets/10-performance-profiling.md) — decided and executed: R
+  comparison dropped (already known slower); reframed as a `pyinstrument`
+  function-level profile of the Python pipeline against the full 177-tracker
+  real dataset. Found and fixed an O(n^2) bug in `find_data_start_row`
+  (per-row `.cell()` calls each re-parse a read-only worksheet's XML from
+  row 1) — 6.6x speedup on the full patient arm (145.8s -> 22.0s), pushed as
+  `97479f8` with a regression test. Full combined run: 73.86s wall, ~556MB
+  peak RSS. Also surfaced 4 product trackers failing outright, spawned as
+  [ticket 14](tickets/14-product-column-detection-failures.md). Full detail:
+  [ticket 10](tickets/10-performance-profiling.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -450,21 +487,26 @@ flowchart TB
     direction LR
     U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
+  subgraph S2026_08_09d["Session 2026-08-09d"]
+    direction LR
+    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+    U14["<b>14</b><br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4<br/>real trackers"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
   S2026_08_09 ~~~ S2026_08_09b
   S2026_08_09b ~~~ S2026_08_09c
-  S2026_08_09c ~~~ Sopen
+  S2026_08_09c ~~~ S2026_08_09d
+  S2026_08_09d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -480,6 +522,7 @@ flowchart TB
   U11 --->|blocked| U6
   U12 --->|blocked| U6
   U13 --->|blocked| U6
+  U14 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -491,13 +534,14 @@ flowchart TB
   U2 --->|blocked| U12
   U10 --->|blocked| U12
   U3 --->|blocked| U13
+  U10 -.->|spawned| U14
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10,U11 tfrontier
+  class U2,U11,U14 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8,U13 tdecided
+  class U3,U4,U5,U7,U8,U10,U13 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
