@@ -1,11 +1,13 @@
 """Tests for the A4D CLI commands."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
 from typer.testing import CliRunner
 
 from a4d.cli import app
+from a4d.pipeline.models import PipelineResult, TrackerResult
 
 runner = CliRunner(env={"NO_COLOR": "1", "COLUMNS": "200"})
 
@@ -85,9 +87,16 @@ class TestUploadTablesErrors:
 class TestRunPipeline:
     """run-pipeline command with mocked GCP calls."""
 
+    @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")
     @patch("a4d.config.settings")
-    def test_skip_upload_calls_pipeline(self, mock_settings, mock_run_pipeline, tmp_path):
+    def test_skip_upload_calls_pipeline(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        # Both arms must be mocked, not just patient: `run_product_pipeline`
+        # binds `settings` at its own module-import time, so patching
+        # `a4d.config.settings` alone does not stop it discovering trackers
+        # from the *real* local data_root if left unmocked.
         mock_settings.data_root = tmp_path / "data"
         mock_settings.output_root = tmp_path / "output"
         mock_settings.project_id = "test-project"
@@ -97,25 +106,34 @@ class TestRunPipeline:
         (tmp_path / "data").mkdir()
         (tmp_path / "output").mkdir()
 
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.total_trackers = 0
-        mock_result.successful_trackers = 0
-        mock_result.failed_trackers = 0
-        mock_result.tracker_results = []
-        mock_result.tables = {}
-        mock_run_pipeline.return_value = mock_result
+        empty_result = PipelineResult(
+            tracker_results=[],
+            tables={},
+            total_trackers=0,
+            successful_trackers=0,
+            failed_trackers=0,
+            success=True,
+        )
+        mock_run_patient.return_value = empty_result
+        mock_run_product.return_value = empty_result
 
         result = runner.invoke(
             app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
         )
 
-        mock_run_pipeline.assert_called_once()
+        mock_run_patient.assert_called_once()
+        mock_run_product.assert_called_once()
         assert result.exit_code == 0
 
+    @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")
     @patch("a4d.config.settings")
-    def test_pipeline_failure_exits_nonzero(self, mock_settings, mock_run_pipeline, tmp_path):
+    def test_patient_failure_soft_fails_and_continues(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        """A patient tracker failure warns and continues rather than aborting
+        the run (product/tables/upload still execute) — matches the product
+        arm's existing soft-fail posture."""
         mock_settings.data_root = tmp_path / "data"
         mock_settings.output_root = tmp_path / "output"
         mock_settings.project_id = "test-project"
@@ -125,22 +143,29 @@ class TestRunPipeline:
         (tmp_path / "data").mkdir()
         (tmp_path / "output").mkdir()
 
-        mock_result = MagicMock()
-        mock_result.success = False
-        mock_result.total_trackers = 1
-        mock_result.successful_trackers = 0
-        mock_result.failed_trackers = 1
-        mock_result.tracker_results = [
-            MagicMock(success=False, tracker_file=MagicMock(name="bad.xlsx"), error="Parse error")
-        ]
-        mock_result.tables = {}
-        mock_run_pipeline.return_value = mock_result
+        mock_run_patient.return_value = PipelineResult(
+            tracker_results=[_tracker_result("bad", success=False, error="Parse error")],
+            tables={},
+            total_trackers=1,
+            successful_trackers=0,
+            failed_trackers=1,
+            success=False,
+        )
+        mock_run_product.return_value = PipelineResult(
+            tracker_results=[],
+            tables={},
+            total_trackers=0,
+            successful_trackers=0,
+            failed_trackers=0,
+            success=True,
+        )
 
         result = runner.invoke(
             app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
         )
 
-        assert result.exit_code == 1
+        assert result.exit_code == 0, result.output
+        assert "some patient trackers failed" in result.output.lower()
 
     @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")
@@ -194,6 +219,139 @@ class TestRunPipeline:
         )
         assert result.exit_code == 1
         assert "mutually exclusive" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Combined patient+product run summary (ticket 11)
+# ---------------------------------------------------------------------------
+
+
+def _tracker_result(name, *, success=True, error=None, cleaning_errors=0):
+    return TrackerResult(
+        tracker_file=Path(f"{name}.xlsx"),
+        tracker_name=name,
+        success=success,
+        error=error,
+        cleaning_errors=cleaning_errors,
+    )
+
+
+class TestCombinedRunSummary:
+    """run-pipeline's combined patient+product summary, only shown when both arms ran."""
+
+    def _run(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path, patient_trs, product_trs
+    ):
+        mock_settings.data_root = tmp_path / "data"
+        mock_settings.output_root = tmp_path / "output"
+        mock_settings.project_id = "test-project"
+        mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
+        (tmp_path / "data").mkdir()
+        (tmp_path / "output").mkdir()
+
+        patient_result = PipelineResult(
+            tracker_results=patient_trs,
+            tables={},
+            total_trackers=len(patient_trs),
+            successful_trackers=sum(tr.success for tr in patient_trs),
+            failed_trackers=sum(not tr.success for tr in patient_trs),
+            success=all(tr.success for tr in patient_trs),
+        )
+        product_result = PipelineResult(
+            tracker_results=product_trs,
+            tables={},
+            total_trackers=len(product_trs),
+            successful_trackers=sum(tr.success for tr in product_trs),
+            failed_trackers=sum(not tr.success for tr in product_trs),
+            success=all(tr.success for tr in product_trs),
+        )
+        mock_run_patient.return_value = patient_result
+        mock_run_product.return_value = product_result
+
+        return runner.invoke(
+            app,
+            ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"],
+        )
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_both_arms_ok(self, mock_settings, mock_run_patient, mock_run_product, tmp_path):
+        patient_trs = [_tracker_result("2024_Clinic_A")]
+        product_trs = [_tracker_result("2024_Clinic_A")]
+        result = self._run(
+            mock_settings, mock_run_patient, mock_run_product, tmp_path, patient_trs, product_trs
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Combined Run Summary" in result.output
+        assert "Files needing attention" not in result.output
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_patient_failed_only(self, mock_settings, mock_run_patient, mock_run_product, tmp_path):
+        patient_trs = [_tracker_result("2024_Clinic_B", success=False, error="bad header")]
+        product_trs = [_tracker_result("2024_Clinic_B")]
+        result = self._run(
+            mock_settings, mock_run_patient, mock_run_product, tmp_path, patient_trs, product_trs
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Files needing attention" in result.output
+        assert "2024_Clinic_B" in result.output
+        assert "bad header" in result.output
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_file_lost_in_both_arms(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        patient_trs = [_tracker_result("2024_Clinic_C", success=False, error="patient boom")]
+        product_trs = [_tracker_result("2024_Clinic_C", success=False, error="product boom")]
+        result = self._run(
+            mock_settings, mock_run_patient, mock_run_product, tmp_path, patient_trs, product_trs
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "patient boom" in result.output
+        assert "product boom" in result.output
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.config.settings")
+    def test_omitted_when_product_arm_skipped(self, mock_settings, mock_run_product, tmp_path):
+        mock_settings.data_root = tmp_path / "data"
+        mock_settings.output_root = tmp_path / "output"
+        mock_settings.project_id = "test-project"
+        mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
+        (tmp_path / "data").mkdir()
+        (tmp_path / "output").mkdir()
+
+        mock_run_product.return_value = PipelineResult(
+            tracker_results=[],
+            tables={},
+            total_trackers=0,
+            successful_trackers=0,
+            failed_trackers=0,
+            success=True,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run-pipeline",
+                "--skip-patient",
+                "--skip-download",
+                "--skip-upload",
+                "--skip-drive-download",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Combined Run Summary" not in result.output
 
 
 # ---------------------------------------------------------------------------
