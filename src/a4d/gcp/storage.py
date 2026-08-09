@@ -40,6 +40,7 @@ def _download_blob(blob: storage.Blob, destination: Path) -> Path | None:
 
     Returns the local path if downloaded, None if skipped.
     """
+    assert blob.name is not None, "blob from list_blobs() always has a name"
     local_path = destination / blob.name
 
     if local_path.exists() and local_path.stat().st_size == blob.size:
