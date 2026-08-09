@@ -47,3 +47,15 @@ Scope to what's needed for confident rollout, not a general UX overhaul —
 name concrete gaps against concrete use cases (a run fails partway; an admin
 wants to know how many trackers had errors and why) rather than redesigning
 the CLI from scratch.
+
+**Prior art (read before deletion, not to be ported as-is):** `tools/LogViewerA4D`
+was an R Shiny dashboard, since deleted (see [ticket
+12](12-retire-r-workspace.md)), that read local tab-separated `.log` files
+(`Timestamp/Thread/Level/Package/Function/Message`) and offered three views: a
+main log table plus a per-tracker summary and Sankey diagram, an overview tab
+with a regex-filterable plot across tracker files, and a reference-data
+validation tab flagging missing/duplicate `clinic_id` entries against
+`reference_data/`. Useful as a reference for what admins actually wanted to
+see, but its whole design assumes local log files — the current pipeline logs
+via loguru into the `logs` BigQuery table (1M+ rows) instead, so any Python
+equivalent would need a different shape, not a port.
