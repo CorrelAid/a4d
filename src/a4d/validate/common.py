@@ -8,7 +8,7 @@ import polars as pl
 
 from a4d.clean.converters import safe_convert_column
 from a4d.config import settings
-from a4d.errors import ErrorCollector
+from a4d.errors import ErrorCode, ErrorCollector
 
 # Mirrors clean/patient.py:241-256. Hyphen->underscore happens first, then we
 # extract the leading "LETTERS_NON-UNDERSCORE-CHARS" group. Single-token IDs
@@ -74,7 +74,7 @@ def emit_finding(
     column: str,
     original_value: Any,
     error_message: str,
-    error_code: str,
+    error_code: ErrorCode,
     function_name: str,
 ) -> None:
     """Thin wrapper around ``ErrorCollector.add_error`` enforcing the schema.
@@ -92,7 +92,7 @@ def emit_finding(
         column=column,
         original_value="" if original_value is None else str(original_value),
         error_message=error_message,
-        error_code=error_code,  # type: ignore[arg-type]
+        error_code=error_code,
         function_name=function_name,
         script="validate",
     )
