@@ -33,13 +33,17 @@ flowchart TB
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
   end
+  subgraph S2026_08_09g["Session 2026-08-09g"]
+    direction LR
+    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
+    U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -49,7 +53,8 @@ flowchart TB
   S2026_08_09c ~~~ S2026_08_09d
   S2026_08_09d ~~~ S2026_08_09e
   S2026_08_09e ~~~ S2026_08_09f
-  S2026_08_09f ~~~ Sopen
+  S2026_08_09f ~~~ S2026_08_09g
+  S2026_08_09g ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -79,12 +84,13 @@ flowchart TB
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
+  U11 -.->|spawned| U16
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U11,U15 tfrontier
+  class U15,U16 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U13,U14 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

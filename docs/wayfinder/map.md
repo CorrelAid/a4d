@@ -38,8 +38,8 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
-    T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
+    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -47,7 +47,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 9"]
+  subgraph DECIDED["Decided · 10"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -56,6 +56,7 @@ flowchart TD
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
   end
@@ -89,11 +90,11 @@ flowchart TD
   T15 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T11,T15 frontier
+  class T15,T16 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T13,T14 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -343,15 +344,44 @@ archive itself), and [ticket 6](tickets/06-promote-migration-to-dev.md)'s
 "every Python/R difference [be] documented and explicitly decided" isn't met
 until ticket 15 actually runs the comparison, not just designs it.
 
-**The frontier is now ticket 11 and ticket 15**: [Decide what CLI/TUI UX and
-error-log observability improvements admins/developers need before
-rollout](tickets/11-cli-ux-observability.md) and [Build and run the R/Python
+**Eleven tickets resolved.** [Decide what CLI/TUI UX and error-log
+observability improvements admins/developers need before
+rollout](tickets/11-cli-ux-observability.md) is decided and implemented, for
+its CLI/UX half: `run-pipeline` (the actual production entry point behind
+the Cloud Run Job) was found to never render any of the rich per-arm summary
+tables `process-patient`/`process-product` already have — it only printed a
+one-line count per arm, with no cross-arm view. Demonstrated the gap with a
+real synthetic-data run rather than reasoning about it, then built and
+shipped `_render_combined_run_summary()`: a combined patient+product view
+crossing each file's outcome into four buckets (both ok / patient failed
+only / product failed only / lost entirely) plus a merged per-file error
+count. That exposed a real behavior bug — `run-pipeline` aborted the entire
+run on any single patient tracker failure, before the product arm even ran,
+which made "patient-only failed" structurally unobservable — fixed by
+switching the patient arm to the same soft-fail-and-continue posture the
+product arm already used. Fixing that in turn exposed a real test-isolation
+bug: two `run-pipeline` CLI tests mocked only `run_patient_pipeline`, so
+`run_product_pipeline` silently processed 185 real local tracker files as a
+side effect once soft-fail let execution reach it; fixed by mocking both
+arms in every `run-pipeline` test. Full suite (494 tests), ruff, `ty check
+src/` all pass; pushed as `33694b4`. The error-log observability half (a
+drill-down view into one specific file's full detail, replacing
+`LogViewerA4D`'s job) was explicitly split off rather than answered here —
+spawned as [ticket 16](tickets/16-log-analyzer-drill-down.md), including its
+own open question of whether it's needed before promotion or is a
+nice-to-have outside the promotion path. Full detail: [ticket
+11](tickets/11-cli-ux-observability.md).
+
+**The frontier is now ticket 15 and ticket 16**: [Build and run the R/Python
 output comparison script, then triage every flagged
-difference](tickets/15-build-and-run-comparison-script.md). Ticket 12 is
-still blocked, now on ticket 15. Ticket 6 (promote to `dev`) is `blocked_by:
-[8, 3, 4, 5, 10, 11, 12, 13, 14, 15]` — tickets 3, 4, 5, 8, 10, 13, 14 are
-closed; tickets 11, 12, 15 are what remain. The user has said they intend to
-keep working this map session by session on `migration` until confident
+difference](tickets/15-build-and-run-comparison-script.md) and [Build a
+drill-down log analyzer for admins to inspect a specific tracker file's
+errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is still
+blocked, on ticket 15. Ticket 6 (promote to `dev`) is `blocked_by: [8, 3, 4,
+5, 10, 11, 12, 13, 14, 15]` — tickets 3, 4, 5, 8, 10, 11, 13, 14 are closed;
+tickets 12 and 15 are what remain (ticket 16 isn't wired as a blocker yet —
+its own question 4 is whether it should be). The user has said they intend
+to keep working this map session by session on `migration` until confident
 enough to roll out, rather than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
@@ -488,6 +518,21 @@ ticket 12's git-tracked R cleanup.
   12](tickets/12-retire-r-workspace.md). Full detail: [ticket
   2](tickets/02-documentation-strategy.md).
 
+- [Decide what CLI/TUI UX and error-log observability improvements
+  admins/developers need before rollout](tickets/11-cli-ux-observability.md)
+  — decided and implemented (CLI/UX half only): `run-pipeline` never rendered
+  the rich per-arm summary tables `process-patient`/`process-product` already
+  had, and aborted the entire run on any single patient tracker failure
+  before the product arm even ran. Fixed by adding a combined patient+product
+  run summary (both ok / patient-only failed / product-only failed / lost
+  entirely, plus merged per-file error counts) and switching the patient arm
+  to soft-fail-and-continue like product already does. Also fixed a
+  test-isolation bug the soft-fail change exposed: two tests weren't mocking
+  `run_product_pipeline` and were silently processing real local tracker
+  files. Pushed as `33694b4`. The observability half (per-file drill-down)
+  split off into [ticket 16](tickets/16-log-analyzer-drill-down.md). Full
+  detail: [ticket 11](tickets/11-cli-ux-observability.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -574,13 +619,17 @@ flowchart TB
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
   end
+  subgraph S2026_08_09g["Session 2026-08-09g"]
+    direction LR
+    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
+    U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -590,7 +639,8 @@ flowchart TB
   S2026_08_09c ~~~ S2026_08_09d
   S2026_08_09d ~~~ S2026_08_09e
   S2026_08_09e ~~~ S2026_08_09f
-  S2026_08_09f ~~~ Sopen
+  S2026_08_09f ~~~ S2026_08_09g
+  S2026_08_09g ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -620,13 +670,14 @@ flowchart TB
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
+  U11 -.->|spawned| U16
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U11,U15 tfrontier
+  class U15,U16 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U13,U14 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
