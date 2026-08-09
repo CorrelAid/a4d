@@ -74,4 +74,7 @@ markers = [
     "e2e: marks tests as end-to-end tests (extraction + cleaning)",
 ]
 addopts = ["--cov=src/a4d", "--cov-report=term-missing", "--cov-report=html"]
-filterwarnings = ["ignore::RuntimeWarning:google_crc32c"]
+filterwarnings = [
+    "ignore::RuntimeWarning:google_crc32c",
+    "ignore:from_arrow.<ArrowStreamExportable>. will return a Series:FutureWarning",
+]

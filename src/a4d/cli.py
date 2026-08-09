@@ -207,16 +207,86 @@ def _resolve_tracker_files(
     return files, display
 
 
-def _render_combined_run_summary(patient_result, product_result) -> None:
+# Output table files worth reporting row counts for, in display order.
+_KNOWN_TABLE_FILES = [
+    "patient_data_static.parquet",
+    "patient_data_monthly.parquet",
+    "patient_data_annual.parquet",
+    "product_data.parquet",
+    "clinic_data_static.parquet",
+    "table_logs.parquet",
+    "table_errors.parquet",
+    "tracker_metadata.parquet",
+]
+
+
+def _scan_table_row_counts(tables_dir: Path) -> list[tuple[str, int]]:
+    """Row counts for whichever known output tables exist in `tables_dir`.
+
+    Uses a lazy scan + `pl.len()` rather than reading each table fully into
+    memory — these can be large (hundreds of thousands of rows for logs).
+    """
+    counts = []
+    for filename in _KNOWN_TABLE_FILES:
+        path = tables_dir / filename
+        if path.exists():
+            count = pl.scan_parquet(path).select(pl.len()).collect().item()
+            counts.append((filename, count))
+    return counts
+
+
+def _scan_distinct_count(path: Path, column: str) -> int | None:
+    """Distinct non-null value count for `column` in a parquet file, or None if missing."""
+    if not path.exists():
+        return None
+    lf = pl.scan_parquet(path)
+    if column not in lf.collect_schema().names():
+        return None
+    return lf.select(pl.col(column).n_unique()).collect().item()
+
+
+def _render_dataset_overview(tables_dir: Path) -> None:
+    """Render row counts for every output table plus distinct clinic/patient counts.
+
+    The sanity-check signal for "does this run look right" — e.g. a clinic
+    count that suddenly drops is worth catching here, before anything is
+    uploaded.
+    """
+    row_counts = _scan_table_row_counts(tables_dir)
+    if not row_counts:
+        return
+
+    console.print("\n[bold blue]Dataset Overview:[/bold blue]")
+    overview_table = Table()
+    overview_table.add_column("Table", style="cyan")
+    overview_table.add_column("Rows", justify="right", style="green")
+    for filename, count in row_counts:
+        overview_table.add_row(filename, f"{count:,}")
+
+    distinct_clinics = _scan_distinct_count(tables_dir / "clinic_data_static.parquet", "clinic_id")
+    distinct_patients = _scan_distinct_count(
+        tables_dir / "patient_data_static.parquet", "patient_id"
+    )
+    if distinct_clinics is not None:
+        overview_table.add_row("[dim]distinct clinics[/dim]", f"[dim]{distinct_clinics:,}[/dim]")
+    if distinct_patients is not None:
+        overview_table.add_row("[dim]distinct patients[/dim]", f"[dim]{distinct_patients:,}[/dim]")
+    console.print(overview_table)
+
+
+def _render_combined_run_summary(patient_result, product_result, tables_dir: Path) -> None:
     """Render a combined patient+product view of a full `run` execution.
 
     Crosses each tracker file's patient and product outcome (both ok / one
     arm failed / lost entirely) and merges both arms' per-file error counts.
     Only meaningful once both arms have actually run — silently skips
-    otherwise (e.g. --skip-patient / --skip-product, or the product arm
-    crashing before producing a result).
+    the outcome/error tables otherwise (e.g. --skip-patient / --skip-product,
+    or the product arm crashing before producing a result). The dataset
+    overview still renders regardless, since it reads from disk rather than
+    depending on both arms' in-memory results.
     """
     if patient_result is None or product_result is None:
+        _render_dataset_overview(tables_dir)
         return
 
     patient_by_name = {tr.tracker_name: tr for tr in patient_result.tracker_results}
@@ -287,6 +357,8 @@ def _render_combined_run_summary(patient_result, product_result) -> None:
                 str(patient_errors + product_errors),
             )
         console.print(top_table)
+
+    _render_dataset_overview(tables_dir)
 
 
 def _render_failed_trackers(
@@ -1405,6 +1477,21 @@ def run_all_cmd(
     # Each run gets an isolated path: YYYY/MM/DD/HHMMSS/tables/ and .../logs/
     # This avoids overwriting previous runs and keeps objectCreator permission sufficient.
     if not skip_upload:
+        # BigQuery loads below are WRITE_TRUNCATE (full replace, not append) —
+        # show exactly what's about to be pushed before it happens.
+        row_counts = _scan_table_row_counts(tables_dir)
+        if row_counts:
+            console.print(
+                "[bold]About to upload (BigQuery tables are replaced, not appended):[/bold]"
+            )
+            preview_table = Table()
+            preview_table.add_column("File", style="cyan")
+            preview_table.add_column("Rows", justify="right", style="green")
+            for filename, count in row_counts:
+                preview_table.add_row(filename, f"{count:,}")
+            console.print(preview_table)
+            console.print()
+
         console.print("[bold]Step 4/5:[/bold] Uploading output files to GCS...")
         console.print(f"  Prefix: {run_ts}/\n")
         try:
@@ -1437,7 +1524,7 @@ def run_all_cmd(
     # Rendered last, deliberately: earlier steps (tracker metadata, product-
     # patient link validation, uploads) print their own progress/warning
     # lines, which buried this summary when it ran mid-pipeline.
-    _render_combined_run_summary(result, product_result)
+    _render_combined_run_summary(result, product_result, tables_dir)
 
     console.print("[bold green]✓ Full pipeline completed successfully![/bold green]\n")
 

@@ -79,7 +79,11 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
 
     # Surface any errors collected by fix_patient_id / safe_convert_column at
     # the table-aggregation stage. These run outside any per-tracker file_logger,
-    # so without this loop the errors disappear silently.
+    # so without this loop the errors disappear silently. Full per-row detail
+    # goes to DEBUG only — with thousands of truncated/invalid IDs across a
+    # real run, logging each at WARNING flooded the console (same issue as
+    # link_product_patient's per-pair loop). The console gets one aggregate
+    # line per (column, error_message) group instead.
     for err in error_collector.errors:
         logger.bind(
             error_code=err.error_code,
@@ -87,12 +91,18 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
             function_name=err.function_name,
             file_name=err.file_name,
             column=err.column,
-        ).warning(
+        ).debug(
             f"Table-stage error: {err.error_message} "
             f"(file={err.file_name}, column={err.column}, value={err.original_value})"
         )
     if error_collector.errors:
-        logger.info(f"Table-stage errors: {len(error_collector.errors)}")
+        group_counts: dict[tuple[str, str], int] = {}
+        for err in error_collector.errors:
+            key = (err.column, err.error_message)
+            group_counts[key] = group_counts.get(key, 0) + 1
+        for (column, message), count in sorted(group_counts.items(), key=lambda kv: -kv[1]):
+            logger.warning(f"Table-stage errors: {count}x '{message}' (column={column})")
+        logger.info(f"Table-stage errors: {len(error_collector.errors)} total")
 
     logger.info(f"Product data table dimensions: {df.shape}")
 
