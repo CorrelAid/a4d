@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [2, 10]
+blocked_by: [15]
 assignee: null
 claimed_at: null
 resolution: null
@@ -19,12 +19,21 @@ and [ticket 11](11-cli-ux-observability.md): the user confirmed workspace
 cleanup is part of "are we really ready to roll out", not separate follow-on
 work.
 
-Blocked on [Retire the PDF/notebook analysis docs for an automated,
-script-based report](02-documentation-strategy.md) (need the R-vs-source
-comparison built and trusted before R stops being available as a live
-reference to check against) and [Profile the combined pipeline's performance
-against the R baseline before promoting to dev](10-performance-profiling.md)
-(needs R's own runtime as the comparison baseline while it still exists).
+[Retire the PDF/notebook analysis docs for an automated, script-based
+report](02-documentation-strategy.md) is now closed: the comparison script's
+design decided the R baseline is the already-frozen
+`/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/`, which lives on the data
+drive, not in this repo — so this ticket's original premise ("need R
+available as a live reference to check against") no longer applies, since
+retiring `r-archive/` was never going to touch that frozen baseline.
+[Profile the combined pipeline's performance against the R baseline before
+promoting to dev](10-performance-profiling.md) is also closed (R comparison
+was dropped from that ticket entirely). This ticket is now blocked instead on
+[ticket 15](15-build-and-run-comparison-script.md) — not because retiring
+`r-archive/` needs R itself, but because the triage work in ticket 15 is
+still investigative and might turn up a need to consult R's logic/behavior
+one more time before it's gone for good; safer to keep this ticket blocked
+until that work concludes.
 
 Not blocked on [ticket 11](11-cli-ux-observability.md): the user confirmed
 `tools/LogViewerA4D` (an R Shiny app another developer wrote for viewing R

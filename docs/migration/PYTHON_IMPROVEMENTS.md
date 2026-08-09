@@ -126,7 +126,7 @@ for h1, h2 in zip(header_1, header_2, strict=True):
 
 **Status**: ✅ Improved in Python
 
-Three distinct date-parsing patterns surfaced during product-pipeline diff investigation against R goldens. In each case Python yields a more correct result than R; no R-parity fix is warranted. Investigation: [Ali_internship/residual_dig.ipynb](../../Ali_internship/residual_dig.ipynb).
+Three distinct date-parsing patterns surfaced during product-pipeline diff investigation against R goldens. In each case Python yields a more correct result than R; no R-parity fix is warranted. Investigation: the underlying notebook (`Ali_internship/residual_dig.ipynb`) was never committed to the repo and no longer exists; the surviving record of this analysis is [`Product pipeline parity presentation.pdf`](Product%20pipeline%20parity%20presentation.pdf), kept until the automated comparison script (see [ticket 2](../wayfinder/tickets/02-documentation-strategy.md)) reproduces and supersedes its numbers.
 
 ### 5.1 "Sept" → "Sep" month abbreviation
 

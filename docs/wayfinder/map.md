@@ -38,8 +38,8 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
-    T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -47,8 +47,9 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 8"]
+  subgraph DECIDED["Decided · 9"]
     direction TB
+    T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
@@ -63,8 +64,7 @@ flowchart TD
     T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
   end
 
-  T2 --> T6
-  T2 --> T12
+  T2 --> T15
   T3 --> T2
   T3 --> T4
   T3 --> T5
@@ -80,19 +80,20 @@ flowchart TD
   T8 --> T3
   T8 --> T6
   T10 --> T6
-  T10 --> T12
   T11 --> T6
   T12 --> T6
   T13 --> T6
   T13 --> T10
   T14 --> T6
+  T15 --> T6
+  T15 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T11 frontier
+  class T11,T15 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T7,T8,T10,T13,T14 decided
+  class T2,T3,T4,T5,T7,T8,T10,T13,T14 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -309,16 +310,49 @@ against the real files; all 4 now process successfully with 0-row output.
 One regression test added; full suite (490 tests), ruff, `ty check` all
 pass. Full detail: [ticket 14](tickets/14-product-column-detection-failures.md).
 
-**The frontier is now tickets 2 and 11**: [Retire the PDF/notebook analysis
-docs for an automated, script-based report](tickets/02-documentation-strategy.md)
-and [Decide what CLI/TUI UX and error-log observability improvements
-admins/developers need before rollout](tickets/11-cli-ux-observability.md).
-Ticket 12 is still blocked on ticket 2 (its other blocker, ticket 10, is
-closed). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11,
-12, 13, 14]` — tickets 3, 4, 5, 8, 10, 13, 14 are closed; tickets 2, 11, 12
-are what remain. The user has said they intend to keep working this map
-session by session on `migration` until confident enough to roll out, rather
-than promoting early.
+**Ten tickets resolved.** [Retire the PDF/notebook analysis docs for an
+automated, script-based report](tickets/02-documentation-strategy.md) is
+decided (design only, not built): the R baseline is the already-frozen
+`/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/` (dated 2025-11-14, same
+still-unchanged trackers, covers both patient and product) — no R re-run,
+ever. The comparison script (`scripts/compare_outputs.py` + `just
+compare-outputs`, not `a4d.cli`, since it's migration-only tooling that dies
+with R's retirement) is decoupled from pipeline execution — it diffs two
+existing output directories — and runs four layered checks (shape, totals,
+columns, cell-by-cell), with an extensible cause-classifier registry seeded
+from the four causes already known from the parity-presentation PDF, output
+as an HTML report. Docs cleanup done inline: the unrelated dashboarding PDF
+deleted, the parity-presentation PDF kept (holds the real numbers needed to
+validate the new script; removed only once superseded), and
+`PYTHON_IMPROVEMENTS.md`'s dead notebook citation fixed to point at that PDF.
+`test_r_validation.py` was confirmed already gone from pytest (removed in the
+ticket 3/8 merge). Actually building the script and triaging the flagged
+differences (the bulk of the real work — most causes aren't known ahead of
+time) was explicitly deferred, spawning [ticket
+15](tickets/15-build-and-run-comparison-script.md). Full detail: [ticket
+2](tickets/02-documentation-strategy.md).
+
+Closing ticket 2 also required correcting two other tickets whose premises
+assumed R needed to stay live in this repo for ticket 2's work: [ticket
+12](tickets/12-retire-r-workspace.md) is now `blocked_by: [15]` instead of
+`[2, 10]` (retiring `r-archive/` was never going to touch the frozen
+USB-drive baseline, so the real remaining reason to wait is ticket 15's
+investigative work possibly needing one more look at R's behavior, not the
+archive itself), and [ticket 6](tickets/06-promote-migration-to-dev.md)'s
+`blocked_by` swaps `2` for `15`, since the destination's requirement that
+"every Python/R difference [be] documented and explicitly decided" isn't met
+until ticket 15 actually runs the comparison, not just designs it.
+
+**The frontier is now ticket 11 and ticket 15**: [Decide what CLI/TUI UX and
+error-log observability improvements admins/developers need before
+rollout](tickets/11-cli-ux-observability.md) and [Build and run the R/Python
+output comparison script, then triage every flagged
+difference](tickets/15-build-and-run-comparison-script.md). Ticket 12 is
+still blocked, now on ticket 15. Ticket 6 (promote to `dev`) is `blocked_by:
+[8, 3, 4, 5, 10, 11, 12, 13, 14, 15]` — tickets 3, 4, 5, 8, 10, 13, 14 are
+closed; tickets 11, 12, 15 are what remain. The user has said they intend to
+keep working this map session by session on `migration` until confident
+enough to roll out, rather than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
@@ -436,6 +470,24 @@ ticket 12's git-tracked R cleanup.
   instead returning an empty schema-conformant result. Full detail: [ticket
   14](tickets/14-product-column-detection-failures.md).
 
+- [Retire the PDF/notebook analysis docs for an automated, script-based
+  report](tickets/02-documentation-strategy.md) — decided: comparison baseline
+  is the already-frozen `output_r/` on the USB drive (no R re-run needed,
+  ever); the comparison script is decoupled from pipeline execution, runs
+  four layered checks (shape, totals, columns, cell-by-cell) with an
+  extensible cause-classifier registry, outputs an HTML report, and lives at
+  `scripts/` + a `just` recipe (not `a4d.cli`, since it's migration-only
+  tooling). The unrelated dashboarding PDF was deleted; the parity-
+  presentation PDF is kept until the new script supersedes it;
+  `PYTHON_IMPROVEMENTS.md`'s dead notebook citation was fixed.
+  `test_r_validation.py` is already gone from pytest. Building the script and
+  triaging the actual flagged differences was deferred to [ticket
+  15](tickets/15-build-and-run-comparison-script.md), which now also carries
+  the `blocked_by` role ticket 2 used to hold on [ticket
+  6](tickets/06-promote-migration-to-dev.md) and [ticket
+  12](tickets/12-retire-r-workspace.md). Full detail: [ticket
+  2](tickets/02-documentation-strategy.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -518,13 +570,17 @@ flowchart TB
     direction LR
     U14["<b>14</b><br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4<br/>real trackers"]
   end
-  subgraph Sopen["Not yet worked"]
+  subgraph S2026_08_09f["Session 2026-08-09f"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+  end
+  subgraph Sopen["Not yet worked"]
+    direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+    U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -533,7 +589,8 @@ flowchart TB
   S2026_08_09b ~~~ S2026_08_09c
   S2026_08_09c ~~~ S2026_08_09d
   S2026_08_09d ~~~ S2026_08_09e
-  S2026_08_09e ~~~ Sopen
+  S2026_08_09e ~~~ S2026_08_09f
+  S2026_08_09f ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -541,7 +598,6 @@ flowchart TB
   U3 --->|blocked| U5
   U4 --->|blocked| U5
   U8 --->|blocked| U6
-  U2 --->|blocked| U6
   U3 --->|blocked| U6
   U4 --->|blocked| U6
   U5 --->|blocked| U6
@@ -550,6 +606,7 @@ flowchart TB
   U12 --->|blocked| U6
   U13 --->|blocked| U6
   U14 --->|blocked| U6
+  U15 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -558,17 +615,18 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U2 --->|blocked| U12
-  U10 --->|blocked| U12
+  U15 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
+  U2 -.->|spawned| U15
+  U2 --->|blocked| U15
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U11 tfrontier
+  class U11,U15 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8,U10,U13,U14 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U13,U14 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
