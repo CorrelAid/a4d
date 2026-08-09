@@ -89,6 +89,15 @@ def clean_product_data(
     Returns:
         Cleaned product DataFrame.
     """
+    if df_raw.width == 0:
+        # No product section found in any sheet (e.g. pre-product-tracking
+        # tracker years) -- extraction hands back a columnless DataFrame.
+        # The step sequence below assumes at least a "product" column, so
+        # short-circuit to an empty-but-schema-conformant result rather than
+        # letting `apply_schema` synthesize a single all-null row from a
+        # literal with nothing to broadcast against.
+        return pl.DataFrame(schema=get_product_data_schema())
+
     df = _normalize_empty_strings_to_null(df_raw)  # 2.0 (see helper docstring)
     df = _split_multi_product_cells(df)  # 2.1
     df = _switch_misplaced_columns(df)  # 2.3
