@@ -7,6 +7,7 @@ from typing import Annotated
 
 import polars as pl
 import typer
+import typer.core
 from rich.console import Console
 from rich.table import Table
 
@@ -27,9 +28,40 @@ warnings.filterwarnings(
     "ignore", message="As the c extension couldn't be imported", category=RuntimeWarning
 )
 
+
+class _SortedTyperGroup(typer.core.TyperGroup):
+    """Lists subcommands alphabetically instead of Typer's default creation order."""
+
+    def list_commands(self, ctx) -> list[str]:
+        return sorted(super().list_commands(ctx))
+
+
 app = typer.Typer(
-    name="a4d", help="A4D medical tracker data processing pipeline", no_args_is_help=True
+    name="a4d",
+    help="A4D medical tracker data processing pipeline",
+    no_args_is_help=True,
+    cls=_SortedTyperGroup,
 )
+
+# Command groups, named after the process they perform (run / create / upload /
+# download), not the object they act on — `a4d run patient`, not `a4d patient run`.
+# `run_app` uses invoke_without_command so bare `a4d run` (no subcommand) runs the
+# full pipeline, while `a4d run patient` / `a4d run product` run a single arm.
+create_app = typer.Typer(help="Rebuild tables from existing cleaned output.", cls=_SortedTyperGroup)
+download_app = typer.Typer(
+    help="Download pipeline input (trackers, reference data).", cls=_SortedTyperGroup
+)
+run_app = typer.Typer(
+    help="Run the pipeline: full run by default, or a single arm.",
+    invoke_without_command=True,
+    cls=_SortedTyperGroup,
+)
+upload_app = typer.Typer(help="Upload pipeline output (tables, files).", cls=_SortedTyperGroup)
+
+app.add_typer(create_app, name="create")
+app.add_typer(download_app, name="download")
+app.add_typer(run_app, name="run")
+app.add_typer(upload_app, name="upload")
 
 console = Console()
 
@@ -49,8 +81,17 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     tables_table.add_column("Path", style="green")
     tables_table.add_column("Records", justify="right", style="magenta")
 
-    # Add patient tables first, then product, then logs/errors tables
-    for name in ["static", "monthly", "annual", "product_data", "logs", "errors"]:
+    # Add patient tables first, then product, then logs/errors/clinic/metadata
+    for name in [
+        "static",
+        "monthly",
+        "annual",
+        "product_data",
+        "logs",
+        "errors",
+        "clinic_data_static",
+        "tracker_metadata",
+    ]:
         if name in tables:
             path = tables[name]
             try:
@@ -73,8 +114,8 @@ def _render_pipeline_header(
 ) -> None:
     """Render the per-command header banner.
 
-    `extras` carries the run-pipeline-only fields (Project / Dataset / Drive /
-    Download / Upload / Product) so process-patient and process-product can
+    `extras` carries the bare `run`-only fields (Project / Dataset / Drive /
+    Download / Upload / Product) so run patient and run product can
     omit them. All labels are padded to a 13-character column to match the
     pre-refactor output exactly.
     """
@@ -98,7 +139,7 @@ def _render_pipeline_results_summary(
     total_errors: int,
     files_with_errors: int,
 ) -> None:
-    """Render the 7-row Summary table used by process-patient / process-product."""
+    """Render the 7-row Summary table used by run patient / run product."""
     summary_table = Table(title="Summary")
     summary_table.add_column("Metric", style="cyan")
     summary_table.add_column("Value", style="green")
@@ -167,7 +208,7 @@ def _resolve_tracker_files(
 
 
 def _render_combined_run_summary(patient_result, product_result) -> None:
-    """Render a combined patient+product view of a run-pipeline execution.
+    """Render a combined patient+product view of a full `run` execution.
 
     Crosses each tracker file's patient and product outcome (both ok / one
     arm failed / lost entirely) and merges both arms' per-file error counts.
@@ -251,8 +292,8 @@ def _render_failed_trackers(
 ) -> None:
     """Render the failed-trackers section.
 
-    `mode="table"` matches process-patient / process-product (Rich Table,
-    error truncated). `mode="bullets"` matches run-pipeline (bullet list,
+    `mode="table"` matches run patient / run product (Rich Table,
+    error truncated). `mode="bullets"` matches `run` (bullet list,
     full error). `truncate` is ignored in bullets mode.
     """
     if result.failed_trackers <= 0:
@@ -277,8 +318,8 @@ def _render_failed_trackers(
         console.print()
 
 
-@app.command("process-patient")
-def process_patient_cmd(
+@run_app.command("patient")
+def run_patient_cmd(
     file: Annotated[
         Path | None,
         typer.Option(
@@ -338,25 +379,25 @@ def process_patient_cmd(
 
     Examples:
         # Process all trackers in data_root (from config)
-        uv run a4d process-patient
+        uv run a4d run patient
 
         # Process all trackers in a specific directory
-        uv run a4d process-patient --data-root /path/to/trackers
+        uv run a4d run patient --data-root /path/to/trackers
 
         # Process specific file
-        uv run a4d process-patient --file /path/to/tracker.xlsx
+        uv run a4d run patient --file /path/to/tracker.xlsx
 
         # Parallel processing with 8 workers
-        uv run a4d process-patient --workers 8
+        uv run a4d run patient --workers 8
 
         # Just extract + clean, skip tables
-        uv run a4d process-patient --skip-tables
+        uv run a4d run patient --skip-tables
 
         # Skip trackers whose MD5 matches the previous run's manifest
-        uv run a4d process-patient --incremental
+        uv run a4d run patient --incremental
 
         # Explicitly wipe outputs and reprocess everything
-        uv run a4d process-patient --force
+        uv run a4d run patient --force
     """
     from a4d.config import settings as _settings
 
@@ -509,22 +550,22 @@ def process_patient_cmd(
         raise typer.Exit(1)
 
 
-@app.command("create-tables")
+@create_app.command("tables")
 def create_tables_cmd(
-    input_dir: Annotated[
-        Path, typer.Option("--input", "-i", help="Directory containing cleaned parquet files")
-    ],
-    output_dir: Annotated[
+    output_root: Annotated[
         Path | None,
         typer.Option(
-            "--output", "-o", help="Output directory for tables (default: input_dir/tables)"
+            "--output", "-o", help="Pipeline output root directory (default: from config)"
         ),
     ] = None,
 ):
-    """Create final tables from existing cleaned parquet files.
+    """Rebuild all tables from existing cleaned output, without re-running extract/clean.
 
-    This command creates the patient tables (static, monthly, annual) and logs table
-    from existing cleaned parquet files, without running the full pipeline.
+    Reads whichever of `patient_data_cleaned/`, `product_data_cleaned/`, and
+    `logs/` exist under the output root and rebuilds the corresponding
+    tables (patient static/monthly/annual, product, logs), plus the clinic
+    static table and tracker metadata table. At least one of the patient or
+    product cleaned directories must exist.
 
     Useful for:
     - Re-creating tables after fixing table creation logic
@@ -533,65 +574,76 @@ def create_tables_cmd(
 
     \\b
     Examples:
-        # Create tables from existing output
-        uv run a4d create-tables --input output/patient_data_cleaned
+        # Rebuild tables from the default output root (from config)
+        uv run a4d create tables
 
-        # Specify custom output directory
-        uv run a4d create-tables --input output/patient_data_cleaned --output custom_tables
+        # Rebuild from a specific output root
+        uv run a4d create tables --output /path/to/output
     """
+    from a4d.config import settings as _settings
+    from a4d.tables.clinic import create_table_clinic_static
+    from a4d.tables.metadata import create_table_tracker_metadata
+
     console.print("\n[bold blue]A4D Table Creation[/bold blue]\n")
 
-    # Determine output directory
-    if output_dir is None:
-        output_dir = input_dir.parent / "tables"
+    _output_root = output_root or _settings.output_root
+    patient_cleaned_dir = _output_root / "patient_data_cleaned"
+    product_cleaned_dir = _output_root / "product_data_cleaned"
+    logs_dir = _output_root / "logs"
+    tables_dir = _output_root / "tables"
 
-    console.print(f"Input directory: {input_dir}")
-    console.print(f"Output directory: {output_dir}\n")
+    console.print(f"Output root: {_output_root}")
+    console.print(f"Tables directory: {tables_dir}\n")
 
-    # Find cleaned parquet files
-    cleaned_files = list(input_dir.glob("*_patient_cleaned.parquet"))
-    if not cleaned_files:
+    if not patient_cleaned_dir.exists() and not product_cleaned_dir.exists():
         console.print(
-            f"[bold red]Error: No cleaned parquet files found in {input_dir}[/bold red]\n"
+            f"[bold red]Error: Neither {patient_cleaned_dir} nor {product_cleaned_dir} "
+            "exists — nothing to build tables from[/bold red]\n"
         )
         raise typer.Exit(1)
 
-    console.print(f"Found {len(cleaned_files)} cleaned parquet files\n")
-
     try:
-        from a4d.config import settings
-        from a4d.tables.clinic import create_table_clinic_static
-        from a4d.tables.metadata import create_table_tracker_metadata
+        tables: dict[str, Path] = {}
 
-        console.print("[bold]Creating tables...[/bold]")
+        if patient_cleaned_dir.exists():
+            console.print("  • Creating patient tables...")
+            tables.update(process_patient_tables(patient_cleaned_dir, tables_dir))
+        else:
+            console.print(
+                f"  [yellow]Warning: {patient_cleaned_dir} not found, "
+                "skipping patient tables[/yellow]"
+            )
 
-        # Create patient tables
-        tables = process_patient_tables(input_dir, output_dir)
+        if product_cleaned_dir.exists():
+            console.print("  • Creating product table...")
+            tables.update(process_product_tables(product_cleaned_dir, tables_dir))
+        else:
+            console.print(
+                f"  [yellow]Warning: {product_cleaned_dir} not found, "
+                "skipping product table[/yellow]"
+            )
 
-        # Create logs table separately (operational data)
-        logs_dir = input_dir.parent / "logs"
         if logs_dir.exists():
             console.print("  • Creating logs table...")
-            logs_table_path = create_table_logs(logs_dir, output_dir)
-            tables["logs"] = logs_table_path
+            tables["logs"] = create_table_logs(logs_dir, tables_dir)
         else:
             console.print(f"  [yellow]Warning: Logs directory not found at {logs_dir}[/yellow]")
 
         # Create clinic static table (reads reference_data/clinic_data.xlsx)
         console.print("  • Creating clinic static table...")
-        clinic_table_path = create_table_clinic_static(output_dir)
-        tables["clinic_data_static"] = clinic_table_path
+        tables["clinic_data_static"] = create_table_clinic_static(tables_dir)
 
         # Create tracker metadata table (MD5 + per-tracker output presence).
         # Skipped if settings.data_root is unreachable — the table needs the
-        # raw .xlsx files, which create-tables doesn't otherwise require.
-        if settings.data_root.exists():
+        # raw .xlsx files, which create tables doesn't otherwise require.
+        if _settings.data_root.exists():
             console.print("  • Creating tracker metadata table...")
-            metadata_path = create_table_tracker_metadata(settings.data_root, input_dir.parent)
-            tables["tracker_metadata"] = metadata_path
+            tables["tracker_metadata"] = create_table_tracker_metadata(
+                _settings.data_root, _output_root
+            )
         else:
             console.print(
-                f"  [yellow]Warning: data_root {settings.data_root} not found, "
+                f"  [yellow]Warning: data_root {_settings.data_root} not found, "
                 "skipping tracker metadata[/yellow]"
             )
 
@@ -604,8 +656,48 @@ def create_tables_cmd(
         raise typer.Exit(1) from e
 
 
-@app.command("process-product")
-def process_product_cmd(
+@create_app.command("logs")
+def create_logs_cmd(
+    output_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Pipeline output root directory (default: from config)"
+        ),
+    ] = None,
+):
+    """Rebuild only the logs table from existing pipeline log files.
+
+    Faster than `create tables` when only the logs table is needed — e.g.
+    iterating on a log-analysis tool without rebuilding patient/product
+    tables too.
+
+    \\b
+    Examples:
+        uv run a4d create logs
+        uv run a4d create logs --output /path/to/output
+    """
+    from a4d.config import settings as _settings
+
+    console.print("\n[bold blue]A4D Logs Table Creation[/bold blue]\n")
+
+    _output_root = output_root or _settings.output_root
+    logs_dir = _output_root / "logs"
+    tables_dir = _output_root / "tables"
+
+    if not logs_dir.exists():
+        console.print(f"[bold red]Error: Logs directory not found: {logs_dir}[/bold red]\n")
+        raise typer.Exit(1)
+
+    try:
+        logs_table_path = create_table_logs(logs_dir, tables_dir)
+        console.print(f"[bold green]✓ Logs table created: {logs_table_path}[/bold green]\n")
+    except Exception as e:
+        console.print(f"\n[bold red]Error creating logs table: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+
+@run_app.command("product")
+def run_product_cmd(
     file: Annotated[
         Path | None,
         typer.Option(
@@ -665,22 +757,22 @@ def process_product_cmd(
 
     Examples:
         # Process all trackers in data_root (from config)
-        uv run a4d process-product
+        uv run a4d run product
 
         # Process specific file
-        uv run a4d process-product --file /path/to/tracker.xlsx
+        uv run a4d run product --file /path/to/tracker.xlsx
 
         # Parallel processing with 8 workers
-        uv run a4d process-product --workers 8
+        uv run a4d run product --workers 8
 
         # Just extract + clean, skip tables
-        uv run a4d process-product --skip-tables
+        uv run a4d run product --skip-tables
 
         # Skip trackers whose MD5 matches the previous run's manifest
-        uv run a4d process-product --incremental
+        uv run a4d run product --incremental
 
         # Explicitly wipe outputs and reprocess everything
-        uv run a4d process-product --force
+        uv run a4d run product --force
     """
     from a4d.config import settings as _settings
 
@@ -780,59 +872,7 @@ def process_product_cmd(
         raise typer.Exit(1)
 
 
-@app.command("create-product-tables")
-def create_product_tables_cmd(
-    input_dir: Annotated[
-        Path,
-        typer.Option("--input", "-i", help="Directory containing cleaned product parquet files"),
-    ],
-    output_dir: Annotated[
-        Path | None,
-        typer.Option(
-            "--output", "-o", help="Output directory for tables (default: input_dir/tables)"
-        ),
-    ] = None,
-):
-    """Create the product table from existing cleaned parquet files.
-
-    \b
-    Examples:
-        # Create table from existing output
-        uv run a4d create-product-tables --input output/product_data_cleaned
-
-        # Specify custom output directory
-        uv run a4d create-product-tables --input output/product_data_cleaned --output custom_tables
-    """
-    console.print("\n[bold blue]A4D Product Table Creation[/bold blue]\n")
-
-    if output_dir is None:
-        output_dir = input_dir.parent / "tables"
-
-    console.print(f"Input directory: {input_dir}")
-    console.print(f"Output directory: {output_dir}\n")
-
-    cleaned_files = list(input_dir.glob("*_product_cleaned.parquet"))
-    if not cleaned_files:
-        console.print(
-            f"[bold red]Error: No cleaned product parquet files found in {input_dir}[/bold red]\n"
-        )
-        raise typer.Exit(1)
-
-    console.print(f"Found {len(cleaned_files)} cleaned product parquet files\n")
-
-    try:
-        console.print("[bold]Creating product table...[/bold]")
-        tables = process_product_tables(input_dir, output_dir)
-
-        console.print("\n[bold green]✓ Product table created successfully![/bold green]")
-        _display_tables_summary(tables)
-
-    except Exception as e:
-        console.print(f"\n[bold red]Error creating product table: {e}[/bold red]\n")
-        raise typer.Exit(1) from e
-
-
-@app.command("upload-tables")
+@upload_app.command("tables")
 def upload_tables_cmd(
     tables_dir: Annotated[
         Path,
@@ -850,6 +890,14 @@ def upload_tables_cmd(
         bool,
         typer.Option("--append", help="Append to existing tables instead of replacing"),
     ] = False,
+    only: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--only",
+            help="Restrict upload to a table group: patient, product, clinic, logs, "
+            "errors, metadata. Repeatable; default uploads all groups.",
+        ),
+    ] = None,
 ):
     """Upload pipeline output tables to BigQuery.
 
@@ -860,15 +908,18 @@ def upload_tables_cmd(
     \b
     Examples:
         # Upload tables from default output directory
-        uv run a4d upload-tables --tables-dir output/tables
+        uv run a4d upload tables --tables-dir output/tables
 
         # Upload to a specific dataset
-        uv run a4d upload-tables --tables-dir output/tables --dataset tracker_dev
+        uv run a4d upload tables --tables-dir output/tables --dataset tracker_dev
 
         # Append instead of replace
-        uv run a4d upload-tables --tables-dir output/tables --append
+        uv run a4d upload tables --tables-dir output/tables --append
+
+        # Only upload the patient tables
+        uv run a4d upload tables --tables-dir output/tables --only patient
     """
-    from a4d.gcp.bigquery import load_pipeline_tables
+    from a4d.gcp.bigquery import TABLE_GROUPS, load_pipeline_tables
 
     console.print("\n[bold blue]A4D BigQuery Upload[/bold blue]\n")
     console.print(f"Tables directory: {tables_dir}")
@@ -877,12 +928,25 @@ def upload_tables_cmd(
         console.print(f"[bold red]Error: Directory not found: {tables_dir}[/bold red]\n")
         raise typer.Exit(1)
 
+    only_tables: set[str] | None = None
+    if only:
+        invalid = sorted(set(only) - set(TABLE_GROUPS))
+        if invalid:
+            console.print(
+                f"[bold red]Error: unknown --only group(s): {', '.join(invalid)} "
+                f"(valid: {', '.join(sorted(TABLE_GROUPS))})[/bold red]\n"
+            )
+            raise typer.Exit(1)
+        only_tables = set().union(*(TABLE_GROUPS[group] for group in only))
+        console.print(f"Restricting to: {', '.join(sorted(only))}")
+
     try:
         results = load_pipeline_tables(
             tables_dir=tables_dir,
             dataset=dataset,
             project_id=project_id,
             replace=not append,
+            only_tables=only_tables,
         )
 
         if results:
@@ -910,7 +974,7 @@ def upload_tables_cmd(
         raise typer.Exit(1) from e
 
 
-@app.command("download-trackers")
+@download_app.command("trackers")
 def download_trackers_cmd(
     destination: Annotated[
         Path,
@@ -926,10 +990,10 @@ def download_trackers_cmd(
     \b
     Examples:
         # Download to local directory
-        uv run a4d download-trackers --destination /data/trackers
+        uv run a4d download trackers --destination /data/trackers
 
         # Download from specific bucket
-        uv run a4d download-trackers --destination /data/trackers --bucket my-bucket
+        uv run a4d download trackers --destination /data/trackers --bucket my-bucket
     """
     from a4d.gcp.storage import download_tracker_files
 
@@ -944,7 +1008,7 @@ def download_trackers_cmd(
         raise typer.Exit(1) from e
 
 
-@app.command("upload-output")
+@upload_app.command("output")
 def upload_output_cmd(
     source_dir: Annotated[
         Path,
@@ -964,10 +1028,10 @@ def upload_output_cmd(
     \b
     Examples:
         # Upload output directory
-        uv run a4d upload-output --source output/
+        uv run a4d upload output --source output/
 
         # Upload with prefix
-        uv run a4d upload-output --source output/ --prefix 2024-01
+        uv run a4d upload output --source output/ --prefix 2024-01
     """
     from a4d.gcp.storage import upload_output
 
@@ -986,8 +1050,8 @@ def upload_output_cmd(
         raise typer.Exit(1) from e
 
 
-@app.command("download-reference-data")
-def download_reference_data_cmd() -> None:
+@download_app.command("clinic-data")
+def download_clinic_data_cmd() -> None:
     """Download reference data files from Google Drive.
 
     Downloads clinic_data.xlsx from Google Drive into the reference_data/
@@ -1015,8 +1079,9 @@ def download_reference_data_cmd() -> None:
         raise typer.Exit(1) from e
 
 
-@app.command("run-pipeline")
-def run_pipeline_cmd(
+@run_app.callback(invoke_without_command=True)
+def run_all_cmd(
+    ctx: typer.Context,
     workers: Annotated[
         int | None,
         typer.Option(
@@ -1069,16 +1134,16 @@ def run_pipeline_cmd(
             "--force",
             help=(
                 "Wipe prior local outputs (raw, cleaned, tables) before each "
-                "pipeline arm runs. Without this flag, run-pipeline reuses any "
+                "pipeline arm runs. Without this flag, `run` reuses any "
                 "existing per-tracker parquets on disk. Overrides --incremental "
                 "if both are passed."
             ),
         ),
     ] = False,
 ):
-    """Run the full end-to-end A4D pipeline.
+    """Run the full end-to-end A4D pipeline (default), or a single arm.
 
-    Executes all pipeline stages in sequence:
+    Bare `a4d run` executes all pipeline stages in sequence:
       0. Download reference data (clinic_data.xlsx) from Google Drive
       1. Download tracker files from Google Cloud Storage
       2. Extract and clean all tracker files
@@ -1086,25 +1151,31 @@ def run_pipeline_cmd(
       4. Upload output files to Google Cloud Storage
       5. Ingest tables into BigQuery
 
+    Use `a4d run patient` or `a4d run product` to run a single arm locally
+    without any of the GCS/Drive/BigQuery steps.
+
     All configuration is read from environment variables (A4D_*) or a .env file.
 
     \b
     Examples:
         # Full pipeline (download + process + upload)
-        uv run a4d run-pipeline
+        uv run a4d run
 
         # Download latest files, process locally, skip upload
-        uv run a4d run-pipeline --skip-upload
+        uv run a4d run --skip-upload
 
         # Process local files only, no download or upload
-        uv run a4d run-pipeline --skip-download --skip-upload
+        uv run a4d run --skip-download --skip-upload
 
         # Skip Drive download if clinic_data.xlsx is already current
-        uv run a4d run-pipeline --skip-drive-download
+        uv run a4d run --skip-drive-download
 
         # Wipe prior outputs before each arm runs
-        uv run a4d run-pipeline --force
+        uv run a4d run --force
     """
+    if ctx.invoked_subcommand is not None:
+        return
+
     from a4d.config import settings
     from a4d.gcp.bigquery import load_pipeline_tables
     from a4d.gcp.drive import download_clinic_data
@@ -1187,12 +1258,12 @@ def run_pipeline_cmd(
 
     # Step 2+3 – Extract, clean and build tables.
     # clean_output wiring is `force` here, not `force or not incremental` like
-    # process-patient/process-product. Reason: run-pipeline's historical default
+    # run patient/run product. Reason: the bare `run`'s historical default
     # (on `migration` and on this branch pre-change) was preserve-outputs — it
     # never passed clean_output, inheriting the orchestrator's False default.
     # --force on `migration` was a vestigial no-op (declared, plumbed, never
     # read). With --force now actually wired through, opting in wipes both arms;
-    # without it, run-pipeline keeps its prior preserve-outputs contract.
+    # without it, `run` keeps its prior preserve-outputs contract.
     result = None
     product_result = None
     if not skip_patient:
@@ -1252,7 +1323,7 @@ def run_pipeline_cmd(
     if not skip_product:
         console.print("[bold]Step 3c/5:[/bold] Running product pipeline...\n")
         # Drop any stale product table from a prior run before re-running.
-        # Without --force, run-pipeline preserves outputs (clean_output=False),
+        # Without --force, `run` preserves outputs (clean_output=False),
         # so a crash mid-product would otherwise leave the previous run's
         # parquet for upload. With --force the orchestrator wipes anyway, so
         # this unlink is redundant in that case but harmless.

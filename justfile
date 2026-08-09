@@ -88,35 +88,31 @@ hooks-run:
 
 # Process a single patient tracker file (no GCS)
 run-file FILE:
-    uv run a4d process-patient --file "{{FILE}}"
+    uv run a4d run patient --file "{{FILE}}"
 
 # Process a single product tracker file (no GCS); ad-hoc/debug only — use `just run` for full runs
 run-file-product FILE:
-    uv run a4d process-product --file "{{FILE}}"
+    uv run a4d run product --file "{{FILE}}"
 
 # Process local patient files only, no GCS (paths with spaces: use --file recipes instead)
 run-local *ARGS:
-    uv run a4d process-patient {{ARGS}}
+    uv run a4d run patient {{ARGS}}
 
 # Process local product files only, no GCS; ad-hoc/debug only — use `just run` for full runs
 run-local-product *ARGS:
-    uv run a4d process-product {{ARGS}}
+    uv run a4d run product {{ARGS}}
 
-# Create patient tables from existing cleaned parquet files
-create-tables INPUT:
-    uv run a4d create-tables --input "{{INPUT}}"
-
-# Create product tables from existing cleaned parquet files
-create-product-tables INPUT:
-    uv run a4d create-product-tables --input "{{INPUT}}"
+# Rebuild patient+product+clinic+logs tables from existing cleaned output
+create-tables *ARGS:
+    uv run a4d create tables {{ARGS}}
 
 # Download from GCS, process locally, no upload
 run-download *ARGS:
-    uv run a4d run-pipeline --skip-upload {{ARGS}}
+    uv run a4d run --skip-upload {{ARGS}}
 
 # Full pipeline: download from GCS, process, upload to GCS + BigQuery
 run *ARGS:
-    uv run a4d run-pipeline {{ARGS}}
+    uv run a4d run {{ARGS}}
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 

@@ -64,23 +64,23 @@ Reference for the A4D pipeline migration from R to Python.
 Excel Trackers (GCS)
        |
        v
-download-trackers          # GCS → local data_root/
+download trackers          # GCS → local data_root/
        |
        v
-process-patient            # For each tracker (parallel):
+run patient                # For each tracker (parallel):
   ├─ extract/patient.py    #   Excel → patient_data_raw/*.parquet
   └─ clean/patient.py      #   raw → patient_data_cleaned/*.parquet
        |
        v
-create-tables              # All cleaned parquets →
+create tables               # All cleaned parquets →
   ├─ tables/patient.py     #   tables/static.parquet
   |                        #   tables/monthly.parquet
   |                        #   tables/annual.parquet
   └─ tables/logs.py        #   tables/logs.parquet
        |
        v
-upload-output              # local output/ → GCS
-upload-tables              # tables/*.parquet → BigQuery
+upload output               # local output/ → GCS
+upload tables                # tables/*.parquet → BigQuery
 ```
 
 ### Module Structure
@@ -123,7 +123,7 @@ src/a4d/
 ├── config.py              # Pydantic settings from A4D_* env vars
 ├── logging.py             # loguru setup
 ├── errors.py              # Shared error types
-└── cli.py                 # Typer CLI (patient + product commands, run-pipeline)
+└── cli.py                 # Typer CLI (run/create/upload/download command groups)
 ```
 
 ### State Management (Incremental Processing)
@@ -139,8 +139,8 @@ src/a4d/
 ```
 
 Wired up via the `a4d.state` module ([src/a4d/state/](../../src/a4d/state/)) and exposed
-through the `--incremental` CLI flag on `process-patient`, `process-product`, and
-`run-pipeline`. Source precedence is BigQuery → local
+through the `--incremental` CLI flag on `run patient`, `run product`, and the
+bare `run`. Source precedence is BigQuery → local
 `output_root/tables/tracker_metadata.parquet` → empty manifest, so local devs
 without `gcloud auth` get the local-parquet fallback automatically.
 

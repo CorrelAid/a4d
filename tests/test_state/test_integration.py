@@ -37,7 +37,7 @@ def fake_pipeline_run(tmp_path: Path):
         for stem in ("2024_T1_Tracker", "2024_T2_Tracker"):
             (output_root / subdir / f"{stem}_dummy.parquet").write_bytes(b"")
 
-    # Publish the manifest — same call the run-pipeline CLI makes at end of run.
+    # Publish the manifest — same call the `run` CLI command makes at end of run.
     create_table_tracker_metadata(data_root, output_root)
 
     return {"data_root": data_root, "output_root": output_root, "t1": t1, "t2": t2}
