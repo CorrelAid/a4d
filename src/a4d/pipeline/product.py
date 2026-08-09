@@ -130,8 +130,6 @@ def run_product_pipeline(
 
             if result.success:
                 logger.info(f"✓ Successfully processed: {tracker_file.name}")
-                if show_progress:
-                    tqdm.write(f"✓ {tracker_file.name}")
             else:
                 logger.error(f"✗ Failed to process: {tracker_file.name} - {result.error}")
                 if show_progress:
@@ -172,8 +170,6 @@ def run_product_pipeline(
 
                     if result.success:
                         logger.info(f"✓ Completed: {tracker_file.name}")
-                        if show_progress:
-                            tqdm.write(f"✓ {tracker_file.name}")
                     else:
                         logger.error(f"✗ Failed: {tracker_file.name} - {result.error}")
                         if show_progress:

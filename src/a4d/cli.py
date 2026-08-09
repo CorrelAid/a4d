@@ -155,6 +155,64 @@ def _render_pipeline_results_summary(
     console.print(summary_table)
 
 
+def _render_error_type_breakdown(result, total_errors: int) -> None:
+    """Render the per-error-type frequency table used by run patient / run product.
+
+    No-op when there are no errors.
+    """
+    if total_errors <= 0:
+        return
+
+    console.print("\n[bold yellow]Error Type Breakdown:[/bold yellow]")
+
+    error_type_totals: dict[str, int] = {}
+    for tr in result.tracker_results:
+        if tr.error_breakdown:
+            for error_type, count in tr.error_breakdown.items():
+                error_type_totals[error_type] = error_type_totals.get(error_type, 0) + count
+
+    error_type_table = Table()
+    error_type_table.add_column("Error Type", style="yellow")
+    error_type_table.add_column("Count", justify="right", style="red")
+    error_type_table.add_column("Percentage", justify="right", style="cyan")
+
+    sorted_error_types = sorted(error_type_totals.items(), key=lambda x: x[1], reverse=True)
+    for error_type, count in sorted_error_types:
+        percentage = (count / total_errors) * 100
+        error_type_table.add_row(error_type, f"{count:,}", f"{percentage:.1f}%")
+
+    console.print(error_type_table)
+
+
+def _render_top_files_by_error(result, total_errors: int) -> None:
+    """Render the top-10-files-by-error-count table used by run patient / run product.
+
+    No-op when there are no errors.
+    """
+    if total_errors <= 0:
+        return
+
+    console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
+
+    files_by_errors = sorted(
+        [
+            (tr.tracker_file.name, tr.cleaning_errors)
+            for tr in result.tracker_results
+            if tr.cleaning_errors > 0
+        ],
+        key=lambda x: x[1],
+        reverse=True,
+    )[:10]
+
+    errors_table = Table()
+    errors_table.add_column("File", style="yellow")
+    errors_table.add_column("Errors", justify="right", style="red")
+    for filename, error_count in files_by_errors:
+        errors_table.add_row(filename, f"{error_count:,}")
+
+    console.print(errors_table)
+
+
 def _resolve_tracker_files(
     file: Path | None,
     data_root_arg: Path | None,
@@ -563,57 +621,9 @@ def run_patient_cmd(
     files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
 
     _render_pipeline_results_summary(result, tables, total_errors, files_with_errors)
-
-    # Show error type breakdown if there are errors
-    if total_errors > 0:
-        console.print("\n[bold yellow]Error Type Breakdown:[/bold yellow]")
-
-        # Aggregate error types across all trackers
-        error_type_totals: dict[str, int] = {}
-        for tr in result.tracker_results:
-            if tr.error_breakdown:
-                for error_type, count in tr.error_breakdown.items():
-                    error_type_totals[error_type] = error_type_totals.get(error_type, 0) + count
-
-        # Create frequency table
-        error_type_table = Table()
-        error_type_table.add_column("Error Type", style="yellow")
-        error_type_table.add_column("Count", justify="right", style="red")
-        error_type_table.add_column("Percentage", justify="right", style="cyan")
-
-        # Sort by count (descending)
-        sorted_error_types = sorted(error_type_totals.items(), key=lambda x: x[1], reverse=True)
-
-        for error_type, count in sorted_error_types:
-            percentage = (count / total_errors) * 100
-            error_type_table.add_row(error_type, f"{count:,}", f"{percentage:.1f}%")
-
-        console.print(error_type_table)
-
+    _render_error_type_breakdown(result, total_errors)
     _render_failed_trackers(result, mode="table")
-
-    # Show top files with most data quality errors (if any)
-    if total_errors > 0:
-        console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
-        # Sort by error count (descending) and take top 10
-        files_by_errors = sorted(
-            [
-                (tr.tracker_file.name, tr.cleaning_errors)
-                for tr in result.tracker_results
-                if tr.cleaning_errors > 0
-            ],
-            key=lambda x: x[1],
-            reverse=True,
-        )[:10]
-
-        errors_table = Table()
-        errors_table.add_column("File", style="yellow")
-        errors_table.add_column("Errors", justify="right", style="red")
-
-        for filename, error_count in files_by_errors:
-            errors_table.add_row(filename, f"{error_count:,}")
-
-        console.print(errors_table)
+    _render_top_files_by_error(result, total_errors)
 
     # Show created tables
     _display_tables_summary(tables)
@@ -935,8 +945,9 @@ def run_product_cmd(
     files_with_errors = sum(1 for tr in result.tracker_results if tr.cleaning_errors > 0)
 
     _render_pipeline_results_summary(result, tables, total_errors, files_with_errors)
-
+    _render_error_type_breakdown(result, total_errors)
     _render_failed_trackers(result, mode="table")
+    _render_top_files_by_error(result, total_errors)
 
     _display_tables_summary(tables)
 
