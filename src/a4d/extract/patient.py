@@ -49,9 +49,14 @@ def find_data_start_row(ws) -> int:
     Raises:
         ValueError: If no numeric data is found in column A
     """
+    # Sequential iter_rows scan, not repeated ws.cell() calls: on a read-only
+    # worksheet each ws.cell() re-parses the sheet's XML from row 1, making a
+    # per-row loop O(n^2) in the row count before data starts.
     max_row = ws.max_row or 1000
-    for row_idx in range(1, max_row + 1):
-        cell_value = ws.cell(row_idx, 1).value
+    for row_idx, (cell_value,) in enumerate(
+        ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=1, values_only=True),
+        start=1,
+    ):
         if cell_value is not None and isinstance(cell_value, (int, float)):
             return row_idx
 

@@ -118,6 +118,42 @@ class TestFindDataStartRow:
 
         wb.close()
 
+    def test_scans_read_only_worksheet_in_one_pass(self, tmp_path):
+        """Must not re-parse the sheet's XML on every row (O(n^2) on read-only sheets).
+
+        ReadOnlyWorksheet.cell() re-parses from row 1 on every call, so a
+        per-row .cell() loop is quadratic in the row count before data starts.
+        Asserts _cells_by_row (the underlying XML scan) runs at most once,
+        which only a single iter_rows() pass over column A can achieve.
+        """
+        from unittest.mock import patch
+
+        from openpyxl import Workbook, load_workbook
+        from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+
+        path = tmp_path / "dense.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        for row in range(1, 200):
+            for col in range(1, 40):
+                ws.cell(row, col, value=f"text{row}_{col}")
+        ws["A200"] = 1
+        wb.save(path)
+        wb.close()
+
+        wb2 = load_workbook(path, read_only=True)
+        ws2 = wb2.active
+
+        with patch.object(
+            ReadOnlyWorksheet, "_cells_by_row", wraps=ws2._cells_by_row
+        ) as spy:
+            result = find_data_start_row(ws2)
+
+        assert result == 200
+        assert spy.call_count == 1
+
+        wb2.close()
+
 
 class TestReadHeaderRows:
     """Tests for read_header_rows() function."""
