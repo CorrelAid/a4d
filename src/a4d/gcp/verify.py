@@ -24,7 +24,7 @@ ROW_COUNT_DROP_THRESHOLD = 0.10
 @dataclass(frozen=True)
 class TableStats:
     row_count: int
-    distinct_clinics: int
+    distinct_clinics: int | None
     columns: frozenset[str]
 
 
@@ -62,7 +62,11 @@ def diff_table_stats(
                     )
                 )
 
-        if after_stats.distinct_clinics < before_stats.distinct_clinics:
+        if (
+            before_stats.distinct_clinics is not None
+            and after_stats.distinct_clinics is not None
+            and after_stats.distinct_clinics < before_stats.distinct_clinics
+        ):
             anomalies.append(
                 TableAnomaly(
                     table,
@@ -86,13 +90,19 @@ def fetch_table_stats(
 
     table = client.get_table(table_ref)
     columns = frozenset(field.name for field in table.schema)
+    has_clinic_id = "clinic_id" in columns
 
-    query = (
-        f"SELECT COUNT(*) AS row_count, COUNT(DISTINCT clinic_id) AS distinct_clinics "
-        f"FROM `{table_ref}`"
-    )
+    if has_clinic_id:
+        query = (
+            f"SELECT COUNT(*) AS row_count, COUNT(DISTINCT clinic_id) AS distinct_clinics "
+            f"FROM `{table_ref}`"
+        )
+    else:
+        query = f"SELECT COUNT(*) AS row_count FROM `{table_ref}`"
     row = next(iter(client.query(query).result()))
 
     return TableStats(
-        row_count=row.row_count, distinct_clinics=row.distinct_clinics, columns=columns
+        row_count=row.row_count,
+        distinct_clinics=row.distinct_clinics if has_clinic_id else None,
+        columns=columns,
     )
