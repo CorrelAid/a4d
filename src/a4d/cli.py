@@ -225,7 +225,7 @@ def _render_combined_run_summary(patient_result, product_result) -> None:
 
     both_ok = patient_only_failed = product_only_failed = both_failed = 0
     attention_rows: list[tuple[str, str, str]] = []
-    error_counts: dict[str, int] = {}
+    error_counts: dict[str, tuple[int, int]] = {}
 
     for name in all_names:
         p = patient_by_name.get(name)
@@ -246,9 +246,10 @@ def _render_combined_run_summary(patient_result, product_result) -> None:
             else:
                 product_only_failed += 1
 
-        file_errors = (p.cleaning_errors if p else 0) + (q.cleaning_errors if q else 0)
-        if file_errors:
-            error_counts[name] = file_errors
+        patient_errors = p.cleaning_errors if p else 0
+        product_errors = q.cleaning_errors if q else 0
+        if patient_errors or product_errors:
+            error_counts[name] = (patient_errors, product_errors)
 
     console.print("\n[bold blue]Combined Run Summary[/bold blue]")
     summary_table = Table()
@@ -271,14 +272,20 @@ def _render_combined_run_summary(patient_result, product_result) -> None:
         console.print(detail_table)
 
     if error_counts:
-        console.print(
-            "\n[bold yellow]Top Files by Error Count (patient + product combined):[/bold yellow]"
-        )
+        console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
         top_table = Table()
         top_table.add_column("File", style="cyan")
-        top_table.add_column("Errors", justify="right", style="magenta")
-        for name, count in sorted(error_counts.items(), key=lambda kv: -kv[1])[:20]:
-            top_table.add_row(name, str(count))
+        top_table.add_column("Patient", justify="right", style="green")
+        top_table.add_column("Product", justify="right", style="yellow")
+        top_table.add_column("Total", justify="right", style="magenta")
+        ranked = sorted(error_counts.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
+        for name, (patient_errors, product_errors) in ranked[:20]:
+            top_table.add_row(
+                name,
+                str(patient_errors),
+                str(product_errors),
+                str(patient_errors + product_errors),
+            )
         console.print(top_table)
 
 
@@ -1360,8 +1367,6 @@ def run_all_cmd(
     else:
         console.print("[bold]Step 3c/5:[/bold] Skipping product pipeline (--skip-product)\n")
 
-    _render_combined_run_summary(result, product_result)
-
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.
     if settings.data_root.exists():
@@ -1375,18 +1380,23 @@ def run_all_cmd(
             console.print(f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n")
 
     # Step 3e – Product-patient link validation (logging-only, post-tables).
+    # Joins against patient_data_monthly (one row per patient per tracker
+    # file/month), matching R's run_script_3_create_tables.R — NOT
+    # patient_data_static, which collapses each patient to a single latest
+    # record and therefore only covers each patient's most recent file. That
+    # mismatch alone previously produced an 88% false-positive mismatch rate.
     # Skips silently if either arm's table is missing (e.g. --skip-product), or
-    # when --skip-patient leaves a stale patient_data_static.parquet on disk
+    # when --skip-patient leaves a stale patient_data_monthly.parquet on disk
     # whose contents don't match this run's product output.
     product_table = tables_dir / "product_data.parquet"
-    patient_static = tables_dir / "patient_data_static.parquet"
-    if not skip_patient and product_table.exists() and patient_static.exists():
+    patient_monthly = tables_dir / "patient_data_monthly.parquet"
+    if not skip_patient and product_table.exists() and patient_monthly.exists():
         console.print("[bold]Step 3e/5:[/bold] Validating product-patient links...")
         try:
             from a4d.tables.product import link_product_patient
 
             product_df = pl.read_parquet(product_table)
-            mismatched = link_product_patient(product_df, patient_static)
+            mismatched = link_product_patient(product_df, patient_monthly)
             console.print(f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n")
         except Exception as e:
             console.print(f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n")
@@ -1423,6 +1433,11 @@ def run_all_cmd(
             raise typer.Exit(1) from e
     else:
         console.print("[bold]Step 5/5:[/bold] Skipping BigQuery upload (--skip-upload)\n")
+
+    # Rendered last, deliberately: earlier steps (tracker metadata, product-
+    # patient link validation, uploads) print their own progress/warning
+    # lines, which buried this summary when it ran mid-pipeline.
+    _render_combined_run_summary(result, product_result)
 
     console.print("[bold green]✓ Full pipeline completed successfully![/bold green]\n")
 

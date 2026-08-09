@@ -105,14 +105,23 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
 
 def link_product_patient(
     product_df: pl.DataFrame,
-    patient_static_path: Path,
+    patient_table_path: Path,
 ) -> int:
-    """Validate product_released_to against patient_data_static.
+    """Validate product_released_to against a per-file patient table.
 
     LEFT-joins product rows onto the patient table on
     ``(file_name, product_released_to ↔ patient_id)`` and logs each
     ``(file_name, product_released_to)`` pair that has no patient match.
     Logging-only — does not modify either table and never raises.
+
+    ``patient_table_path`` must have one row per ``(file_name, patient_id)``
+    pair actually present in each tracker file — i.e. ``patient_data_monthly``,
+    matching R's ``run_script_3_create_tables.R`` call. **Not**
+    ``patient_data_static``: that table collapses each patient down to a
+    single latest record/file, so joining against it only covers each
+    patient's most recent tracker file and misreports every product row tied
+    to an earlier file as unmatched (verified against real data: an 88%
+    mismatch rate against `static` dropped to 1.4% against `monthly`).
 
     Mirrors R's ``script3_link_product_patient.R`` with one deviation:
     rows where ``product_released_to`` is null or equals the
@@ -122,23 +131,28 @@ def link_product_patient(
 
     Args:
         product_df: Product table (post-``fix_patient_id``).
-        patient_static_path: Path to ``patient_data_static.parquet``.
+        patient_table_path: Path to a per-file patient table, normally
+            ``patient_data_monthly.parquet``.
 
     Returns:
         Total count of mismatched product rows for telemetry/test use.
     """
     from a4d.config import settings
 
-    if not patient_static_path.exists():
+    if not patient_table_path.exists():
         logger.warning(
-            f"Patient table not available at {patient_static_path}; "
+            f"Patient table not available at {patient_table_path}; "
             "skipping product-patient link validation."
         )
         return 0
 
+    # .unique() guards against join fan-out if the patient table has more
+    # than one row per (file_name, patient_id) — e.g. patient_data_monthly
+    # has one row per month, so the same patient/file pair repeats.
     patient_keys = (
-        pl.read_parquet(patient_static_path)
+        pl.read_parquet(patient_table_path)
         .select(["file_name", "patient_id"])
+        .unique()
         .with_columns(pl.lit(True).alias("_patient_matched"))
     )
 
@@ -165,16 +179,24 @@ def link_product_patient(
     distinct_pairs = mismatch_groups.height
     total_examined = candidates.height
 
+    # Full per-pair detail goes to the file/BigQuery logs only (DEBUG) — with
+    # hundreds of distinct mismatched pairs across a real run, logging each at
+    # WARNING flooded the console. The aggregate line below is the console-
+    # visible signal; drill into per-pair detail via the logs table.
     for row in mismatch_groups.iter_rows(named=True):
-        logger.warning(
+        logger.debug(
             f"Unmatched product_released_to: file_name='{row['file_name']}' "
-            f"product_id='{row['product_released_to']}' count={row['count']}"
+            f"patient_id='{row['product_released_to']}' count={row['count']}"
         )
 
-    logger.info(
+    summary = (
         f"Product-patient link validation: {total_mismatched_rows} mismatched rows, "
         f"{distinct_pairs} distinct (file × id) pairs, "
         f"{total_examined} candidate product rows examined."
     )
+    if total_mismatched_rows > 0:
+        logger.warning(summary)
+    else:
+        logger.info(summary)
 
     return total_mismatched_rows

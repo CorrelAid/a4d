@@ -96,12 +96,16 @@ def test_mixed_filters_null_and_sentinel(tmp_path: Path, captured_warnings: list
     count = link_product_patient(product_df, patient_path)
 
     assert count == 2
-    # One warning per distinct (file, id) mismatch pair → 1 group → 1 warning
+    # Per-pair detail ("Unmatched product_released_to") is DEBUG-only now —
+    # console/WARNING-level output gets one aggregate line instead, so a run
+    # with hundreds of distinct mismatched pairs doesn't flood the terminal.
     mismatch_warnings = [w for w in captured_warnings if "Unmatched product_released_to" in w]
-    assert len(mismatch_warnings) == 1
-    assert "tracker_a.xlsx" in mismatch_warnings[0]
-    assert "KD_QB999" in mismatch_warnings[0]
-    assert "count=2" in mismatch_warnings[0]
+    assert mismatch_warnings == []
+    summary_warnings = [w for w in captured_warnings if "Product-patient link validation" in w]
+    assert len(summary_warnings) == 1
+    assert "2 mismatched rows" in summary_warnings[0]
+    assert "1 distinct (file × id) pairs" in summary_warnings[0]
+    assert "5 candidate product rows examined" in summary_warnings[0]
 
 
 def test_cross_file_isolation(tmp_path: Path, captured_warnings: list[str]) -> None:
@@ -121,9 +125,12 @@ def test_cross_file_isolation(tmp_path: Path, captured_warnings: list[str]) -> N
 
     assert count == 1
     mismatch_warnings = [w for w in captured_warnings if "Unmatched product_released_to" in w]
-    assert len(mismatch_warnings) == 1
-    assert "tracker_b.xlsx" in mismatch_warnings[0]
-    assert "KD_QB001" in mismatch_warnings[0]
+    assert mismatch_warnings == []
+    summary_warnings = [w for w in captured_warnings if "Product-patient link validation" in w]
+    assert len(summary_warnings) == 1
+    assert "1 mismatched rows" in summary_warnings[0]
+    assert "1 distinct (file × id) pairs" in summary_warnings[0]
+    assert "2 candidate product rows examined" in summary_warnings[0]
 
 
 def test_missing_patient_table_returns_zero_with_warning(
