@@ -39,23 +39,23 @@ flowchart TD
   subgraph FRONTIER["Frontier · 3"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
+    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
-    T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
-  subgraph BLOCKED["Blocked · 4"]
+  subgraph BLOCKED["Blocked · 3"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 5"]
+  subgraph DECIDED["Decided · 6"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
+    T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -86,11 +86,11 @@ flowchart TD
   T13 --> T10
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T11,T13 frontier
+  class T2,T10,T11 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9,T10,T12 blocked
+  class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T7,T8 decided
+  class T3,T4,T5,T7,T8,T13 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -263,18 +263,23 @@ redrawn** to name all four concerns explicitly (see Destination section) —
 this map now covers operational rollout readiness, not just "merge, verify,
 promote."
 
-**The frontier is now tickets 2, 11 and 13** (ticket 10 is blocked on 13;
-ticket 12 is blocked on 2 and 10): [Retire the PDF/notebook analysis docs for
-an automated, script-based report](tickets/02-documentation-strategy.md),
-[Decide what CLI/TUI UX and error-log observability improvements
-admins/developers need before rollout](tickets/11-cli-ux-observability.md),
-and [Audit and update all dependencies and library versions before
-rollout](tickets/13-dependency-audit.md) — all unblocked (only depend on the
-now-closed ticket 3). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4,
-5, 10, 11, 12, 13]` — tickets 3, 4, 5, 8 are closed; tickets 2, 10, 11, 12 and
-13 are what remain. The user has said they intend to keep working this map
-session by session on `migration` until confident enough to roll out, rather
-than promoting early.
+**Seven tickets resolved.** [Audit and update all dependencies and library
+versions before rollout](tickets/13-dependency-audit.md) is done: see the
+Decisions-so-far entry above for detail. This unblocks [ticket
+10](tickets/10-performance-profiling.md) (performance re-profiling against
+the R baseline), since its other blocker (ticket 3) was already closed.
+
+**The frontier is now tickets 2, 10 and 11** (ticket 12 is still blocked on 2
+and 10): [Retire the PDF/notebook analysis docs for an automated,
+script-based report](tickets/02-documentation-strategy.md), [Profile the
+combined pipeline's performance against the R baseline before promoting to
+dev](tickets/10-performance-profiling.md) (freshly unblocked this session),
+and [Decide what CLI/TUI UX and error-log observability improvements
+admins/developers need before rollout](tickets/11-cli-ux-observability.md).
+Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11, 12, 13]` —
+tickets 3, 4, 5, 8, 13 are closed; tickets 2, 10, 11, 12 are what remain. The
+user has said they intend to keep working this map session by session on
+`migration` until confident enough to roll out, rather than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
@@ -354,6 +359,23 @@ ticket 12's git-tracked R cleanup.
   anomalies. Confirmed along the way that Cloud Scheduler isn't enabled on the
   project yet. Full detail: [ticket 5](tickets/05-production-verification-run.md).
 
+- [Audit and update all dependencies and library versions before
+  rollout](tickets/13-dependency-audit.md) — decided and implemented:
+  `uv lock --upgrade` moved every dependency to current latest (three
+  majors — `pandera` 0.26->0.32, `pytest` 8->9, `typer` 0.19->0.27, `rich`
+  came along transitively 14->15); resolved all 19 known vulnerabilities
+  `pip-audit` found in the prior lock; `Dockerfile`'s `python:3.14-slim`
+  floating tag checked and already current, no change needed. `ty` (dev
+  type checker) jumped 0.0.1a23 -> 0.0.69 and surfaced two real `src/`
+  gaps the old alpha missed — `gcp/storage.py`'s unguarded `blob.name`
+  (`str | None` per stubs) and `validate/common.py`'s `emit_finding`
+  `error_code` param (typed `str` behind a dead mypy-style ignore `ty`
+  never honored) — both fixed. Full suite (488 tests), ruff, `ty check
+  src/`, and the product-only coverage gate all pass; pushed as `c4721ad`.
+  This unblocks [ticket 10](tickets/10-performance-profiling.md) (its
+  other blocker, ticket 3, was already closed). Full detail: [ticket
+  13](tickets/13-dependency-audit.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -424,6 +446,10 @@ flowchart TB
     direction LR
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
   end
+  subgraph S2026_08_09c["Session 2026-08-09c"]
+    direction LR
+    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
@@ -432,13 +458,13 @@ flowchart TB
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
-    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
   S2026_08_09 ~~~ S2026_08_09b
-  S2026_08_09b ~~~ Sopen
+  S2026_08_09b ~~~ S2026_08_09c
+  S2026_08_09c ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -467,11 +493,11 @@ flowchart TB
   U3 --->|blocked| U13
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U11,U13 tfrontier
+  class U2,U10,U11 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9,U10,U12 tblocked
+  class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8 tdecided
+  class U3,U4,U5,U7,U8,U13 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

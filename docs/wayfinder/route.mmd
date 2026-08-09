@@ -17,6 +17,10 @@ flowchart TB
     direction LR
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
   end
+  subgraph S2026_08_09c["Session 2026-08-09c"]
+    direction LR
+    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
@@ -25,13 +29,13 @@ flowchart TB
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
-    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
   S2026_08_09 ~~~ S2026_08_09b
-  S2026_08_09b ~~~ Sopen
+  S2026_08_09b ~~~ S2026_08_09c
+  S2026_08_09c ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -60,10 +64,10 @@ flowchart TB
   U3 --->|blocked| U13
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U11,U13 tfrontier
+  class U2,U10,U11 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9,U10,U12 tblocked
+  class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8 tdecided
+  class U3,U4,U5,U7,U8,U13 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
