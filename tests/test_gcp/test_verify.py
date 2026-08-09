@@ -58,6 +58,12 @@ class TestDiffTableStats:
         assert len(anomalies) == 1
         assert "distinct clinics dropped" in anomalies[0].reason
 
+    def test_skips_clinic_check_when_table_has_no_clinic_id(self):
+        before = {"patient_data_annual": _stats(distinct_clinics=None, columns=("patient_id",))}
+        after = {"patient_data_annual": _stats(distinct_clinics=None, columns=("patient_id",))}
+
+        assert diff_table_stats(before, after) == []
+
     def test_flags_table_missing_after_run(self):
         before = {"product_data": _stats()}
         after = {}
@@ -94,3 +100,23 @@ class TestFetchTableStats:
             row_count=42, distinct_clinics=7, columns=frozenset({"clinic_id"})
         )
         mock_client.get_table.assert_called_once_with("a4dphase2.tracker.product_data")
+
+    def test_skips_distinct_clinic_query_when_no_clinic_id_column(self):
+        mock_client = MagicMock()
+
+        mock_field = MagicMock()
+        mock_field.name = "patient_id"
+        mock_table = MagicMock()
+        mock_table.schema = [mock_field]
+        mock_client.get_table.return_value = mock_table
+
+        mock_row = MagicMock(row_count=42)
+        mock_client.query.return_value.result.return_value = [mock_row]
+
+        stats = fetch_table_stats(mock_client, "patient_data_annual")
+
+        assert stats == TableStats(
+            row_count=42, distinct_clinics=None, columns=frozenset({"patient_id"})
+        )
+        query = mock_client.query.call_args.args[0]
+        assert "clinic_id" not in query
