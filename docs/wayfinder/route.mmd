@@ -24,6 +24,8 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -43,18 +45,24 @@ flowchart TB
   U5 --->|blocked| U6
   U10 --->|blocked| U6
   U11 --->|blocked| U6
+  U12 --->|blocked| U6
+  U13 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
   U3 --->|blocked| U10
+  U13 --->|blocked| U10
   U3 --->|blocked| U11
+  U2 --->|blocked| U12
+  U10 --->|blocked| U12
+  U3 --->|blocked| U13
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10,U11 tfrontier
+  class U2,U11,U13 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9 tblocked
+  class U6,U9,U10,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U3,U4,U5,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a

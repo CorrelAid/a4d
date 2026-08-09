@@ -3,7 +3,7 @@ id: 10
 title: Profile the combined pipeline's performance against the R baseline before promoting to dev
 labels: [wayfinder:task]
 status: open
-blocked_by: [3]
+blocked_by: [3, 13]
 assignee: null
 claimed_at: null
 resolution: null
@@ -29,6 +29,12 @@ can run against local or production-scale data independent of that ticket's
 verification outcome — but both are gating promotion (ticket 6), and ticket 5's
 production run may end up a convenient source of real timing data if it's
 still fresh when this ticket is worked.
+
+**Now also blocked on** [Audit and update all dependencies and library
+versions before rollout](13-dependency-audit.md) — added after it surfaced
+mid-session too: profiling against a dependency set that's about to be
+updated would make the numbers stale immediately, so the audit needs to land
+first.
 
 ## Question
 

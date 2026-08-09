@@ -13,7 +13,10 @@ the GCP production bucket, with output landed in BigQuery; every Python/R
 difference documented and explicitly decided; CI green; performance
 re-profiled against the R baseline now that the merge has landed; the
 CLI/TUI's admin/developer UX and error-log observability judged good enough to
-operate the pipeline day to day; and `migration` merged into `dev` (PR #2).
+operate the pipeline day to day; R retired from the workspace (`r-archive/`,
+`tools/LogViewerA4D`, stray R scripts) now that the pipeline is fully verified
+Python-only; all dependencies and library versions audited and updated; and
+`migration` merged into `dev` (PR #2).
 This prevents promoting a merge that looks clean but was never exercised as a
 whole, prevents documenting or promoting based on claims ("the intern says it
 works") rather than verified fact, and prevents rolling out something that
@@ -22,10 +25,11 @@ large enough, and detail-sensitive enough, that things get missed unless
 checked cell-by-cell.
 
 **Destination redrawn 2026-08-09** (mid-[ticket 5](tickets/05-production-verification-run.md)
-session): performance re-profiling and CLI/UX + observability were added
-after the user confirmed both belong to "are we really ready to roll out",
-not separate follow-on efforts. Originally the destination stopped at CI
-green + a validated production run + promotion to `dev`.
+session): performance re-profiling, CLI/UX + observability, retiring R from
+the workspace, and a dependency/library audit were added after the user
+confirmed each belongs to "are we really ready to roll out", not separate
+follow-on efforts. Originally the destination stopped at CI green + a
+validated production run + promotion to `dev`.
 
 ## The tickets
 
@@ -35,13 +39,15 @@ flowchart TD
   subgraph FRONTIER["Frontier · 3"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
-  subgraph BLOCKED["Blocked · 2"]
+  subgraph BLOCKED["Blocked · 4"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
+    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
   subgraph DECIDED["Decided · 5"]
     direction TB
@@ -57,12 +63,14 @@ flowchart TD
   end
 
   T2 --> T6
+  T2 --> T12
   T3 --> T2
   T3 --> T4
   T3 --> T5
   T3 --> T6
   T3 --> T10
   T3 --> T11
+  T3 --> T13
   T4 --> T5
   T4 --> T6
   T5 --> T6
@@ -71,12 +79,16 @@ flowchart TD
   T8 --> T3
   T8 --> T6
   T10 --> T6
+  T10 --> T12
   T11 --> T6
+  T12 --> T6
+  T13 --> T6
+  T13 --> T10
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T10,T11 frontier
+  class T2,T11,T13 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9 blocked
+  class T6,T9,T10,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T3,T4,T5,T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
@@ -231,28 +243,43 @@ against that snapshot (row counts, distinct clinics, schema — not R, which
 the user decided is out of this ticket's scope). Full detail: [ticket
 5](tickets/05-production-verification-run.md).
 
-**Two tickets were added mid-session, not resolved**: [Profile the combined
-pipeline's performance against the R baseline before promoting to
+**Four tickets were added mid-session, none resolved**: [Profile the
+combined pipeline's performance against the R baseline before promoting to
 dev](tickets/10-performance-profiling.md) — the user's standing understanding
 that Python is much faster than R predates this merge's additions and hasn't
-been re-checked — and [Decide what CLI/TUI UX and error-log observability
+been re-checked; [Decide what CLI/TUI UX and error-log observability
 improvements admins/developers need before rollout](tickets/11-cli-ux-observability.md),
-graduated from fog once the user confirmed it's in this map's scope. Both are
-new blockers on ticket 6. **The destination itself was redrawn** to name both
-concerns explicitly (see Destination section) — this map now covers
-operational rollout readiness, not just "merge, verify, promote."
+graduated from fog once the user confirmed it's in this map's scope; [Retire
+R from the workspace once the pipeline is fully verified
+Python-only](tickets/12-retire-r-workspace.md) — `r-archive/`,
+`tools/LogViewerA4D` (an R Shiny log viewer another developer wrote, now
+confirmed removable outright with no Python replacement needed), and a stray
+root `test_full_pipeline_debug.R`, gated on tickets 2 and 10 since both still
+need R as a live reference; and [Audit and update all dependencies and
+library versions before rollout](tickets/13-dependency-audit.md), wired ahead
+of ticket 10 so profiling doesn't run against a soon-to-change dependency
+set. All four are new blockers on ticket 6. **The destination itself was
+redrawn** to name all four concerns explicitly (see Destination section) —
+this map now covers operational rollout readiness, not just "merge, verify,
+promote."
 
-**The frontier is now tickets 2, 10 and 11**: [Retire the PDF/notebook
-analysis docs for an automated, script-based report](tickets/02-documentation-strategy.md),
-[Profile the combined pipeline's performance against the R baseline before
-promoting to dev](tickets/10-performance-profiling.md), and [Decide what
-CLI/TUI UX and error-log observability improvements admins/developers need
-before rollout](tickets/11-cli-ux-observability.md) — all unblocked (only
-depend on the now-closed ticket 3). Ticket 6 (promote to `dev`) is
-`blocked_by: [8, 2, 3, 4, 5, 10, 11]` — tickets 3, 4, 5, 8 are closed; tickets
-2, 10 and 11 are what remain. The user has said they intend to keep working
-this map session by session on `migration` until confident enough to roll
-out, rather than promoting early.
+**The frontier is now tickets 2, 11 and 13** (ticket 10 is blocked on 13;
+ticket 12 is blocked on 2 and 10): [Retire the PDF/notebook analysis docs for
+an automated, script-based report](tickets/02-documentation-strategy.md),
+[Decide what CLI/TUI UX and error-log observability improvements
+admins/developers need before rollout](tickets/11-cli-ux-observability.md),
+and [Audit and update all dependencies and library versions before
+rollout](tickets/13-dependency-audit.md) — all unblocked (only depend on the
+now-closed ticket 3). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4,
+5, 10, 11, 12, 13]` — tickets 3, 4, 5, 8 are closed; tickets 2, 10, 11, 12 and
+13 are what remain. The user has said they intend to keep working this map
+session by session on `migration` until confident enough to roll out, rather
+than promoting early.
+
+Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
+the repo root (stale leftover copy predating the current `src/` layout, not
+in git) — the user hasn't yet said whether to delete it; separate from
+ticket 12's git-tracked R cleanup.
 
 ## Decisions so far
 
@@ -327,12 +354,19 @@ out, rather than promoting early.
   anomalies. Confirmed along the way that Cloud Scheduler isn't enabled on the
   project yet. Full detail: [ticket 5](tickets/05-production-verification-run.md).
 
-- **Destination redrawn**: performance re-profiling and CLI/UX + observability
-  are in this map's scope, not a separate effort — the user confirmed both
-  belong to "are we really ready to roll out" (2026-08-09, mid-ticket-5
-  session). Spawned [ticket 10](tickets/10-performance-profiling.md) (already
-  ticketed) and [ticket 11](tickets/11-cli-ux-observability.md) (graduated
-  from fog); both now block [ticket 6](tickets/06-promote-migration-to-dev.md).
+- **Destination redrawn**: performance re-profiling, CLI/UX + observability,
+  retiring R from the workspace, and a dependency/library version audit are
+  all in this map's scope, not a separate effort — the user confirmed each
+  belongs to "are we really ready to roll out" (2026-08-09, mid-ticket-5
+  session). Spawned [ticket 10](tickets/10-performance-profiling.md), [ticket
+  11](tickets/11-cli-ux-observability.md) (graduated from fog), [ticket
+  12](tickets/12-retire-r-workspace.md), and [ticket
+  13](tickets/13-dependency-audit.md); all four now block [ticket
+  6](tickets/06-promote-migration-to-dev.md). `CLAUDE.md`'s current "do not
+  modify `r-archive/`" instruction is a known conflict ticket 12 will need to
+  resolve, not before. Ticket 13 was also wired ahead of ticket 10
+  (`blocked_by: [3, 13]`) since profiling against dependencies that are about
+  to change would produce stale numbers.
 
 ## Assumptions in force
 
@@ -397,6 +431,8 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+    U13["<b>13</b><br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -416,18 +452,24 @@ flowchart TB
   U5 --->|blocked| U6
   U10 --->|blocked| U6
   U11 --->|blocked| U6
+  U12 --->|blocked| U6
+  U13 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
   U3 --->|blocked| U10
+  U13 --->|blocked| U10
   U3 --->|blocked| U11
+  U2 --->|blocked| U12
+  U10 --->|blocked| U12
+  U3 --->|blocked| U13
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10,U11 tfrontier
+  class U2,U11,U13 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9 tblocked
+  class U6,U9,U10,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U3,U4,U5,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
