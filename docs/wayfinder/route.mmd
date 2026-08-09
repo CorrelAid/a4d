@@ -23,6 +23,7 @@ flowchart TB
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -41,15 +42,17 @@ flowchart TB
   U4 --->|blocked| U6
   U5 --->|blocked| U6
   U10 --->|blocked| U6
+  U11 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
   U3 --->|blocked| U10
+  U3 --->|blocked| U11
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10 tfrontier
+  class U2,U10,U11 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff

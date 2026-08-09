@@ -1,8 +1,9 @@
 flowchart TD
-  subgraph FRONTIER["Frontier · 2"]
+  subgraph FRONTIER["Frontier · 3"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
   end
   subgraph BLOCKED["Blocked · 2"]
     direction TB
@@ -28,6 +29,7 @@ flowchart TD
   T3 --> T5
   T3 --> T6
   T3 --> T10
+  T3 --> T11
   T4 --> T5
   T4 --> T6
   T5 --> T6
@@ -36,9 +38,10 @@ flowchart TD
   T8 --> T3
   T8 --> T6
   T10 --> T6
+  T11 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T10 frontier
+  class T2,T10,T11 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff

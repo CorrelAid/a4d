@@ -10,22 +10,33 @@ status: open
 `product-pipeline` (PR #6) merged into `migration` with conflicts resolved; the
 combined pipeline (patient + product + state management) run for real against
 the GCP production bucket, with output landed in BigQuery; every Python/R
-difference documented and explicitly decided; CI green; and `migration` merged
-into `dev` (PR #2). This prevents promoting a merge that looks clean but was
-never exercised as a whole, and prevents documenting or promoting based on
-claims ("the intern says it works") rather than verified fact — the migration
-is large enough, and detail-sensitive enough, that things get missed unless
+difference documented and explicitly decided; CI green; performance
+re-profiled against the R baseline now that the merge has landed; the
+CLI/TUI's admin/developer UX and error-log observability judged good enough to
+operate the pipeline day to day; and `migration` merged into `dev` (PR #2).
+This prevents promoting a merge that looks clean but was never exercised as a
+whole, prevents documenting or promoting based on claims ("the intern says it
+works") rather than verified fact, and prevents rolling out something that
+runs correctly but nobody can operate or debug confidently — the migration is
+large enough, and detail-sensitive enough, that things get missed unless
 checked cell-by-cell.
+
+**Destination redrawn 2026-08-09** (mid-[ticket 5](tickets/05-production-verification-run.md)
+session): performance re-profiling and CLI/UX + observability were added
+after the user confirmed both belong to "are we really ready to roll out",
+not separate follow-on efforts. Originally the destination stopped at CI
+green + a validated production run + promotion to `dev`.
 
 ## The tickets
 
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 2"]
+  subgraph FRONTIER["Frontier · 3"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
   end
   subgraph BLOCKED["Blocked · 2"]
     direction TB
@@ -51,6 +62,7 @@ flowchart TD
   T3 --> T5
   T3 --> T6
   T3 --> T10
+  T3 --> T11
   T4 --> T5
   T4 --> T6
   T5 --> T6
@@ -59,9 +71,10 @@ flowchart TD
   T8 --> T3
   T8 --> T6
   T10 --> T6
+  T11 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T10 frontier
+  class T2,T10,T11 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -218,24 +231,28 @@ against that snapshot (row counts, distinct clinics, schema — not R, which
 the user decided is out of this ticket's scope). Full detail: [ticket
 5](tickets/05-production-verification-run.md).
 
-**A new ticket was added mid-session, not resolved**: [Profile the combined
+**Two tickets were added mid-session, not resolved**: [Profile the combined
 pipeline's performance against the R baseline before promoting to
 dev](tickets/10-performance-profiling.md) — the user's standing understanding
 that Python is much faster than R predates this merge's additions and hasn't
-been re-checked. Wired as a new blocker on ticket 6 alongside tickets 2 and
-10. A second, fuzzier idea (CLI/TUI UX and error-log observability for
-admins/developers) was raised but wasn't sharp enough to ticket and its scope
-relative to this map's destination is unresolved — parked in **Not yet
-specified** pending the user's call on whether it belongs to this effort or a
-separate one.
+been re-checked — and [Decide what CLI/TUI UX and error-log observability
+improvements admins/developers need before rollout](tickets/11-cli-ux-observability.md),
+graduated from fog once the user confirmed it's in this map's scope. Both are
+new blockers on ticket 6. **The destination itself was redrawn** to name both
+concerns explicitly (see Destination section) — this map now covers
+operational rollout readiness, not just "merge, verify, promote."
 
-**The frontier is now tickets 2 and 10**: [Retire the PDF/notebook analysis
-docs for an automated, script-based report](tickets/02-documentation-strategy.md)
-and [Profile the combined pipeline's performance against the R baseline
-before promoting to dev](tickets/10-performance-profiling.md), both unblocked
-(only depend on the now-closed ticket 3). Ticket 6 (promote to `dev`) is
-`blocked_by: [8, 2, 3, 4, 5, 10]` — tickets 3, 4, 5, 8 are closed; tickets 2
-and 10 are what remain.
+**The frontier is now tickets 2, 10 and 11**: [Retire the PDF/notebook
+analysis docs for an automated, script-based report](tickets/02-documentation-strategy.md),
+[Profile the combined pipeline's performance against the R baseline before
+promoting to dev](tickets/10-performance-profiling.md), and [Decide what
+CLI/TUI UX and error-log observability improvements admins/developers need
+before rollout](tickets/11-cli-ux-observability.md) — all unblocked (only
+depend on the now-closed ticket 3). Ticket 6 (promote to `dev`) is
+`blocked_by: [8, 2, 3, 4, 5, 10, 11]` — tickets 3, 4, 5, 8 are closed; tickets
+2, 10 and 11 are what remain. The user has said they intend to keep working
+this map session by session on `migration` until confident enough to roll
+out, rather than promoting early.
 
 ## Decisions so far
 
@@ -310,6 +327,13 @@ and 10 are what remain.
   anomalies. Confirmed along the way that Cloud Scheduler isn't enabled on the
   project yet. Full detail: [ticket 5](tickets/05-production-verification-run.md).
 
+- **Destination redrawn**: performance re-profiling and CLI/UX + observability
+  are in this map's scope, not a separate effort — the user confirmed both
+  belong to "are we really ready to roll out" (2026-08-09, mid-ticket-5
+  session). Spawned [ticket 10](tickets/10-performance-profiling.md) (already
+  ticketed) and [ticket 11](tickets/11-cli-ux-observability.md) (graduated
+  from fog); both now block [ticket 6](tickets/06-promote-migration-to-dev.md).
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -335,14 +359,6 @@ folded into Decisions so far above.)
   known divergences; no `pipeline/patient.py` unit test) aren't ticketed yet
   — they don't block the merge/promotion path the way product's gaps do, but
   will need a home before the map can call itself done.
-- CLI/TUI UX for admins and developers, and whether the error-log output
-  (`table_errors.parquet` / the `logs` BigQuery table / Cloud Run Job logs)
-  gives enough to observe and debug a pipeline run comfortably — raised
-  mid-[ticket 5](tickets/05-production-verification-run.md) session, but not
-  yet sharp enough to ticket ("improve whatever helps" isn't a decision yet)
-  and not clearly inside this map's destination (closing out the migration)
-  versus a separate DX/observability effort to start once `dev` is reached.
-  Scope call needed before this graduates into a ticket.
 
 ## Out of scope
 
@@ -380,6 +396,7 @@ flowchart TB
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
+    U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -398,15 +415,17 @@ flowchart TB
   U4 --->|blocked| U6
   U5 --->|blocked| U6
   U10 --->|blocked| U6
+  U11 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
   U3 --->|blocked| U10
+  U3 --->|blocked| U11
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U10 tfrontier
+  class U2,U10,U11 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
