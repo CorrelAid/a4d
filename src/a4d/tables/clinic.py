@@ -4,12 +4,24 @@ Replicates R pipeline's create_table_clinic_static_data() function:
 reads clinic_data.xlsx, fills down hierarchical columns, exports as parquet.
 """
 
+import warnings
 from pathlib import Path
 
 import polars as pl
 from loguru import logger
 
 from a4d.reference.loaders import find_reference_data_dir
+
+# polars' own calamine+pyarrow "eager sheet load" path in read_excel() calls
+# from_arrow() on an ArrowStreamExportable without disambiguating DataFrame
+# vs Series, and warns about its own internal call — nothing in our
+# read_excel() arguments can influence it. Upstream issue, not ours to fix;
+# narrowly suppress rather than let it flood every run's console output.
+warnings.filterwarnings(
+    "ignore",
+    message=r"from_arrow\(<ArrowStreamExportable>\) will return a Series",
+    category=FutureWarning,
+)
 
 # Text columns filled downward to handle merged/blank cells in the Excel sheet.
 # R: tidyr::fill(country_code:clinic_id, .direction = "down")
