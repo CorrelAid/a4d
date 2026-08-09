@@ -325,6 +325,66 @@ def test_validate_allowed_values_case_insensitive():
     assert len(collector) == 0  # No errors - "y" is valid
 
 
+def test_validate_allowed_values_csv_subset():
+    """CSV values whose every token is in allowed_values emit canonical CSV."""
+    allowed = ["Pre-mixed", "Short-acting", "Intermediate-acting", "Rapid-acting", "Long-acting"]
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 5,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
+            "insulin_subtype": [
+                "rapid-acting",  # single valid
+                "pre-mixed,rapid-acting",  # two-token CSV valid
+                "pre-mixed,rapid-acting,long-acting",  # three-token CSV valid
+                "pre-mixed,unknown-thing",  # CSV with one bad token
+                "not-in-list",  # single invalid
+            ],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = validate_allowed_values(
+        df=df,
+        column="insulin_subtype",
+        allowed_values=allowed,
+        error_collector=collector,
+        replace_invalid=True,
+        allow_csv_subset=True,
+    )
+
+    assert result["insulin_subtype"].to_list() == [
+        "Rapid-acting",
+        "Pre-mixed,Rapid-acting",
+        "Pre-mixed,Rapid-acting,Long-acting",
+        settings.error_val_character,
+        settings.error_val_character,
+    ]
+    assert len(collector) == 2
+
+
+def test_validate_allowed_values_csv_subset_disabled():
+    """Without allow_csv_subset, CSV values are treated as single strings and fail."""
+    allowed = ["Pre-mixed", "Rapid-acting"]
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"],
+            "patient_id": ["XX_QA001"],
+            "insulin_subtype": ["pre-mixed,rapid-acting"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = validate_allowed_values(
+        df=df,
+        column="insulin_subtype",
+        allowed_values=allowed,
+        error_collector=collector,
+        replace_invalid=True,
+    )
+
+    assert result["insulin_subtype"].to_list() == [settings.error_val_character]
+
+
 # Tests for fix_patient_id
 
 

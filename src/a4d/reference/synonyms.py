@@ -5,6 +5,7 @@ to standardized column names used throughout the pipeline.
 """
 
 import re
+from functools import lru_cache
 from pathlib import Path
 
 import polars as pl
@@ -111,6 +112,9 @@ class ColumnMapper:
             # Handle empty lists (columns with no synonyms)
             if not synonym_list:
                 continue
+
+            if isinstance(synonym_list, str):
+                synonym_list = [synonym_list]
 
             for synonym in synonym_list:
                 # Sanitize the synonym key before adding to lookup
@@ -297,8 +301,12 @@ class ColumnMapper:
             raise ValueError(f"Required columns missing after renaming: {missing}")
 
 
+@lru_cache(maxsize=1)
 def load_patient_mapper() -> ColumnMapper:
     """Load the patient data column mapper.
+
+    Cached so callers on the per-tracker hot path don't re-read the YAML.
+    Cache is per-process; ProcessPoolExecutor workers get their own.
 
     Returns:
         ColumnMapper for patient data
@@ -311,6 +319,7 @@ def load_patient_mapper() -> ColumnMapper:
     return ColumnMapper(path)
 
 
+@lru_cache(maxsize=1)
 def load_product_mapper() -> ColumnMapper:
     """Load the product data column mapper.
 

@@ -66,6 +66,16 @@ def load_validation_rules() -> dict[str, Any]:
     return load_yaml(yaml_path)
 
 
+def load_numeric_ranges() -> dict[str, dict[str, float]]:
+    """Load the ``numeric_ranges`` block from validation_rules.yaml.
+
+    Consumed by the source-vs-output validator. Mirrors the hardcoded
+    thresholds in clean/patient.py; see the YAML comment for the drift caveat.
+    """
+    rules = load_validation_rules()
+    return rules.get("numeric_ranges", {})
+
+
 def validate_allowed_values(
     df: pl.DataFrame,
     column: str,
@@ -74,6 +84,7 @@ def validate_allowed_values(
     replace_invalid: bool = True,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
+    allow_csv_subset: bool = False,
 ) -> pl.DataFrame:
     """Validate column against allowed values with case-insensitive matching.
 
@@ -131,6 +142,38 @@ def validate_allowed_values(
         if sanitized in canonical_mapping:
             # Valid - replace with canonical value
             value_replacements[original_val] = canonical_mapping[sanitized]
+        elif allow_csv_subset and "," in original_val:
+            # e.g. insulin_subtype "pre-mixed,rapid-acting" is valid if every
+            # token is in allowed_values. Emit canonical-case CSV.
+            parts = [p.strip() for p in original_val.split(",") if p.strip()]
+            canonical_parts = []
+            all_matched = bool(parts)
+            for part in parts:
+                part_sanitized = sanitize_str(part)
+                if part_sanitized in canonical_mapping:
+                    canonical_parts.append(canonical_mapping[part_sanitized])
+                else:
+                    all_matched = False
+                    break
+            if all_matched:
+                value_replacements[original_val] = ",".join(canonical_parts)
+                continue
+            # Fall through to the invalid branch below.
+            error_collector.add_error(
+                file_name="unknown",
+                patient_id="unknown",
+                column=column,
+                original_value=original_val,
+                error_message=(
+                    f"Value '{original_val}' not in allowed values "
+                    f"(CSV-subset check): {allowed_values}"
+                ),
+                error_code="invalid_value",
+                function_name="validate_allowed_values",
+            )
+            value_replacements[original_val] = (
+                settings.error_val_character if replace_invalid else original_val
+            )
         else:
             # Invalid - log error
             error_collector.add_error(
@@ -198,6 +241,7 @@ def validate_column_from_rules(
     # Extract validation parameters from simplified rules
     allowed_values = rules.get("allowed_values", [])
     replace_invalid = rules.get("replace_invalid", True)
+    allow_csv_subset = rules.get("allow_csv_subset", False)
 
     df = validate_allowed_values(
         df=df,
@@ -207,6 +251,7 @@ def validate_column_from_rules(
         replace_invalid=replace_invalid,
         file_name_col=file_name_col,
         patient_id_col=patient_id_col,
+        allow_csv_subset=allow_csv_subset,
     )
 
     return df

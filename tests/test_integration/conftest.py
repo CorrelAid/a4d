@@ -32,8 +32,21 @@ def tracker_2024_isdfi():
     return TRACKER_BASE / "Philippines/ISD/2024_ISDFI A4D Tracker.xlsx"
 
 
+@pytest.fixture
+def tracker_2020_mandalay():
+    """2020 Mandalay Children's tracker - triggers wide-format column expansion."""
+    return TRACKER_BASE / "Myanmar/MCH/2020_Mandalay Children's Hospital A4D Tracker.xlsx"
+
+
+@pytest.fixture
+def tracker_2018_mandalay():
+    """2018 Mandalay Children's tracker - triggers comma-separated cell splitting."""
+    return TRACKER_BASE / "Myanmar/MCH/2018_Mandalay Children's Hospital A4D Tracker.xlsx"
+
+
 # Expected values for validation
-EXPECTED_SCHEMA_COLS = 83  # After cleaning
+EXPECTED_SCHEMA_COLS = 83  # After cleaning (patient)
+EXPECTED_SCHEMA_COLS_PRODUCT = 20  # After cleaning (product)
 
 
 def skip_if_missing(tracker_path: Path):

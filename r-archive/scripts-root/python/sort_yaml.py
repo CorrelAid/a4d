@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, FileType
+from argparse import ArgumentParser
 from pathlib import Path
 
 import yaml
@@ -17,7 +17,7 @@ def sort_yaml():
         print(f"File not found: {yaml_file}")
         return
 
-    with open(yaml_file, "r") as f:
+    with open(yaml_file) as f:
         data = yaml.safe_load(f)
 
     with open(yaml_file, "w") as f:

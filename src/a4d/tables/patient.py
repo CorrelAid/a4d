@@ -22,15 +22,15 @@ def read_cleaned_patient_data(cleaned_files: list[Path]) -> pl.DataFrame:
     return pl.concat(dfs, how="vertical")
 
 
-def create_table_patient_data_static(cleaned_files: list[Path], output_dir: Path) -> Path:
+def create_table_patient_data_static(patient_data: pl.DataFrame, output_dir: Path) -> Path:
     """Create static patient data table.
 
-    Reads all cleaned patient data and creates a single table with static columns
-    (data that doesn't change monthly). Groups by patient_id and takes the latest
-    available data (latest year and month).
+    Selects static columns (data that doesn't change monthly) from the already-loaded
+    cleaned patient dataframe. Groups by patient_id and takes the latest available
+    data (latest year and month).
 
     Args:
-        cleaned_files: List of paths to cleaned parquet files
+        patient_data: Combined cleaned patient dataframe (from read_cleaned_patient_data)
         output_dir: Directory to save output parquet file
 
     Returns:
@@ -60,8 +60,6 @@ def create_table_patient_data_static(cleaned_files: list[Path], output_dir: Path
         "tracker_year",
     ]
 
-    patient_data = read_cleaned_patient_data(cleaned_files)
-
     static_data = (
         patient_data.select(static_columns)
         .sort(["patient_id", "tracker_year", "tracker_month"])
@@ -79,14 +77,14 @@ def create_table_patient_data_static(cleaned_files: list[Path], output_dir: Path
     return output_file
 
 
-def create_table_patient_data_monthly(cleaned_files: list[Path], output_dir: Path) -> Path:
+def create_table_patient_data_monthly(patient_data: pl.DataFrame, output_dir: Path) -> Path:
     """Create monthly patient data table.
 
-    Reads all cleaned patient data and creates a single table with dynamic columns
-    (data that changes monthly). Keeps all monthly records.
+    Selects dynamic monthly columns from the already-loaded cleaned patient
+    dataframe. Keeps all monthly records.
 
     Args:
-        cleaned_files: List of paths to cleaned parquet files
+        patient_data: Combined cleaned patient dataframe (from read_cleaned_patient_data)
         output_dir: Directory to save output parquet file
 
     Returns:
@@ -127,8 +125,6 @@ def create_table_patient_data_monthly(cleaned_files: list[Path], output_dir: Pat
         "weight",
     ]
 
-    patient_data = read_cleaned_patient_data(cleaned_files)
-
     monthly_data = patient_data.select(monthly_columns).sort(
         ["tracker_year", "tracker_month", "patient_id"]
     )
@@ -142,15 +138,15 @@ def create_table_patient_data_monthly(cleaned_files: list[Path], output_dir: Pat
     return output_file
 
 
-def create_table_patient_data_annual(cleaned_files: list[Path], output_dir: Path) -> Path:
+def create_table_patient_data_annual(patient_data: pl.DataFrame, output_dir: Path) -> Path:
     """Create annual patient data table.
 
-    Reads all cleaned patient data and creates a single table with annual columns
-    (data collected once per year). Groups by patient_id and tracker_year, taking
-    the latest month for each year. Only includes data from 2024 onwards.
+    Selects annual columns (data collected once per year) from the already-loaded
+    cleaned patient dataframe. Groups by patient_id and tracker_year, taking the
+    latest month for each year. Only includes data from 2024 onwards.
 
     Args:
-        cleaned_files: List of paths to cleaned parquet files
+        patient_data: Combined cleaned patient dataframe (from read_cleaned_patient_data)
         output_dir: Directory to save output parquet file
 
     Returns:
@@ -192,8 +188,6 @@ def create_table_patient_data_annual(cleaned_files: list[Path], output_dir: Path
         "tracker_month",
         "tracker_year",
     ]
-
-    patient_data = read_cleaned_patient_data(cleaned_files)
 
     annual_data = (
         patient_data.select(annual_columns)

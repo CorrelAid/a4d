@@ -43,6 +43,7 @@ class TestHelp:
         assert result.exit_code == 0
         assert "--skip-download" in result.output
         assert "--skip-upload" in result.output
+        assert "--skip-patient" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +142,59 @@ class TestRunPipeline:
 
         assert result.exit_code == 1
 
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_skip_patient_runs_product_only(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        mock_settings.data_root = tmp_path / "data"
+        mock_settings.output_root = tmp_path / "output"
+        mock_settings.project_id = "test-project"
+        mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
+
+        (tmp_path / "data").mkdir()
+        (tmp_path / "output").mkdir()
+
+        mock_product = MagicMock()
+        mock_product.success = True
+        mock_product.total_trackers = 0
+        mock_product.successful_trackers = 0
+        mock_product.failed_trackers = 0
+        mock_product.tracker_results = []
+        mock_run_product.return_value = mock_product
+
+        result = runner.invoke(
+            app,
+            [
+                "run-pipeline",
+                "--skip-patient",
+                "--skip-download",
+                "--skip-upload",
+                "--skip-drive-download",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
+        mock_run_patient.assert_not_called()
+        mock_run_product.assert_called_once()
+
+    def test_skip_patient_and_skip_product_mutually_exclusive(self, tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "run-pipeline",
+                "--skip-patient",
+                "--skip-product",
+                "--skip-download",
+                "--skip-upload",
+                "--skip-drive-download",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output.lower()
+
 
 # ---------------------------------------------------------------------------
 # End-to-end test: process-patient with real dummy tracker
@@ -229,9 +283,16 @@ class TestProcessPatientE2E:
 
         tables_dir = output_dir / "tables"
         # Patient tables are skipped, but errors table is always written
-        for name in ["patient_data_static.parquet", "patient_data_monthly.parquet", "patient_data_annual.parquet"]:
+        skipped_names = [
+            "patient_data_static.parquet",
+            "patient_data_monthly.parquet",
+            "patient_data_annual.parquet",
+        ]
+        for name in skipped_names:
             assert not (tables_dir / name).exists(), f"{name} should not exist with --skip-tables"
-        assert (tables_dir / "table_errors.parquet").exists(), "errors table should always be written"
+        assert (tables_dir / "table_errors.parquet").exists(), (
+            "errors table should always be written"
+        )
 
     def test_process_missing_file_exits_nonzero(self, tmp_path):
         """Passing a non-existent file should exit with error."""
@@ -241,6 +302,105 @@ class TestProcessPatientE2E:
         result = runner.invoke(
             app,
             ["process-patient", "--file", str(missing), "--output", str(output_dir)],
+        )
+
+        assert result.exit_code == 1
+
+
+class TestProcessProductE2E:
+    """End-to-end test for process-product, mirroring TestProcessPatientE2E.
+
+    Covers the logs/errors table steps added to process_product_cmd to
+    bring it to parity with process_patient_cmd (previously product never
+    created a logs or errors table at all).
+    """
+
+    def test_process_single_file_creates_outputs(self, dummy_product_tracker, tmp_path):
+        output_dir = tmp_path / "output"
+
+        result = runner.invoke(
+            app,
+            [
+                "process-product",
+                "--file",
+                str(dummy_product_tracker),
+                "--output",
+                str(output_dir),
+            ],
+        )
+
+        assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
+
+        raw_dir = output_dir / "product_data_raw"
+        assert len(list(raw_dir.glob("*_product_raw.parquet"))) == 1
+
+        cleaned_dir = output_dir / "product_data_cleaned"
+        cleaned_files = list(cleaned_dir.glob("*_product_cleaned.parquet"))
+        assert len(cleaned_files) == 1
+
+        df_cleaned = pl.read_parquet(cleaned_files[0])
+        assert "product" in df_cleaned.columns
+        assert "clinic_id" in df_cleaned.columns
+        assert df_cleaned["clinic_id"].unique().to_list() == ["TST"]
+
+    def test_process_single_file_creates_tables(self, dummy_product_tracker, tmp_path):
+        """Product table, logs table, and errors table should all be created by default."""
+        output_dir = tmp_path / "output"
+
+        result = runner.invoke(
+            app,
+            [
+                "process-product",
+                "--file",
+                str(dummy_product_tracker),
+                "--output",
+                str(output_dir),
+            ],
+        )
+
+        assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
+
+        tables_dir = output_dir / "tables"
+        assert (tables_dir / "product_data.parquet").exists()
+        assert (tables_dir / "table_logs.parquet").exists(), (
+            "logs table should be created (parity with process-patient)"
+        )
+        assert (tables_dir / "table_errors.parquet").exists(), (
+            "errors table should be created (parity with process-patient)"
+        )
+
+    def test_skip_tables_flag(self, dummy_product_tracker, tmp_path):
+        """--skip-tables should skip the product table, but errors table is always written."""
+        output_dir = tmp_path / "output"
+
+        result = runner.invoke(
+            app,
+            [
+                "process-product",
+                "--file",
+                str(dummy_product_tracker),
+                "--output",
+                str(output_dir),
+                "--skip-tables",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Pipeline failed:\n{result.output}"
+
+        tables_dir = output_dir / "tables"
+        assert not (tables_dir / "product_data.parquet").exists()
+        assert not (tables_dir / "table_logs.parquet").exists()
+        assert (tables_dir / "table_errors.parquet").exists(), (
+            "errors table should always be written"
+        )
+
+    def test_process_missing_file_exits_nonzero(self, tmp_path):
+        missing = tmp_path / "ghost.xlsx"
+        output_dir = tmp_path / "output"
+
+        result = runner.invoke(
+            app,
+            ["process-product", "--file", str(missing), "--output", str(output_dir)],
         )
 
         assert result.exit_code == 1

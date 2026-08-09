@@ -7,8 +7,9 @@ clustering configuration matching the R pipeline.
 
 from pathlib import Path
 
+import polars as pl
+from google.api_core.exceptions import GoogleAPIError, NotFound
 from google.cloud import bigquery
-from google.api_core.exceptions import NotFound
 from loguru import logger
 
 from a4d.config import settings
@@ -37,9 +38,11 @@ PARQUET_TO_TABLE: dict[str, str] = {
     "patient_data_static.parquet": "patient_data_static",
     "patient_data_monthly.parquet": "patient_data_monthly",
     "patient_data_annual.parquet": "patient_data_annual",
+    "product_data.parquet": "product_data",
     "clinic_data_static.parquet": "clinic_data_static",
     "table_logs.parquet": "logs",
     "table_errors.parquet": "errors",
+    "tracker_metadata.parquet": "tracker_metadata",
 }
 
 
@@ -197,3 +200,81 @@ def load_pipeline_tables(
 
     logger.info(f"Successfully loaded {len(results)}/{len(PARQUET_TO_TABLE)} tables")
     return results
+
+
+def select_tracker_metadata(
+    client: bigquery.Client | None = None,
+    dataset: str | None = None,
+    project_id: str | None = None,
+) -> pl.DataFrame | None:
+    """Read ``file_name, clinic_code, md5, complete`` from BigQuery.
+
+    Used by ``a4d.state.source.load_previous_manifest`` to query the previous
+    run's tracker manifest for incremental processing.
+
+    Returns ``None`` (rather than raising) on:
+
+    * authentication failure (``DefaultCredentialsError``) — caller falls back
+      to local parquet,
+    * missing table (``NotFound``) — first-ever run, no manifest yet,
+    * any other ``GoogleAPIError`` — network issues etc., fall back rather
+      than block the pipeline.
+
+    Schema fallback: if the BQ table predates the ``complete`` column being
+    published, the query is retried without it and ``complete`` is synthesised
+    as ``False`` for every row — forces a full reprocess, which is the safe
+    default when manifest provenance is uncertain.
+    """
+    project_id = project_id or settings.project_id
+    dataset = dataset or settings.dataset
+
+    if client is None:
+        try:
+            client = get_bigquery_client(project_id)
+        except Exception as e:
+            logger.warning(f"BigQuery client unavailable, skipping metadata query: {e}")
+            return None
+
+    table_ref = f"{project_id}.{dataset}.tracker_metadata"
+    full_query = f"SELECT file_name, clinic_code, md5, complete FROM `{table_ref}`"
+
+    full_schema = {
+        "file_name": pl.Utf8,
+        "clinic_code": pl.Utf8,
+        "md5": pl.Utf8,
+        "complete": pl.Boolean,
+    }
+
+    try:
+        rows = list(client.query(full_query).result())
+        data = {col: [r[col] for r in rows] for col in full_schema}
+        return pl.DataFrame(data, schema=full_schema)
+    except NotFound:
+        logger.info(f"BigQuery table not found, no previous manifest: {table_ref}")
+        return None
+    except GoogleAPIError as e:
+        # Schema fallback: retry without `complete` if the column is missing
+        # in the deployed table. The synthesised complete=False forces a
+        # full reprocess.
+        message = str(e).lower()
+        if "complete" in message and ("unrecognized name" in message or "not found" in message):
+            logger.warning(
+                f"BigQuery {table_ref} missing 'complete' column; "
+                "retrying without it and forcing full reprocess"
+            )
+            try:
+                rows = list(
+                    client.query(f"SELECT file_name, clinic_code, md5 FROM `{table_ref}`").result()
+                )
+                fallback_schema = {k: v for k, v in full_schema.items() if k != "complete"}
+                data = {col: [r[col] for r in rows] for col in fallback_schema}
+                df = pl.DataFrame(data, schema=fallback_schema)
+                return df.with_columns(pl.lit(False).alias("complete"))
+            except GoogleAPIError as retry_err:
+                logger.warning(f"BigQuery schema-fallback query failed: {retry_err}")
+                return None
+        logger.warning(f"BigQuery query failed for {table_ref}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error querying {table_ref}: {e}")
+        return None

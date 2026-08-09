@@ -11,6 +11,7 @@ Tests extraction on real tracker files, validating:
 import pytest
 
 from a4d.extract.patient import read_all_patient_sheets
+from a4d.extract.product import read_all_product_sheets
 
 from .conftest import skip_if_missing
 
@@ -132,3 +133,100 @@ class TestExtract2022PenangLegacy:
         df = read_all_patient_sheets(tracker_2022_penang)
 
         assert df["tracker_year"].unique().to_list() == [2022]
+
+
+class TestExtractProduct2024Penang:
+    """Test product extraction on 2024 Penang tracker (same file as patient's)."""
+
+    def test_extract_total_rows(self, tracker_2024_penang):
+        """Should extract all raw product records from all sheets."""
+        skip_if_missing(tracker_2024_penang)
+
+        df = read_all_product_sheets(tracker_2024_penang)
+
+        assert len(df) == 696
+        assert len(df.columns) > 0
+
+    def test_extract_has_metadata_columns(self, tracker_2024_penang):
+        """Should add metadata columns (product_table_year/month, sheet name, file/clinic)."""
+        skip_if_missing(tracker_2024_penang)
+
+        df = read_all_product_sheets(tracker_2024_penang)
+
+        assert "product_table_year" in df.columns
+        assert "product_table_month" in df.columns
+        assert "product_sheet_name" in df.columns
+        assert "file_name" in df.columns
+        assert "clinic_id" in df.columns
+
+    def test_extract_year_is_correct(self, tracker_2024_penang):
+        """Should extract year 2024 from sheet names."""
+        skip_if_missing(tracker_2024_penang)
+
+        df = read_all_product_sheets(tracker_2024_penang)
+
+        assert df["product_table_year"].unique().to_list() == [2024.0]
+
+    def test_extract_has_12_months(self, tracker_2024_penang):
+        """Should process 12 month sheets (Jan-Dec 2024)."""
+        skip_if_missing(tracker_2024_penang)
+
+        df = read_all_product_sheets(tracker_2024_penang)
+
+        months = sorted(df["product_table_month"].unique().to_list())
+        assert months == [f"{m:02d}" for m in range(1, 13)]
+
+    def test_extract_clinic_id(self, tracker_2024_penang):
+        """Should extract clinic_id from parent directory."""
+        skip_if_missing(tracker_2024_penang)
+
+        df = read_all_product_sheets(tracker_2024_penang)
+
+        assert df["clinic_id"].unique().to_list() == ["PNG"]
+
+
+class TestExtractProduct2023Sibu:
+    """Test product extraction on 2023 Sibu tracker (mirrors patient's edge case)."""
+
+    def test_extract_row_count(self, tracker_2023_sibu):
+        skip_if_missing(tracker_2023_sibu)
+
+        df = read_all_product_sheets(tracker_2023_sibu)
+
+        assert len(df) == 316
+
+    def test_extract_months_sep_to_dec(self, tracker_2023_sibu):
+        skip_if_missing(tracker_2023_sibu)
+
+        df = read_all_product_sheets(tracker_2023_sibu)
+
+        months = sorted(df["product_table_month"].unique().to_list())
+        assert months == ["09", "10", "11", "12"]
+
+
+class TestExtractProductWideFormatColumns:
+    """2020 Mandalay tracker triggers handle_wide_format_columns (R step 1.4a)."""
+
+    def test_extract_succeeds_and_expands_recipients(self, tracker_2020_mandalay):
+        skip_if_missing(tracker_2020_mandalay)
+
+        df = read_all_product_sheets(tracker_2020_mandalay)
+
+        assert len(df) == 1139
+        assert "product_released_to" in df.columns
+        # Recipient names, not the raw "Total"/"per person" totals, should
+        # populate product_released_to once wide columns are expanded.
+        released_to = df["product_released_to"].drop_nulls().to_list()
+        assert any(v.startswith("MM_MD") for v in released_to)
+
+
+class TestExtractProductWideFormatCells:
+    """2018 Mandalay tracker triggers handle_wide_format_cells (R step 1.4b)."""
+
+    def test_extract_succeeds_and_splits_comma_cells(self, tracker_2018_mandalay):
+        skip_if_missing(tracker_2018_mandalay)
+
+        df = read_all_product_sheets(tracker_2018_mandalay)
+
+        assert len(df) == 575
+        assert "product_released_to" in df.columns
