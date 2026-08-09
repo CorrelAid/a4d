@@ -166,6 +166,81 @@ def _resolve_tracker_files(
     return files, display
 
 
+def _render_combined_run_summary(patient_result, product_result) -> None:
+    """Render a combined patient+product view of a run-pipeline execution.
+
+    Crosses each tracker file's patient and product outcome (both ok / one
+    arm failed / lost entirely) and merges both arms' per-file error counts.
+    Only meaningful once both arms have actually run — silently skips
+    otherwise (e.g. --skip-patient / --skip-product, or the product arm
+    crashing before producing a result).
+    """
+    if patient_result is None or product_result is None:
+        return
+
+    patient_by_name = {tr.tracker_name: tr for tr in patient_result.tracker_results}
+    product_by_name = {tr.tracker_name: tr for tr in product_result.tracker_results}
+    all_names = sorted(set(patient_by_name) | set(product_by_name))
+
+    both_ok = patient_only_failed = product_only_failed = both_failed = 0
+    attention_rows: list[tuple[str, str, str]] = []
+    error_counts: dict[str, int] = {}
+
+    for name in all_names:
+        p = patient_by_name.get(name)
+        q = product_by_name.get(name)
+        p_ok = p.success if p is not None else True
+        q_ok = q.success if q is not None else True
+
+        if p_ok and q_ok:
+            both_ok += 1
+        else:
+            p_err = p.error if p is not None and not p_ok else None
+            q_err = q.error if q is not None and not q_ok else None
+            attention_rows.append((name, p_err or "-", q_err or "-"))
+            if not p_ok and not q_ok:
+                both_failed += 1
+            elif not p_ok:
+                patient_only_failed += 1
+            else:
+                product_only_failed += 1
+
+        file_errors = (p.cleaning_errors if p else 0) + (q.cleaning_errors if q else 0)
+        if file_errors:
+            error_counts[name] = file_errors
+
+    console.print("\n[bold blue]Combined Run Summary[/bold blue]")
+    summary_table = Table()
+    summary_table.add_column("Outcome", style="cyan")
+    summary_table.add_column("Files", justify="right", style="green")
+    summary_table.add_row("Both arms OK", str(both_ok))
+    summary_table.add_row("Patient failed only", str(patient_only_failed))
+    summary_table.add_row("Product failed only", str(product_only_failed))
+    summary_table.add_row("Lost entirely (both arms failed)", str(both_failed))
+    console.print(summary_table)
+
+    if attention_rows:
+        console.print("\n[bold yellow]Files needing attention:[/bold yellow]")
+        detail_table = Table()
+        detail_table.add_column("File", style="red")
+        detail_table.add_column("Patient error")
+        detail_table.add_column("Product error")
+        for name, p_err, q_err in attention_rows:
+            detail_table.add_row(name, p_err, q_err)
+        console.print(detail_table)
+
+    if error_counts:
+        console.print(
+            "\n[bold yellow]Top Files by Error Count (patient + product combined):[/bold yellow]"
+        )
+        top_table = Table()
+        top_table.add_column("File", style="cyan")
+        top_table.add_column("Errors", justify="right", style="magenta")
+        for name, count in sorted(error_counts.items(), key=lambda kv: -kv[1])[:20]:
+            top_table.add_row(name, str(count))
+        console.print(top_table)
+
+
 def _render_failed_trackers(
     result,
     *,
@@ -1118,6 +1193,8 @@ def run_pipeline_cmd(
     # --force on `migration` was a vestigial no-op (declared, plumbed, never
     # read). With --force now actually wired through, opting in wipes both arms;
     # without it, run-pipeline keeps its prior preserve-outputs contract.
+    result = None
+    product_result = None
     if not skip_patient:
         console.print("[bold]Steps 2–3/5:[/bold] Processing tracker files...\n")
         try:
@@ -1142,12 +1219,19 @@ def run_pipeline_cmd(
             )
 
             if not result.success:
-                console.print("[bold red]✗ Pipeline failed – aborting upload steps[/bold red]\n")
-                raise typer.Exit(1)
+                # Soft-fail posture, matching the product arm below: some trackers
+                # failing doesn't block the rest of the run (product arm, tables,
+                # upload) — the combined run summary below is what surfaces this.
+                console.print(
+                    "[bold yellow]Warning: some patient trackers failed — "
+                    "continuing with the rest of the run.[/bold yellow]\n"
+                )
 
         except Exception as e:
-            console.print(f"\n[bold red]Error during processing: {e}[/bold red]\n")
-            raise typer.Exit(1) from e
+            console.print(
+                f"\n[bold yellow]Warning: patient pipeline failed: {e}[/bold yellow]\n"
+                "[yellow]Continuing with product/upload steps.[/yellow]\n"
+            )
     else:
         console.print("[bold]Steps 2–3/5:[/bold] Skipping patient pipeline (--skip-patient)\n")
 
@@ -1199,6 +1283,8 @@ def run_pipeline_cmd(
             )
     else:
         console.print("[bold]Step 3c/5:[/bold] Skipping product pipeline (--skip-product)\n")
+
+    _render_combined_run_summary(result, product_result)
 
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.
