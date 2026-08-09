@@ -23,25 +23,25 @@ class TestHelp:
     def test_app_help(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "process-patient" in result.output
+        assert "run" in result.output
 
-    def test_process_patient_help(self):
-        result = runner.invoke(app, ["process-patient", "--help"])
+    def test_run_patient_help(self):
+        result = runner.invoke(app, ["run", "patient", "--help"])
         assert result.exit_code == 0
         assert "--file" in result.output
 
     def test_create_tables_help(self):
-        result = runner.invoke(app, ["create-tables", "--help"])
+        result = runner.invoke(app, ["create", "tables", "--help"])
         assert result.exit_code == 0
-        assert "--input" in result.output
+        assert "--output" in result.output
 
     def test_upload_tables_help(self):
-        result = runner.invoke(app, ["upload-tables", "--help"])
+        result = runner.invoke(app, ["upload", "tables", "--help"])
         assert result.exit_code == 0
         assert "--tables-dir" in result.output
 
     def test_run_pipeline_help(self):
-        result = runner.invoke(app, ["run-pipeline", "--help"])
+        result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
         assert "--skip-download" in result.output
         assert "--skip-upload" in result.output
@@ -54,38 +54,38 @@ class TestHelp:
 
 
 class TestCreateTablesErrors:
-    """create-tables command error handling."""
+    """create tables command error handling."""
 
-    def test_no_parquet_files_exits_nonzero(self, tmp_path):
-        # Directory exists but contains no *_patient_cleaned.parquet files
-        result = runner.invoke(app, ["create-tables", "--input", str(tmp_path)])
+    def test_no_cleaned_dirs_exits_nonzero(self, tmp_path):
+        # Output root exists but has neither patient_data_cleaned/ nor
+        # product_data_cleaned/ — nothing to build tables from.
+        result = runner.invoke(app, ["create", "tables", "--output", str(tmp_path)])
         assert result.exit_code == 1
-        assert "No cleaned parquet files found" in result.output
+        assert "nothing to build tables from" in result.output
 
-    def test_missing_input_dir_raises(self, tmp_path):
+    def test_missing_output_dir_exits_nonzero(self, tmp_path):
         missing = tmp_path / "nonexistent"
-        result = runner.invoke(app, ["create-tables", "--input", str(missing)])
-        # typer raises UsageError or the command fails when dir missing
-        assert result.exit_code != 0
+        result = runner.invoke(app, ["create", "tables", "--output", str(missing)])
+        assert result.exit_code == 1
 
 
 class TestUploadTablesErrors:
-    """upload-tables command error handling."""
+    """upload tables command error handling."""
 
     def test_missing_dir_exits_nonzero(self, tmp_path):
         missing = tmp_path / "nonexistent_tables"
-        result = runner.invoke(app, ["upload-tables", "--tables-dir", str(missing)])
+        result = runner.invoke(app, ["upload", "tables", "--tables-dir", str(missing)])
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------
-# run-pipeline unit test (GCS/BQ mocked)
+# `run` unit test (GCS/BQ mocked)
 # ---------------------------------------------------------------------------
 
 
 class TestRunPipeline:
-    """run-pipeline command with mocked GCP calls."""
+    """`run` command with mocked GCP calls."""
 
     @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")
@@ -118,7 +118,7 @@ class TestRunPipeline:
         mock_run_product.return_value = empty_result
 
         result = runner.invoke(
-            app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
+            app, ["run", "--skip-download", "--skip-upload", "--skip-drive-download"]
         )
 
         mock_run_patient.assert_called_once()
@@ -161,7 +161,7 @@ class TestRunPipeline:
         )
 
         result = runner.invoke(
-            app, ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"]
+            app, ["run", "--skip-download", "--skip-upload", "--skip-drive-download"]
         )
 
         assert result.exit_code == 0, result.output
@@ -193,7 +193,7 @@ class TestRunPipeline:
         result = runner.invoke(
             app,
             [
-                "run-pipeline",
+                "run",
                 "--skip-patient",
                 "--skip-download",
                 "--skip-upload",
@@ -209,7 +209,7 @@ class TestRunPipeline:
         result = runner.invoke(
             app,
             [
-                "run-pipeline",
+                "run",
                 "--skip-patient",
                 "--skip-product",
                 "--skip-download",
@@ -237,7 +237,7 @@ def _tracker_result(name, *, success=True, error=None, cleaning_errors=0):
 
 
 class TestCombinedRunSummary:
-    """run-pipeline's combined patient+product summary, only shown when both arms ran."""
+    """`run`'s combined patient+product summary, only shown when both arms ran."""
 
     def _run(
         self, mock_settings, mock_run_patient, mock_run_product, tmp_path, patient_trs, product_trs
@@ -271,7 +271,7 @@ class TestCombinedRunSummary:
 
         return runner.invoke(
             app,
-            ["run-pipeline", "--skip-download", "--skip-upload", "--skip-drive-download"],
+            ["run", "--skip-download", "--skip-upload", "--skip-drive-download"],
         )
 
     @patch("a4d.cli.run_product_pipeline")
@@ -342,7 +342,7 @@ class TestCombinedRunSummary:
         result = runner.invoke(
             app,
             [
-                "run-pipeline",
+                "run",
                 "--skip-patient",
                 "--skip-download",
                 "--skip-upload",
@@ -355,21 +355,22 @@ class TestCombinedRunSummary:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end test: process-patient with real dummy tracker
+# End-to-end test: run patient with real dummy tracker
 # ---------------------------------------------------------------------------
 
 
 class TestProcessPatientE2E:
-    """End-to-end test for process-patient using a synthetic tracker file."""
+    """End-to-end test for run patient using a synthetic tracker file."""
 
     def test_process_single_file_creates_outputs(self, dummy_tracker, tmp_path):
-        """process-patient --file <dummy> --output <tmp> should produce parquet outputs."""
+        """run patient --file <dummy> --output <tmp> should produce parquet outputs."""
         output_dir = tmp_path / "output"
 
         result = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--file",
                 str(dummy_tracker),
                 "--output",
@@ -407,7 +408,8 @@ class TestProcessPatientE2E:
         result = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--file",
                 str(dummy_tracker),
                 "--output",
@@ -428,7 +430,8 @@ class TestProcessPatientE2E:
         result = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--file",
                 str(dummy_tracker),
                 "--output",
@@ -459,14 +462,14 @@ class TestProcessPatientE2E:
 
         result = runner.invoke(
             app,
-            ["process-patient", "--file", str(missing), "--output", str(output_dir)],
+            ["run", "patient", "--file", str(missing), "--output", str(output_dir)],
         )
 
         assert result.exit_code == 1
 
 
 class TestProcessProductE2E:
-    """End-to-end test for process-product, mirroring TestProcessPatientE2E.
+    """End-to-end test for run product, mirroring TestProcessPatientE2E.
 
     Covers the logs/errors table steps added to process_product_cmd to
     bring it to parity with process_patient_cmd (previously product never
@@ -479,7 +482,8 @@ class TestProcessProductE2E:
         result = runner.invoke(
             app,
             [
-                "process-product",
+                "run",
+                "product",
                 "--file",
                 str(dummy_product_tracker),
                 "--output",
@@ -508,7 +512,8 @@ class TestProcessProductE2E:
         result = runner.invoke(
             app,
             [
-                "process-product",
+                "run",
+                "product",
                 "--file",
                 str(dummy_product_tracker),
                 "--output",
@@ -521,10 +526,10 @@ class TestProcessProductE2E:
         tables_dir = output_dir / "tables"
         assert (tables_dir / "product_data.parquet").exists()
         assert (tables_dir / "table_logs.parquet").exists(), (
-            "logs table should be created (parity with process-patient)"
+            "logs table should be created (parity with run patient)"
         )
         assert (tables_dir / "table_errors.parquet").exists(), (
-            "errors table should be created (parity with process-patient)"
+            "errors table should be created (parity with run patient)"
         )
 
     def test_skip_tables_flag(self, dummy_product_tracker, tmp_path):
@@ -534,7 +539,8 @@ class TestProcessProductE2E:
         result = runner.invoke(
             app,
             [
-                "process-product",
+                "run",
+                "product",
                 "--file",
                 str(dummy_product_tracker),
                 "--output",
@@ -558,7 +564,7 @@ class TestProcessProductE2E:
 
         result = runner.invoke(
             app,
-            ["process-product", "--file", str(missing), "--output", str(output_dir)],
+            ["run", "product", "--file", str(missing), "--output", str(output_dir)],
         )
 
         assert result.exit_code == 1

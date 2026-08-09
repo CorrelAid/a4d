@@ -34,4 +34,4 @@ ENV A4D_DATA_ROOT=/workspace/data
 ENV A4D_REFERENCE_DATA=/app/reference_data
 
 # Run the full pipeline: download → process → upload to GCS → ingest into BigQuery
-CMD ["uv", "run", "a4d", "run-pipeline"]
+CMD ["uv", "run", "a4d", "run"]

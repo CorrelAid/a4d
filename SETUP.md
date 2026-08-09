@@ -257,7 +257,7 @@ docker run --rm asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
 
 **Level 2 — local pipeline run** (no GCS, process a local file):
 
-Mount a directory containing tracker files and run `process-patient`. Output lands in
+Mount a directory containing tracker files and run `run patient`. Output lands in
 `/data/output` inside the container, which is the same mount so you can inspect it
 afterward.
 
@@ -266,7 +266,7 @@ docker run --rm \
     -v /path/to/trackers:/data \
     -e A4D_DATA_ROOT=/data \
     asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
-    uv run a4d process-patient --file /data/your_tracker.xlsx
+    uv run a4d run patient --file /data/your_tracker.xlsx
 ```
 
 **Level 3 — full pipeline with GCP** (real GCS + BigQuery, no download):
@@ -281,7 +281,7 @@ docker run --rm \
     -e A4D_DATA_ROOT=/data \
     -e GOOGLE_CLOUD_PROJECT=a4dphase2 \
     asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest \
-    uv run a4d run-pipeline --skip-download
+    uv run a4d run --skip-download
 ```
 
 This exercises the full upload path (GCS + BigQuery) without touching the live tracker

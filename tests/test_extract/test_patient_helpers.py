@@ -144,9 +144,7 @@ class TestFindDataStartRow:
         wb2 = load_workbook(path, read_only=True)
         ws2 = wb2.active
 
-        with patch.object(
-            ReadOnlyWorksheet, "_cells_by_row", wraps=ws2._cells_by_row
-        ) as spy:
+        with patch.object(ReadOnlyWorksheet, "_cells_by_row", wraps=ws2._cells_by_row) as spy:
             result = find_data_start_row(ws2)
 
         assert result == 200

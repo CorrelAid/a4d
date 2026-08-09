@@ -33,23 +33,23 @@ class TestHelpExposesForce:
     """Every command that takes --incremental must also expose --force."""
 
     def test_process_patient_help_mentions_force(self):
-        result = runner.invoke(app, ["process-patient", "--help"])
+        result = runner.invoke(app, ["run", "patient", "--help"])
         assert result.exit_code == 0
         assert "--force" in result.output
 
     def test_process_product_help_mentions_force(self):
-        result = runner.invoke(app, ["process-product", "--help"])
+        result = runner.invoke(app, ["run", "product", "--help"])
         assert result.exit_code == 0
         assert "--force" in result.output
 
     def test_run_pipeline_help_mentions_force(self):
-        result = runner.invoke(app, ["run-pipeline", "--help"])
+        result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
         assert "--force" in result.output
 
 
 class TestForceFlag:
-    """--force semantics on process-patient (the one CLI command we can drive end-to-end)."""
+    """--force semantics on run patient (the one CLI command we can drive end-to-end)."""
 
     def test_force_produces_same_output_as_default(self, dummy_tracker_dir, tmp_path):
         """--force is an explicit synonym for the default — outputs must match byte-for-byte."""
@@ -59,7 +59,8 @@ class TestForceFlag:
         r1 = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -71,7 +72,8 @@ class TestForceFlag:
         r2 = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -92,7 +94,8 @@ class TestForceFlag:
             r = runner.invoke(
                 app,
                 [
-                    "process-patient",
+                    "run",
+                    "patient",
                     "--data-root",
                     str(dummy_tracker_dir),
                     "--output",
@@ -123,7 +126,8 @@ class TestForceFlag:
         result = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -147,7 +151,8 @@ class TestForceIncrementalConflict:
         result = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -167,7 +172,8 @@ class TestForceIncrementalConflict:
         r_force = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -180,7 +186,8 @@ class TestForceIncrementalConflict:
         r_both = runner.invoke(
             app,
             [
-                "process-patient",
+                "run",
+                "patient",
                 "--data-root",
                 str(dummy_tracker_dir),
                 "--output",
@@ -195,6 +202,6 @@ class TestForceIncrementalConflict:
 
 
 # Note: a "second incremental run skips unchanged" test would need to seed the
-# tracker_metadata manifest first — process-patient does not create it (only
-# create-tables / run-pipeline do). That code path is exercised by
+# tracker_metadata manifest first — run patient does not create it (only
+# create tables / the bare run do). That code path is exercised by
 # tests/test_state/test_integration.py, so we don't duplicate it here.

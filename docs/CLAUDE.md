@@ -43,16 +43,21 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 
 ## CLI Commands
 
+Commands are grouped by process (`run` / `create` / `upload` / `download`), not by the object they act on:
+
 ```bash
-uv run a4d process-patient          # Extract + clean + tables (local run, patient)
-uv run a4d process-product          # Extract + clean + table (local run, product)
-uv run a4d create-tables            # Re-create patient/logs/clinic tables from existing cleaned parquets
-uv run a4d create-product-tables    # Re-create product table from existing cleaned parquets
-uv run a4d upload-tables            # Upload tables to BigQuery
-uv run a4d download-trackers        # Download tracker files from GCS
-uv run a4d upload-output            # Upload output directory to GCS
-uv run a4d download-reference-data  # Download clinic_data.xlsx from Google Drive into reference_data/
-uv run a4d run-pipeline             # Full end-to-end pipeline (patient + product arms, drive/GCS/BigQuery)
+uv run a4d run                    # Full end-to-end pipeline (patient + product arms, drive/GCS/BigQuery)
+uv run a4d run patient            # Extract + clean + tables (local run, patient)
+uv run a4d run product            # Extract + clean + table (local run, product)
+
+uv run a4d create tables          # Re-create patient/product/clinic/logs tables from existing cleaned parquets
+uv run a4d create logs            # Re-create only the logs table from existing pipeline log files
+
+uv run a4d upload tables          # Upload tables to BigQuery (--only patient|product|clinic|logs|errors|metadata to restrict)
+uv run a4d upload output          # Upload output directory to GCS
+
+uv run a4d download trackers      # Download tracker files from GCS
+uv run a4d download clinic-data   # Download clinic_data.xlsx from Google Drive into reference_data/
 ```
 
 Key options: `--file` (single tracker), `--workers N`, `--skip-tables`, `--skip-download`, `--skip-upload`, `--skip-drive-download`, `--skip-product`, `--incremental` (skip trackers matching previous run's manifest).
@@ -81,5 +86,5 @@ output/
 
 - **Patient pipeline**: complete, validated against 174 trackers, deployed to production
 - **Product pipeline**: complete, merged into `src/a4d/` (2026-04-23).
-- **Tracker metadata table**: generated on every `create-tables` / `run-pipeline` run (MD5 + output-presence flags) and uploaded to BigQuery `tracker_metadata`.
-- **Incremental processing**: shipped 2026-05-01 behind the `--incremental` CLI flag (opt-in) on `process-patient`, `process-product`, and `run-pipeline`. Skips trackers whose MD5 + completion state match the previous run's manifest (BigQuery → local parquet → empty fallback). Default behaviour unchanged. See `a4d.state` module + [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md) state-management section.
+- **Tracker metadata table**: generated on every `create tables` / `run` run (MD5 + output-presence flags) and uploaded to BigQuery `tracker_metadata`.
+- **Incremental processing**: shipped 2026-05-01 behind the `--incremental` CLI flag (opt-in) on `run patient`, `run product`, and the bare `run`. Skips trackers whose MD5 + completion state match the previous run's manifest (BigQuery → local parquet → empty fallback). Default behaviour unchanged. See `a4d.state` module + [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md) state-management section.

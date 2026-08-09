@@ -52,9 +52,9 @@ A4D_UPLOAD_BUCKET=a4dphase2_output
 ```bash
 # Full end-to-end pipeline (Drive + GCS download → patient + product → GCS + BigQuery upload)
 just run
-# or: uv run a4d run-pipeline
+# or: uv run a4d run
 
-# Common run-pipeline flags
+# Common `a4d run` flags
 just run --workers 8
 just run --skip-upload          # Local testing: process but don't upload
 just run --skip-download        # Reuse files already in data_root
@@ -74,7 +74,7 @@ just run-file-product path/to/tracker.xlsx  # Single product tracker
 ## Architecture
 
 ```
-run-pipeline flow:
+`a4d run` flow:
 0. Download reference data (clinic_data.xlsx) from Google Drive
 1. Download tracker files from GCS
 2-3. Patient arm: extract → clean → tables (static, monthly, annual)
@@ -101,7 +101,7 @@ Output tables loaded into BigQuery:
 ```
 a4d/
 ├── src/a4d/           # Main package
-│   ├── cli.py         # Typer CLI (process-patient, process-product, run-pipeline, …)
+│   ├── cli.py         # Typer CLI (run/create/upload/download command groups)
 │   ├── config.py      # Pydantic settings (A4D_* env vars)
 │   ├── logging.py     # loguru configuration
 │   ├── extract/       # Sheet extraction (patient.py, product.py, wide_format.py)

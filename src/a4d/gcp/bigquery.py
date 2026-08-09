@@ -32,6 +32,16 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
+# Groups of BigQuery table names selectable via `a4d upload tables --only <group>`.
+TABLE_GROUPS: dict[str, set[str]] = {
+    "patient": {"patient_data_static", "patient_data_monthly", "patient_data_annual"},
+    "product": {"product_data"},
+    "clinic": {"clinic_data_static"},
+    "logs": {"logs"},
+    "errors": {"errors"},
+    "metadata": {"tracker_metadata"},
+}
+
 # Maps the pipeline output file names to BigQuery table names.
 # Note: table_logs.parquet uses this name from create_table_logs() in tables/logs.py.
 PARQUET_TO_TABLE: dict[str, str] = {
@@ -150,8 +160,9 @@ def load_pipeline_tables(
     dataset: str | None = None,
     project_id: str | None = None,
     replace: bool = True,
+    only_tables: set[str] | None = None,
 ) -> dict[str, bigquery.LoadJob]:
-    """Load all pipeline output tables into BigQuery.
+    """Load pipeline output tables into BigQuery.
 
     Scans the tables directory for known parquet files and loads each one
     into the corresponding BigQuery table.
@@ -162,6 +173,9 @@ def load_pipeline_tables(
         dataset: Dataset name (defaults to settings.dataset)
         project_id: GCP project ID (defaults to settings.project_id)
         replace: If True, replaces existing tables
+        only_tables: If set, restrict loading to these BigQuery table names
+            (see TABLE_GROUPS for the named groups CLI callers select from).
+            None loads every known table.
 
     Returns:
         Dictionary mapping table name to completed LoadJob
@@ -181,6 +195,8 @@ def load_pipeline_tables(
     results: dict[str, bigquery.LoadJob] = {}
 
     for parquet_name, table_name in PARQUET_TO_TABLE.items():
+        if only_tables is not None and table_name not in only_tables:
+            continue
         parquet_path = tables_dir / parquet_name
         if parquet_path.exists():
             try:
@@ -198,7 +214,12 @@ def load_pipeline_tables(
         else:
             logger.warning(f"Table file not found, skipping: {parquet_name}")
 
-    logger.info(f"Successfully loaded {len(results)}/{len(PARQUET_TO_TABLE)} tables")
+    considered = (
+        len(PARQUET_TO_TABLE)
+        if only_tables is None
+        else sum(1 for t in PARQUET_TO_TABLE.values() if t in only_tables)
+    )
+    logger.info(f"Successfully loaded {len(results)}/{considered} tables")
     return results
 
 
