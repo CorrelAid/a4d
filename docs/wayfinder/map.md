@@ -25,17 +25,17 @@ flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
-  end
-  subgraph BLOCKED["Blocked · 3"]
-    direction TB
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
+  end
+  subgraph BLOCKED["Blocked · 2"]
+    direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 3"]
+  subgraph DECIDED["Decided · 4"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
+    T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
@@ -58,11 +58,11 @@ flowchart TD
   T8 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T4 frontier
+  class T2,T5 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T5,T6,T9 blocked
+  class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T7,T8 decided
+  class T3,T4,T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -175,16 +175,24 @@ a clean review is judged sufficient trust to merge without it first. Ticket 2
 is blocked on ticket 3 instead of the reverse (`blocked_by: [3]`) — and since
 ticket 3 is now closed, ticket 2 is unblocked.
 
-**The frontier is now tickets 2 and 4** (both unblocked by ticket 3's
-closure): [Retire the PDF/notebook analysis docs for an automated,
-script-based report](tickets/02-documentation-strategy.md) (now buildable —
-patient and product share a branch) and [Diagnose and fix why CI is red at
-migration HEAD](tickets/04-fix-migration-ci.md), which now has a concrete
-lead rather than a cold investigation: after ticket 3's ruff/ty fixes, PR
-#6's CI fails on 7 `--help`-output assertion tests that only fail in the
-GitHub Actions runner (Typer/Rich renders the help panel differently there
-than locally, even with `COLUMNS=200` already forced) — unrelated to product
-code, affecting patient/CLI help tests broadly.
+**Five tickets resolved.** [Diagnose and fix why CI is red at migration
+HEAD](tickets/04-fix-migration-ci.md) is done: root cause was Typer's
+`FORCE_TERMINAL` freezing to `True` at import time because GitHub Actions
+always sets `GITHUB_ACTIONS=true`, which forces colorized `--help` output
+that splits options like `--file` into separate ANSI spans and breaks
+plain substring assertions — independent of the `NO_COLOR`/`COLUMNS`
+overrides already in place. `tests/conftest.py` on `product-pipeline` now
+sets Typer's own `_TYPER_FORCE_DISABLE_TERMINAL` escape hatch before
+`typer.rich_utils` is first imported. Pushed as `b970cf6`; PR #6's CI is
+green (428 tests), and PR #6 is `mergeable: MERGEABLE`. Full detail:
+[ticket 4](tickets/04-fix-migration-ci.md).
+
+**The frontier is now tickets 2 and 5**: [Retire the PDF/notebook analysis
+docs for an automated, script-based report](tickets/02-documentation-strategy.md)
+(buildable — patient and product share a branch) and [Define and execute the
+real GCP production verification run](tickets/05-production-verification-run.md)
+(unblocked now that both ticket 3 and ticket 4 are closed). Ticket 6
+(promote to `dev`) remains blocked on tickets 2 and 5.
 
 Key facts already gathered while charting (verified via `git`/`gh`, not
 assumed): PR #2 (`migration` -> `dev`) is open and mergeable, but CI has
@@ -197,6 +205,21 @@ not a repeatable test. Its two PDF reports haven't been read yet — ticket 2's
 remit.
 
 ## Decisions so far
+
+- [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
+  — decided and implemented: CI was red because GitHub Actions sets
+  `GITHUB_ACTIONS=true` for every job, and Typer reads that at import time
+  to force full-color `--help` rendering, which splits options like
+  `--file` into separate ANSI spans and breaks the tests' plain substring
+  assertions — regardless of the `NO_COLOR`/`COLUMNS` overrides the tests
+  already set. The original lead (`cli.py`'s module-level `console` object)
+  was investigated and ruled out: Rich re-reads `COLUMNS` live rather than
+  caching it, and `--help` is rendered by Typer's own internal console, not
+  `cli.py`'s. Fix: `tests/conftest.py` on `product-pipeline` sets Typer's
+  own `_TYPER_FORCE_DISABLE_TERMINAL` escape hatch before `typer.rich_utils`
+  is first imported. Pushed as `b970cf6`; PR #6's CI is green
+  (all 428 tests), coverage gate holds, PR #6 is `mergeable: MERGEABLE`.
+  Full detail: [ticket 4](tickets/04-fix-migration-ci.md).
 
 - [Does product-pipeline's test suite meet the same cell-by-cell rigor as
   patient's?](tickets/01-product-pipeline-test-rigor.md) — superseded: R-parity
@@ -285,17 +308,21 @@ flowchart TB
     direction LR
     U3["<b>3</b><br/>Merge product-pipeline<br/>(PR #6) into migration"]
   end
+  subgraph S2026_08_09["Session 2026-08-09"]
+    direction LR
+    U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
     U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
-  S2026_08_08b ~~~ Sopen
+  S2026_08_08b ~~~ S2026_08_09
+  S2026_08_09 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -314,11 +341,11 @@ flowchart TB
   U6 --->|blocked| U9
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U4 tfrontier
+  class U2,U5 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U5,U6,U9 tblocked
+  class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U7,U8 tdecided
+  class U3,U4,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
