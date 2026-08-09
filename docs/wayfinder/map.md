@@ -36,11 +36,10 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 3"]
+  subgraph FRONTIER["Frontier · 2"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
-    T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -48,7 +47,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 7"]
+  subgraph DECIDED["Decided · 8"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
@@ -57,6 +56,7 @@ flowchart TD
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
+    T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -88,11 +88,11 @@ flowchart TD
   T14 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T11,T14 frontier
+  class T2,T11 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T4,T5,T7,T8,T10,T13 decided
+  class T3,T4,T5,T7,T8,T10,T13,T14 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -292,19 +292,33 @@ not previously documented anywhere on this map — spawned as [ticket
 inline, now also blocking ticket 6. Full detail: [ticket
 10](tickets/10-performance-profiling.md).
 
-**The frontier is now tickets 2, 11 and 14**: [Retire the PDF/notebook
-analysis docs for an automated, script-based report](tickets/02-documentation-strategy.md),
-[Decide what CLI/TUI UX and error-log observability improvements
-admins/developers need before rollout](tickets/11-cli-ux-observability.md),
-and [Fix product pipeline's "unable to find column product" failures on 4
-real trackers](tickets/14-product-column-detection-failures.md) (freshly
-spawned this session, unblocked immediately — no premise ticket to wait on).
-Ticket 12 is still blocked on 2 and 10 (10 is now closed, so effectively just
-2). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11, 12,
-13, 14]` — tickets 3, 4, 5, 8, 10, 13 are closed; tickets 2, 11, 12, 14 are
-what remain. The user has said they intend to keep working this map session
-by session on `migration` until confident enough to roll out, rather than
-promoting early.
+**Nine tickets resolved.** [Fix product pipeline's "unable to find column
+product" failures on 4 real trackers](tickets/14-product-column-detection-failures.md)
+is done: confirmed legitimate (2018-2020 KBH and 2020 JVM trackers predate
+product/stock tracking entirely — no "product" keyword and no `INV` sheet
+anywhere in any of their month sheets, verified directly against the real
+files on the USB drive; product tracking starts with KBH's 2021 `INV`
+sheet), not a synonym gap or regression. The actual bug was in
+`clean_product_data` (`src/a4d/clean/product.py`): it assumed a `"product"`
+column always exists and crashed on the fully columnless frame extraction
+correctly hands back for these trackers, because `apply_schema` invents a
+spurious 1-row output from a columnless input instead of preserving 0 rows.
+Fixed with an early return to an empty, schema-conformant (0, 20) DataFrame
+when the raw frame has no columns. Reproduced the original crash and the fix
+against the real files; all 4 now process successfully with 0-row output.
+One regression test added; full suite (490 tests), ruff, `ty check` all
+pass. Full detail: [ticket 14](tickets/14-product-column-detection-failures.md).
+
+**The frontier is now tickets 2 and 11**: [Retire the PDF/notebook analysis
+docs for an automated, script-based report](tickets/02-documentation-strategy.md)
+and [Decide what CLI/TUI UX and error-log observability improvements
+admins/developers need before rollout](tickets/11-cli-ux-observability.md).
+Ticket 12 is still blocked on ticket 2 (its other blocker, ticket 10, is
+closed). Ticket 6 (promote to `dev`) is `blocked_by: [8, 2, 3, 4, 5, 10, 11,
+12, 13, 14]` — tickets 3, 4, 5, 8, 10, 13, 14 are closed; tickets 2, 11, 12
+are what remain. The user has said they intend to keep working this map
+session by session on `migration` until confident enough to roll out, rather
+than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
@@ -413,6 +427,15 @@ ticket 12's git-tracked R cleanup.
   [ticket 14](tickets/14-product-column-detection-failures.md). Full detail:
   [ticket 10](tickets/10-performance-profiling.md).
 
+- [Fix product pipeline's "unable to find column product" failures on 4 real
+  trackers](tickets/14-product-column-detection-failures.md) — decided and
+  implemented: confirmed legitimate (pre-product-tracking tracker years for
+  2 clinics, verified directly against the real files), not a synonym gap or
+  regression; fixed a real bug where `clean_product_data` crashed on the
+  columnless raw frame extraction correctly produces for these trackers,
+  instead returning an empty schema-conformant result. Full detail: [ticket
+  14](tickets/14-product-column-detection-failures.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -491,6 +514,10 @@ flowchart TB
     direction LR
     U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
   end
+  subgraph S2026_08_09e["Session 2026-08-09e"]
+    direction LR
+    U14["<b>14</b><br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4<br/>real trackers"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
@@ -498,7 +525,6 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
-    U14["<b>14</b><br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4<br/>real trackers"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -506,7 +532,8 @@ flowchart TB
   S2026_08_09 ~~~ S2026_08_09b
   S2026_08_09b ~~~ S2026_08_09c
   S2026_08_09c ~~~ S2026_08_09d
-  S2026_08_09d ~~~ Sopen
+  S2026_08_09d ~~~ S2026_08_09e
+  S2026_08_09e ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -537,11 +564,11 @@ flowchart TB
   U10 -.->|spawned| U14
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U11,U14 tfrontier
+  class U2,U11 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U5,U7,U8,U10,U13 tdecided
+  class U3,U4,U5,U7,U8,U10,U13,U14 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

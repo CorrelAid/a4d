@@ -891,3 +891,19 @@ def test_fat_finger_future_falls_into_input_order_rank_after_validation():
     assert dates[1] == date(9999, 9, 9)  # was 2099-03-15, now sentinel-as-null
     assert dates[2] == date(2024, 6, 1)  # valid mid-row
     assert dates[3] is None  # end
+
+
+def test_clean_product_data_handles_columnless_raw_frame():
+    """Trackers from pre-product-tracking years extract to a 0-column,
+    0-row frame (no product section in any sheet). Cleaning must hand back
+    an empty, schema-conformant frame rather than crash on a missing
+    "product" column (ticket 14)."""
+    df_raw = pl.DataFrame()
+    collector = ErrorCollector()
+
+    out = clean_product_data(df_raw, collector)
+
+    assert out.height == 0
+    assert out.width == 20
+    assert "product" in out.columns
+    assert len(collector) == 0
