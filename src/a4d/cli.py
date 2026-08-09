@@ -976,9 +976,14 @@ def upload_tables_cmd(
 
 @download_app.command("trackers")
 def download_trackers_cmd(
-    destination: Annotated[
+    data_root: Annotated[
         Path,
-        typer.Option("--destination", "-d", help="Local directory to download files to"),
+        typer.Option(
+            "--data-root",
+            "-d",
+            help="Local directory to download files to — same directory `run patient`/"
+            "`run product` later read via their own --data-root",
+        ),
     ],
     bucket: Annotated[
         str | None,
@@ -990,18 +995,18 @@ def download_trackers_cmd(
     \b
     Examples:
         # Download to local directory
-        uv run a4d download trackers --destination /data/trackers
+        uv run a4d download trackers --data-root /data/trackers
 
         # Download from specific bucket
-        uv run a4d download trackers --destination /data/trackers --bucket my-bucket
+        uv run a4d download trackers --data-root /data/trackers --bucket my-bucket
     """
     from a4d.gcp.storage import download_tracker_files
 
     console.print("\n[bold blue]A4D Tracker Download[/bold blue]\n")
-    console.print(f"Destination: {destination}")
+    console.print(f"Data root: {data_root}")
 
     try:
-        downloaded = download_tracker_files(destination=destination, bucket_name=bucket)
+        downloaded = download_tracker_files(destination=data_root, bucket_name=bucket)
         console.print(f"\n[bold green]✓ Downloaded {len(downloaded)} files[/bold green]\n")
     except Exception as e:
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
