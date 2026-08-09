@@ -4,7 +4,6 @@ This module handles reading patient data from Excel trackers, which have
 evolved over the years with different formats and structures.
 """
 
-import calendar
 import re
 import warnings
 from pathlib import Path
@@ -14,104 +13,24 @@ from loguru import logger
 from openpyxl import load_workbook
 
 from a4d.errors import ErrorCollector
+from a4d.extract.common import (
+    clean_excel_errors,
+    extract_tracker_month,
+    find_month_sheets,
+    get_tracker_year,
+)
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
+
+__all__ = [
+    "clean_excel_errors",
+    "extract_tracker_month",
+    "find_month_sheets",
+    "get_tracker_year",
+]
 
 # Suppress openpyxl warnings about unsupported Excel features
 # We only read data, so these warnings are not actionable
 warnings.filterwarnings("ignore", category=UserWarning, module=r"openpyxl\..*")
-
-
-def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
-    """Extract tracker year from month sheet names or filename.
-
-    Tries to parse year from month sheet names (e.g., "Jan24" -> 2024).
-    Falls back to extracting from filename if parsing fails.
-    Validates year is in reasonable range (2017-2030).
-
-    Args:
-        tracker_file: Path to the tracker Excel file
-        month_sheets: List of month sheet names
-
-    Returns:
-        Year of the tracker (e.g., 2024)
-
-    Raises:
-        ValueError: If year cannot be determined or is out of valid range
-
-    Example:
-        >>> get_tracker_year(Path("2024_Clinic.xlsx"), ["Jan24", "Feb24"])
-        2024
-    """
-    for sheet in month_sheets:
-        match = re.search(r"(\d{2})$", sheet)
-        if match:
-            year_suffix = int(match.group(1))
-            year = 2000 + year_suffix  # Assume 20xx until 2100
-            logger.debug(f"Parsed year {year} from sheet name '{sheet}'")
-
-            if not (2017 <= year <= 2030):  # Match R pipeline validation
-                raise ValueError(
-                    f"Year {year} is out of valid range (2017-2030). "
-                    f"Parsed from sheet name '{sheet}'"
-                )
-
-            return year
-
-    match = re.search(r"(\d{4})", tracker_file.name)
-    if match:
-        year = int(match.group(1))
-        logger.debug(f"Parsed year {year} from filename '{tracker_file.name}'")
-
-        if not (2017 <= year <= 2030):  # Match R pipeline validation
-            raise ValueError(
-                f"Year {year} is out of valid range (2017-2030). "
-                f"Parsed from filename '{tracker_file.name}'"
-            )
-
-        return year
-
-    raise ValueError(
-        f"Could not determine year from month sheets {month_sheets} or filename {tracker_file.name}"
-    )
-
-
-def find_month_sheets(workbook) -> list[str]:
-    """Find all month sheets in the tracker workbook.
-
-    Month sheets are identified by matching against month abbreviations
-    (Jan, Feb, Mar, etc.) and sorted by month number for consistent processing.
-
-    Args:
-        workbook: openpyxl Workbook object
-
-    Returns:
-        List of month sheet names found in the workbook, sorted by month number
-        (Jan=1, Feb=2, ..., Dec=12)
-
-    Example:
-        >>> wb = load_workbook("tracker.xlsx")
-        >>> find_month_sheets(wb)
-        ['Jan24', 'Feb24', 'Mar24', ...]
-    """
-    month_abbrs = list(calendar.month_abbr)[1:]  # ['Jan', 'Feb', ...]
-    month_sheets = []
-
-    for sheet_name in workbook.sheetnames:
-        if any(sheet_name.startswith(abbr) for abbr in month_abbrs):
-            month_sheets.append(sheet_name)
-
-    def get_month_number(sheet_name: str) -> int:
-        """Extract month number from sheet name (Jan=1, ..., Dec=12)."""
-        month_prefix = sheet_name[:3]
-        try:
-            return month_abbrs.index(month_prefix) + 1
-        except ValueError:
-            return 999  # Push unrecognized sheets to end
-
-    month_sheets.sort(key=get_month_number)
-
-    logger.info(f"Found {len(month_sheets)} month sheets (sorted by month): {month_sheets}")
-    return month_sheets
 
 
 def find_data_start_row(ws) -> int:
@@ -389,63 +308,6 @@ def filter_valid_columns(
     return valid_headers, filtered_data
 
 
-def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
-    """Convert Excel error strings to NULL values.
-
-    Excel error codes like #DIV/0!, #VALUE!, etc. are not usable values
-    and should be treated as missing data.
-
-    Args:
-        df: DataFrame with potential Excel error strings
-
-    Returns:
-        DataFrame with Excel errors converted to NULL
-
-    Example:
-        >>> df = pl.DataFrame({"bmi": ["17.5", "#DIV/0!", "18.2"]})
-        >>> clean_df = clean_excel_errors(df)
-        >>> clean_df["bmi"].to_list()
-        ['17.5', None, '18.2']
-    """
-    excel_errors = [
-        "#DIV/0!",
-        "#VALUE!",
-        "#REF!",
-        "#NAME?",
-        "#NUM!",
-        "#N/A",
-        "#NULL!",
-    ]
-
-    metadata_cols = {
-        "tracker_year",
-        "tracker_month",
-        "clinic_id",
-        "patient_id",
-        "sheet_name",
-        "file_name",
-    }
-    data_cols = [col for col in df.columns if col not in metadata_cols]
-
-    if not data_cols:
-        return df
-
-    df = df.with_columns(
-        [
-            pl.when(pl.col(col).is_in(excel_errors)).then(None).otherwise(pl.col(col)).alias(col)
-            for col in data_cols
-        ]
-    )
-
-    for error in excel_errors:
-        for col in data_cols:
-            count = (df[col] == error).sum()
-            if count > 0:
-                logger.debug(f"Converted {count} '{error}' values to NULL in column '{col}'")
-
-    return df
-
-
 def extract_patient_data(
     tracker_file: Path,
     sheet_name: str,
@@ -585,45 +447,6 @@ def harmonize_patient_data_columns(
     )
 
     return renamed_df
-
-
-def extract_tracker_month(sheet_name: str) -> int:
-    """Extract month number (1-12) from sheet name.
-
-    Args:
-        sheet_name: Sheet name like "Jan24", "Feb24", etc.
-
-    Returns:
-        Month number (1 for January, 2 for February, etc.)
-
-    Raises:
-        ValueError: If month cannot be extracted or is out of valid range
-
-    Example:
-        >>> extract_tracker_month("Jan24")
-        1
-        >>> extract_tracker_month("Dec23")
-        12
-    """
-    month_abbrs = list(calendar.month_abbr)[1:]  # ['Jan', 'Feb', ...]
-
-    # Check first 3 characters
-    month_prefix = sheet_name[:3]
-
-    if month_prefix in month_abbrs:
-        month_num = month_abbrs.index(month_prefix) + 1  # +1 because index is 0-based
-
-        # Validate month is in valid range (1-12)
-        # This should always be true given the logic above, but check anyway for safety
-        if not (1 <= month_num <= 12):
-            raise ValueError(
-                f"Month number {month_num} is out of valid range (1-12). "
-                f"Parsed from sheet name '{sheet_name}'"
-            )
-
-        return month_num
-
-    raise ValueError(f"Could not extract month from sheet name '{sheet_name}'")
 
 
 def read_all_patient_sheets(

@@ -102,7 +102,7 @@ def replace_name_with_id(src: Path, output: str):
             columns=["id", "name"],
         )
         patient_data = patient_data.iloc[1:]
-        patients_replaced = {name: False for name in patient_data.name}
+        patients_replaced = dict.fromkeys(patient_data.name, False)
 
         if all(patient_data.name == patient_data.id):
             logger.info(
@@ -130,7 +130,7 @@ def replace_name_with_id(src: Path, output: str):
 
         wb.save(output_dir / excel_file.name)
         logger.info("Saved changed file to %s.", output_dir)
-        logger.info(f"Finished processing %s.", excel_file.name)
+        logger.info("Finished processing %s.", excel_file.name)
 
 
 if __name__ == "__main__":

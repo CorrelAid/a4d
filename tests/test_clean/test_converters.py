@@ -1,13 +1,17 @@
 """Tests for type conversion with error tracking."""
 
+from datetime import date
+
 import polars as pl
 
 from a4d.clean.converters import (
     correct_decimal_sign,
     cut_numeric_value,
+    parse_date_column,
     safe_convert_column,
     safe_convert_multiple_columns,
 )
+from a4d.clean.date_parser import rescue_date_typos
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 
@@ -335,3 +339,78 @@ def test_cut_numeric_value_ignores_existing_errors():
     # Only 30 should be logged, not the existing error value
     assert result["age"].to_list() == [15, settings.error_val_numeric, settings.error_val_numeric]
     assert len(collector) == 1
+
+
+def test_rescue_date_typos_known_patterns():
+    assert rescue_date_typos("23-Mach-20") == ("23-MAR-20", True)
+    assert rescue_date_typos("15-N0v-2021") == ("15-NOV-2021", True)
+    assert rescue_date_typos("10-0ct-2024") == ("10-OCT-2024", True)
+    assert rescue_date_typos("01-N0vember-2021") == ("01-NOVEMBER-2021", True)
+
+
+def test_rescue_date_typos_passthrough():
+    assert rescue_date_typos("15-Mar-2024") == ("15-Mar-2024", False)
+    # Word-boundary protects unrelated substrings.
+    assert rescue_date_typos("CON0CTOR") == ("CON0CTOR", False)
+
+
+def test_parse_date_column_rescues_typo_and_logs():
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx", "t.xlsx"],
+            "patient_id": ["P1", "P2"],
+            "entry_date": ["23-Mach-20", "15-Mar-2024"],
+        }
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df, "entry_date", collector)
+
+    parsed = result["entry_date"].to_list()
+    assert parsed[0] == date(2020, 3, 23)
+    assert parsed[1] == date(2024, 3, 15)
+    assert len(collector) == 1
+    err = collector.errors[0]
+    assert err.error_code == "typo_rescued"
+    assert err.column == "entry_date"
+    assert err.original_value == "23-Mach-20"
+    assert err.patient_id == "P1"
+
+
+def test_parse_date_column_logs_unparseable_dates():
+    """Pin parse_date_column's existing observability for genuinely unparseable
+    cells. R has a separate 'non_processed_dates' warning that fires on rows
+    R cannot parse via its narrower harmoniser; Python's parse_date_flexible
+    parses many of those rows successfully (e.g. "Mar 18" abbreviated formats)
+    and only sentinels truly-unparseable ones — at which point this existing
+    type_conversion log entry covers the equivalent signal with strictly
+    better signal-to-noise. See cleaning_divergences.md §10.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx", "test.xlsx", "test.xlsx"],
+            "patient_id": ["P1", "P2", "P3"],
+            "entry_date": ["2024-03-15", "garbage_value_xyz", "2024-04-20"],
+        },
+        schema={
+            "file_name": pl.String,
+            "patient_id": pl.String,
+            "entry_date": pl.String,
+        },
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df=df, column="entry_date", error_collector=collector)
+
+    parsed = result["entry_date"].to_list()
+    assert parsed[0] == date(2024, 3, 15)
+    assert parsed[1] == date(9999, 9, 9)  # error_val_date sentinel
+    assert parsed[2] == date(2024, 4, 20)
+
+    assert len(collector) == 1
+    err = collector.errors[0]
+    assert err.error_code == "type_conversion"
+    assert err.function_name == "parse_date_column"
+    assert err.column == "entry_date"
+    assert err.original_value == "garbage_value_xyz"
+    assert err.patient_id == "P2"

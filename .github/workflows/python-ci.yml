@@ -46,6 +46,10 @@ jobs:
     - name: Run tests
       run: uv run pytest -m "not slow and not integration" --cov --cov-report=xml
 
+    - name: Enforce coverage floor for product pipeline code
+      run: |
+        uv run coverage report --include="src/a4d/extract/product.py,src/a4d/clean/product.py,src/a4d/clean/schema_product.py,src/a4d/extract/wide_format.py,src/a4d/pipeline/product.py,src/a4d/tables/product.py,src/a4d/validate/source_vs_output_product.py" --fail-under=85
+
     - name: Upload coverage
       uses: codecov/codecov-action@v3
       with:

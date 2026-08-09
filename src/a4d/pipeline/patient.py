@@ -19,6 +19,7 @@ from a4d.tables.patient import (
     create_table_patient_data_annual,
     create_table_patient_data_monthly,
     create_table_patient_data_static,
+    read_cleaned_patient_data,
 )
 
 
@@ -89,18 +90,21 @@ def process_patient_tables(cleaned_dir: Path, output_dir: Path) -> dict[str, Pat
         logger.warning("No cleaned files found, skipping table creation")
         return {}
 
+    patient_data = read_cleaned_patient_data(cleaned_files)
+    logger.info(f"Loaded combined patient dataframe: {patient_data.shape}")
+
     tables = {}
 
     logger.info("Creating static patient table")
-    static_path = create_table_patient_data_static(cleaned_files, output_dir)
+    static_path = create_table_patient_data_static(patient_data, output_dir)
     tables["static"] = static_path
 
     logger.info("Creating monthly patient table")
-    monthly_path = create_table_patient_data_monthly(cleaned_files, output_dir)
+    monthly_path = create_table_patient_data_monthly(patient_data, output_dir)
     tables["monthly"] = monthly_path
 
     logger.info("Creating annual patient table")
-    annual_path = create_table_patient_data_annual(cleaned_files, output_dir)
+    annual_path = create_table_patient_data_annual(patient_data, output_dir)
     tables["annual"] = annual_path
 
     logger.info(f"Created {len(tables)} patient tables")
@@ -112,7 +116,6 @@ def run_patient_pipeline(
     max_workers: int = 1,
     output_root: Path | None = None,
     skip_tables: bool = False,
-    force: bool = False,
     clean_output: bool = False,
     progress_callback: Callable[[str, bool], None] | None = None,
     show_progress: bool = False,
@@ -135,7 +138,6 @@ def run_patient_pipeline(
         max_workers: Number of parallel workers (1 = sequential)
         output_root: Output directory (None = use settings.output_root)
         skip_tables: If True, only extract + clean, skip table creation
-        force: If True, reprocess even if outputs exist
         clean_output: If True, wipe patient_data_raw/, patient_data_cleaned/, tables/ before run
         progress_callback: Optional callback(tracker_name, success) called after each tracker
         show_progress: If True, show tqdm progress bar

@@ -12,6 +12,20 @@
 # Note: Data transformations are hardcoded in src/a4d/clean/transformers.py,
 # not defined in YAML.
 
+# Numeric range bounds consumed by src/a4d/validate/source_vs_output_patient.py
+# only. Mirrors the hardcoded thresholds in src/a4d/clean/patient.py:510-562.
+# Single-source-of-truth refactor blocked by patient.py being a golden file
+# (see CLAUDE.local.md). If you change one, change the other.
+# height bounds apply AFTER the cm->m auto-conversion at clean/patient.py:530-535.
+numeric_ranges:
+  height:           {min: 0.0,  max: 2.3}
+  weight:           {min: 0.0,  max: 200.0}
+  bmi:              {min: 10.0, max: 80.0}
+  age:              {min: 0,    max: 100}
+  hba1c_baseline:   {min: 0.0,  max: 25.0}
+  hba1c_updated:    {min: 0.0,  max: 25.0}
+  fbg_updated_mmol: {min: 0.0,  max: 150.0}
+
 analog_insulin_long_acting:
   allowed_values: ["N", "Y"]
   replace_invalid: true
@@ -74,17 +88,20 @@ insulin_type:
   replace_invalid: true
 
 insulin_subtype:
-  # Note: R derives "rapic-acting" (typo) but validates against "Rapid-acting" (correct)
-  # This causes ALL derived values to become "Undefined" because:
-  # 1. Single values like "rapic-acting" don't match "Rapid-acting"
-  # 2. Comma-separated values like "rapic-acting,long-acting" don't match any single allowed value
+  # Python's builder emits comma-joined values (e.g. "pre-mixed,rapid-acting") for
+  # multi-insulin patients, matching R's builder. R's validator treated the CSV as a
+  # single opaque string and rejected it, so R output "Undefined" for every multi-insulin
+  # patient. Python uses allow_csv_subset=true: each comma-separated token is validated
+  # against allowed_values independently, then rejoined in canonical case.
+  # R's "rapic-acting" typo is already corrected in Python's builder (clean/patient.py).
   allowed_values:
     - "Pre-mixed"
     - "Short-acting"
     - "Intermediate-acting"
-    - "Rapid-acting"  # R expects this, but derives "rapic-acting" (typo)
+    - "Rapid-acting"
     - "Long-acting"
   replace_invalid: true
+  allow_csv_subset: true
 
 observations_category:
   allowed_values:

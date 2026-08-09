@@ -55,3 +55,33 @@ def dummy_tracker(tmp_path) -> Path:
 def dummy_tracker_dir(dummy_tracker) -> Path:
     """Return the directory containing the dummy tracker (data root for batch mode)."""
     return dummy_tracker.parent.parent
+
+
+@pytest.fixture
+def dummy_product_tracker(tmp_path) -> Path:
+    """Create a minimal valid A4D Excel tracker file with a product section.
+
+    Headers use real synonyms_product.yaml canonical names so the CLI's
+    default (non-stub) column mapper resolves them without mocking.
+    """
+    clinic_dir = tmp_path / "TST"
+    clinic_dir.mkdir()
+    tracker_path = clinic_dir / "2024_Test_Clinic.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Jan24"
+
+    rows = [
+        [None, None, None, None, None],
+        ["Product", "Date", "Received From", "Units Received", "Units Released"],
+        ["Insulin A", "2024-01-05", "HQ", 100, 5],
+        ["Insulin B", "2024-01-10", "HQ", 50, None],
+        ["Patient Recruitment", None, None, None, None],
+        ["Patient Name", "Patient ID", None, None, None],
+    ]
+    for row in rows:
+        ws.append(row)
+
+    wb.save(tracker_path)
+    return tracker_path
