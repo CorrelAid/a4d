@@ -194,6 +194,15 @@ real GCP production verification run](tickets/05-production-verification-run.md)
 (unblocked now that both ticket 3 and ticket 4 are closed). Ticket 6
 (promote to `dev`) remains blocked on tickets 2 and 5.
 
+**PR #6 was merged by the user** (2026-08-09, merge commit `7713fea`,
+human-only action per this map's guardrails). `migration` now contains the
+combined patient + product pipeline; CI on the merge commit is green
+(`gh run list --branch migration` — run `31286057254`, `conclusion:
+success`). PR #2 (`migration` -> `dev`) is `mergeable: MERGEABLE`. This
+closes out the "make `product-pipeline` ready, then merge" half of the
+user's sequencing preference; what remains before ticket 6 (promotion) is
+"make `migration` ready" — tickets 2 and 5.
+
 Key facts already gathered while charting (verified via `git`/`gh`, not
 assumed): PR #2 (`migration` -> `dev`) is open and mergeable, but CI has
 failed on `migration` HEAD for its last 3 runs (ticket 4's target).
