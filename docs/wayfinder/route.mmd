@@ -13,17 +13,22 @@ flowchart TB
     direction LR
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
   end
+  subgraph S2026_08_09b["Session 2026-08-09b"]
+    direction LR
+    U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
+    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
-  S2026_08_09 ~~~ Sopen
+  S2026_08_09 ~~~ S2026_08_09b
+  S2026_08_09b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -35,17 +40,19 @@ flowchart TB
   U3 --->|blocked| U6
   U4 --->|blocked| U6
   U5 --->|blocked| U6
+  U10 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
+  U3 --->|blocked| U10
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U5 tfrontier
+  class U2,U10 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U7,U8 tdecided
+  class U3,U4,U5,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

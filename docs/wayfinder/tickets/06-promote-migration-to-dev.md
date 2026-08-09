@@ -3,7 +3,7 @@ id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
-blocked_by: [8, 2, 3, 4, 5]
+blocked_by: [8, 2, 3, 4, 5, 10]
 assignee: null
 claimed_at: null
 resolution: null
@@ -23,8 +23,10 @@ and patient's structure?](07-pipeline-completeness-audit.md)), [Retire the
 PDF/notebook analysis docs for an automated, script-based
 report](02-documentation-strategy.md), [Merge product-pipeline (PR #6) into
 migration](03-merge-product-pipeline.md), [Diagnose and fix why CI is red at
-migration HEAD](04-fix-migration-ci.md), and [Define and execute the real GCP
-production verification run](05-production-verification-run.md).
+migration HEAD](04-fix-migration-ci.md), [Define and execute the real GCP
+production verification run](05-production-verification-run.md), and [Profile
+the combined pipeline's performance against the R baseline before promoting to
+dev](10-performance-profiling.md).
 
 PR #2 (`migration` -> `dev`) already exists and is `mergeable: MERGEABLE`; it is
 gated only on the work above landing first.

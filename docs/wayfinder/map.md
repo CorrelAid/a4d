@@ -25,17 +25,18 @@ flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
+    T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
   end
   subgraph BLOCKED["Blocked · 2"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 4"]
+  subgraph DECIDED["Decided · 5"]
     direction TB
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
+    T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
   end
@@ -49,6 +50,7 @@ flowchart TD
   T3 --> T4
   T3 --> T5
   T3 --> T6
+  T3 --> T10
   T4 --> T5
   T4 --> T6
   T5 --> T6
@@ -56,13 +58,14 @@ flowchart TD
   T7 --> T8
   T8 --> T3
   T8 --> T6
+  T10 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T2,T5 frontier
+  class T2,T10 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T3,T4,T7,T8 decided
+  class T3,T4,T5,T7,T8 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -187,13 +190,6 @@ sets Typer's own `_TYPER_FORCE_DISABLE_TERMINAL` escape hatch before
 green (428 tests), and PR #6 is `mergeable: MERGEABLE`. Full detail:
 [ticket 4](tickets/04-fix-migration-ci.md).
 
-**The frontier is now tickets 2 and 5**: [Retire the PDF/notebook analysis
-docs for an automated, script-based report](tickets/02-documentation-strategy.md)
-(buildable — patient and product share a branch) and [Define and execute the
-real GCP production verification run](tickets/05-production-verification-run.md)
-(unblocked now that both ticket 3 and ticket 4 are closed). Ticket 6
-(promote to `dev`) remains blocked on tickets 2 and 5.
-
 **PR #6 was merged by the user** (2026-08-09, merge commit `7713fea`,
 human-only action per this map's guardrails). `migration` now contains the
 combined patient + product pipeline; CI on the merge commit is green
@@ -212,6 +208,34 @@ claims cite a notebook (`Ali_internship/residual_dig.ipynb`, not in the
 tracked tree) and a patient-only comparison script — i.e. one-off analysis,
 not a repeatable test. Its two PDF reports haven't been read yet — ticket 2's
 remit.
+
+**Six tickets resolved.** [Define and execute the real GCP production
+verification run](tickets/05-production-verification-run.md) is done: the
+combined patient + product pipeline ran for the first time as one execution
+via the existing `a4d-pipeline` Cloud Run Job against real production
+GCS/BigQuery, preceded by a `just backup-bq` snapshot, and verified clean
+against that snapshot (row counts, distinct clinics, schema — not R, which
+the user decided is out of this ticket's scope). Full detail: [ticket
+5](tickets/05-production-verification-run.md).
+
+**A new ticket was added mid-session, not resolved**: [Profile the combined
+pipeline's performance against the R baseline before promoting to
+dev](tickets/10-performance-profiling.md) — the user's standing understanding
+that Python is much faster than R predates this merge's additions and hasn't
+been re-checked. Wired as a new blocker on ticket 6 alongside tickets 2 and
+10. A second, fuzzier idea (CLI/TUI UX and error-log observability for
+admins/developers) was raised but wasn't sharp enough to ticket and its scope
+relative to this map's destination is unresolved — parked in **Not yet
+specified** pending the user's call on whether it belongs to this effort or a
+separate one.
+
+**The frontier is now tickets 2 and 10**: [Retire the PDF/notebook analysis
+docs for an automated, script-based report](tickets/02-documentation-strategy.md)
+and [Profile the combined pipeline's performance against the R baseline
+before promoting to dev](tickets/10-performance-profiling.md), both unblocked
+(only depend on the now-closed ticket 3). Ticket 6 (promote to `dev`) is
+`blocked_by: [8, 2, 3, 4, 5, 10]` — tickets 3, 4, 5, 8 are closed; tickets 2
+and 10 are what remain.
 
 ## Decisions so far
 
@@ -273,6 +297,19 @@ remit.
   fails on 7 `--help`-rendering tests unrelated to product code — handed to
   ticket 4 with a concrete lead rather than fixed here.
 
+- [Define and execute the real GCP production verification run](tickets/05-production-verification-run.md)
+  — decided and executed: ran the combined patient + product pipeline for the
+  first time as one execution, via the existing `a4d-pipeline` Cloud Run Job
+  against real production GCS/BigQuery (execution `a4d-pipeline-8mxls`,
+  succeeded). Preceded by a `just backup-bq` snapshot as the rollback point.
+  Verified with a new script (`scripts/verify_production_run.py` +
+  `src/a4d/gcp/verify.py`, unit-tested) comparing row counts, distinct clinic
+  counts, and schema against that snapshot — not against R, which the user
+  decided has no role in this ticket's check (R-vs-source comparison stays
+  ticket 2's job). All four tables grew cleanly (51 -> 53 clinics), no
+  anomalies. Confirmed along the way that Cloud Scheduler isn't enabled on the
+  project yet. Full detail: [ticket 5](tickets/05-production-verification-run.md).
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -288,12 +325,24 @@ folded into Decisions so far above.)
   resolution but likely to surface once the promotion ticket is close.
 - Cloud Scheduler / production scheduling cutover (mentioned in the Migration
   Guide's state-management open item) — not yet sharp enough to ticket; may
-  turn out to be a separate map entirely once `dev` is reached.
+  turn out to be a separate map entirely once `dev` is reached. Confirmed
+  during [ticket 5](tickets/05-production-verification-run.md) (executed:
+  `gcloud scheduler jobs list` fails with `SERVICE_DISABLED`) that the Cloud
+  Scheduler API isn't even enabled on `a4dphase2` yet — the Migration Guide's
+  claim that this is still open is accurate, not stale.
 - Patient's own gaps from the completeness audit (no committed record of an
   actual 174-tracker passing run; `PYTHON_IMPROVEMENTS.md` undercounting
   known divergences; no `pipeline/patient.py` unit test) aren't ticketed yet
   — they don't block the merge/promotion path the way product's gaps do, but
   will need a home before the map can call itself done.
+- CLI/TUI UX for admins and developers, and whether the error-log output
+  (`table_errors.parquet` / the `logs` BigQuery table / Cloud Run Job logs)
+  gives enough to observe and debug a pipeline run comfortably — raised
+  mid-[ticket 5](tickets/05-production-verification-run.md) session, but not
+  yet sharp enough to ticket ("improve whatever helps" isn't a decision yet)
+  and not clearly inside this map's destination (closing out the migration)
+  versus a separate DX/observability effort to start once `dev` is reached.
+  Scope call needed before this graduates into a ticket.
 
 ## Out of scope
 
@@ -321,17 +370,22 @@ flowchart TB
     direction LR
     U4["<b>4</b><br/>Diagnose and fix why CI<br/>is red at migration HEAD"]
   end
+  subgraph S2026_08_09b["Session 2026-08-09b"]
+    direction LR
+    U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U2["<b>2</b><br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
-    U5["<b>5</b><br/>Define and execute the<br/>real GCP production<br/>verification run"]
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
+    U10["<b>10</b><br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
   S2026_08_08b ~~~ S2026_08_09
-  S2026_08_09 ~~~ Sopen
+  S2026_08_09 ~~~ S2026_08_09b
+  S2026_08_09b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -343,18 +397,20 @@ flowchart TB
   U3 --->|blocked| U6
   U4 --->|blocked| U6
   U5 --->|blocked| U6
+  U10 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
   U8 -.->|spawned| U9
   U6 --->|blocked| U9
+  U3 --->|blocked| U10
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U2,U5 tfrontier
+  class U2,U10 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U3,U4,U7,U8 tdecided
+  class U3,U4,U5,U7,U8 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
