@@ -409,6 +409,49 @@ def build_mismatch_rows(
     }
 
 
+def snapshot_from_summary(summary: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, int]]:
+    """Reduce a ``build_summary_rows`` result to a compact, JSON-serializable
+    snapshot for run-over-run history (ticket 19).
+
+    Only ``per_column``/``per_cause`` are kept -- the counts that actually
+    move as triage fixes land -- keyed as plain strings so the snapshot
+    round-trips through JSON without a custom decoder.
+    """
+    per_column = {row["column"]: row["mismatches"] for row in summary.get("per_column", [])}
+    per_cause = {
+        f"{row['column']}|{row['cause']}": row["mismatches"] for row in summary.get("per_cause", [])
+    }
+    return {"per_column": per_column, "per_cause": per_cause}
+
+
+@dataclass(frozen=True)
+class Delta:
+    key: str
+    previous: int
+    current: int
+
+
+def compute_deltas(previous: dict[str, int], current: dict[str, int]) -> list[Delta]:
+    """Diff two snapshot count-dicts, keyed by column or "column|cause".
+
+    Only changed keys are returned -- a key with an unchanged count (present
+    identically in both, or absent from both) is not a fix or a regression
+    and would just be noise in a delta report. A key missing from one side
+    is treated as a count of 0 on that side, so a fully-resolved column
+    (count drops to zero and the row disappears from the new summary) still
+    shows up as a delta rather than silently vanishing.
+    """
+    keys = previous.keys() | current.keys()
+    return sorted(
+        (
+            Delta(key=key, previous=previous.get(key, 0), current=current.get(key, 0))
+            for key in keys
+            if previous.get(key, 0) != current.get(key, 0)
+        ),
+        key=lambda d: d.key,
+    )
+
+
 def build_summary_rows(
     comparison: DirectoryComparison,
     classifiers_by_column: dict[str, dict[str, Classifier]] | None = None,
