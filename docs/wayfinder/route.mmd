@@ -44,6 +44,7 @@ flowchart TB
   subgraph S2026_08_11["Session 2026-08-11"]
     direction LR
     U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
+    U19["<b>19</b><br/>Persist comparison run<br/>history and show run-<br/>over-run deltas"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -97,12 +98,13 @@ flowchart TB
   U11 -.->|spawned| U16
   U15 -.->|spawned| U17
   U17 -.->|spawned| U18
+  U17 -.->|spawned| U19
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
   class U16,U18 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U19 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

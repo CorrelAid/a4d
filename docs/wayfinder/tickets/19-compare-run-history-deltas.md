@@ -130,6 +130,5 @@ tests, up from 545), ruff, `ty check` all pass.
 **Tense.** All claims describe current, implemented, merged behavior
 (executed) -- not a design proposal.
 
-Commits: `7c90645` (initial), plus this session's `--output-dir` /
-per-run-folder refinement and `scripts/` cleanup (not yet committed as of
-writing this resolution).
+Commits: `7c90645` (initial), `5d62865` (`--output-dir` / per-run-folder
+refinement and `scripts/` cleanup).

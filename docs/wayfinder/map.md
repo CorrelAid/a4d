@@ -47,7 +47,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 12"]
+  subgraph DECIDED["Decided · 13"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -61,6 +61,7 @@ flowchart TD
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
     T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
+    T19["<b>19</b> · task<br/>Persist comparison run<br/>history and show run-over-<br/>run deltas"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -96,7 +97,7 @@ flowchart TD
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T19 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -453,6 +454,36 @@ files/47,644 rows), split into [ticket
 18](tickets/18-triage-comparison-flagged-differences.md). Full detail:
 [ticket 17](tickets/17-fix-product-row-alignment-and-triage.md).
 
+**Fourteen tickets resolved.** [Persist comparison run history and show
+run-over-run deltas](tickets/19-compare-run-history-deltas.md) is done,
+spawned and closed in the same session as ticket 17: a same-session
+conversation about how to work ticket 18 settled that cell-mismatch causes
+should be classified opportunistically (start `unclassified`, name a cause
+the moment a real pattern is noticed, drop it if it doesn't earn its keep)
+rather than pre-built into a taxonomy, and that a fix's actual effect should
+be visible by count rather than needing classification to prove it worked —
+which needed run-over-run tracking that didn't exist yet.
+`snapshot_from_summary()`/`compute_deltas()` (`src/a4d/migration/compare.py`)
+reduce/diff `build_summary_rows()`'s per-column/per-cause counts. Refined
+twice more in the same session after user review: `--report-out` (a single
+misleadingly-named filename the tool derived four sibling files from) was
+renamed to `--output-dir`, and — on explicit request — every stage of one
+`just compare-outputs` run now writes into a shared subfolder named by that
+run's own UTC timestamp (`output/comparison/<run-timestamp>/`), so a run is
+a self-contained unit on disk (its four Excel reports and four JSON
+snapshots together) rather than scattering same-named files across the cwd
+every time. The CLI prints + writes a delta (previous vs. current,
+red/green) against the most recent prior *run folder's* snapshot for that
+stage. Same review also prompted a `scripts/` cleanup: ten stale one-off
+debug scripts predating this map's work (hardcoded to a drive layout that
+no longer exists) were removed, superseded by the pytest suite, ticket 10's
+profiling approach, or this comparison tool. Validated end-to-end against
+the real drive data across both layouts (no-previous-run, no-change, and a
+synthetic-edit check that the delta table and Excel sheets render
+correctly) — not just unit-tested. This is tooling ticket 18 will use, not
+part of ticket 18's own triage scope. Full detail: [ticket
+19](tickets/19-compare-run-history-deltas.md).
+
 **The frontier is now ticket 16 and ticket 18**: [Triage every flagged
 R/Python difference for both arms, and resolve the 189-vs-155-tracker
 discrepancy](tickets/18-triage-comparison-flagged-differences.md) and
@@ -632,6 +663,15 @@ ticket 12's git-tracked R cleanup.
   ticket's addendum. Full detail:
   [ticket 15](tickets/15-build-and-run-comparison-script.md).
 
+- [Persist comparison run history and show run-over-run
+  deltas](tickets/19-compare-run-history-deltas.md) — decided and
+  implemented: `snapshot_from_summary()`/`compute_deltas()` reduce/diff
+  `build_summary_rows()`'s counts; the CLI persists a timestamped JSON
+  snapshot per stage on every run and prints + writes an Excel delta against
+  the most recent prior one. Validated against three live runs on the real
+  drive data. Supports ticket 18's triage rather than being part of it. Full
+  detail: [ticket 19](tickets/19-compare-run-history-deltas.md).
+
 - [Fix the product comparison's row-alignment key, then triage every flagged
   R/Python difference](tickets/17-fix-product-row-alignment-and-triage.md) —
   decided and implemented (row-alignment-key half only): replaced the broken
@@ -745,6 +785,7 @@ flowchart TB
   subgraph S2026_08_11["Session 2026-08-11"]
     direction LR
     U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
+    U19["<b>19</b><br/>Persist comparison run<br/>history and show run-<br/>over-run deltas"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -798,13 +839,14 @@ flowchart TB
   U11 -.->|spawned| U16
   U15 -.->|spawned| U17
   U17 -.->|spawned| U18
+  U17 -.->|spawned| U19
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
   class U16,U18 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U19 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
