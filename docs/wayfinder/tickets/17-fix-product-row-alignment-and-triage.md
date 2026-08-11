@@ -42,6 +42,22 @@ product files (0 only-in-R, 19 only-in-Python — explained by [ticket
 pre-product-tracking years). Whether that gap is a stale PDF number, a
 different drive snapshot, or something else is not yet investigated.
 
+**Update from the same session, after ticket 15 closed** (see its
+[addendum](15-build-and-run-comparison-script.md#addendum-same-session-after-closure)):
+the comparison tool this ticket inherits is more capable than what ticket 15
+closed with. Notably, `compare_row_key_overlap`/`RowKeyOverlap` now measures,
+per file, how many rows failed to find *any* partner via the full
+row-alignment key (`matched`/`r_unmatched`/`py_unmatched`) — this is what
+confirmed the diagnosis above isn't just inference: raw product files show
+near-100% row-key divergence (e.g. one file: 560/560 rows unmatched)
+alongside near-0% cell divergence, proving the 0s are "nothing was paired to
+compare," not agreement. `compare_id_overlap` and `compare_categorical_overlap`
+also confirmed product *names* match 100% between R and Python even in files
+where the row key is fully broken — the identity data itself isn't the
+problem, only the row-pairing mechanism is. Use `RowKeyOverlap.matched`
+against a candidate replacement key to validate it directly, rather than
+re-deriving fan-out evidence from raw duplicate-key counts by hand.
+
 ## Question
 
 Design and implement a row-alignment key (or an alignment strategy that

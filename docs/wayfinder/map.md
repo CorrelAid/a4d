@@ -396,6 +396,28 @@ triaging the flagged differences (for both arms) was split off into [ticket
 pre-authorization to split if triage didn't converge in one session. Full
 detail: [ticket 15](tickets/15-build-and-run-comparison-script.md).
 
+**Same session, continued past ticket 15's closure** (recorded in its
+[addendum](tickets/15-build-and-run-comparison-script.md#addendum-same-session-after-closure)
+rather than as a new ticket, since it's the same deliverable maturing, not a
+new decision): the comparison tool was substantially hardened at the user's
+direction. HTML output was dropped entirely in favor of Excel (triage means
+loading results as a dataframe, filtering, sorting, adding columns — a
+static HTML page doesn't support that); `compare_id_overlap` and
+`compare_categorical_overlap` were added (identity/label-set checks
+independent of the row-alignment key, which confirmed product *names* match
+100% between R and Python even where cell comparison is meaningless);
+`compare_row_key_overlap` was added after the user noticed cell-mismatch
+counts near 0 for raw product files didn't add up — it measures, per file,
+how many rows found *no partner at all* via the full row-alignment key, and
+confirmed those near-0 cell counts meant "nothing was paired to compare,"
+not agreement (one file: 560/560 rows unmatched). Raw pipeline output
+(`patient_data_raw`/`product_data_raw`) is now compared alongside cleaned,
+one report per stage, so a divergence can be localized to extraction vs.
+cleaning. All display names were made consistent ("X divergence" for every
+count-based check). [Ticket 17](tickets/17-fix-product-row-alignment-and-triage.md)
+inherits this more capable tool — its premise was updated to note
+`RowKeyOverlap.matched` can validate a proposed alignment fix directly.
+
 **The frontier is now ticket 16 and ticket 17**: [Fix the product
 comparison's row-alignment key, then triage every flagged R/Python
 difference](tickets/17-fix-product-row-alignment-and-triage.md) and [Build a
@@ -568,7 +590,11 @@ ticket 12's git-tracked R cleanup.
   (null `product_entry_date` collapses the join key, causing fan-out
   inflation and hiding `product_entry_date` from classification entirely).
   Split the fix + actual triage into [ticket
-  17](tickets/17-fix-product-row-alignment-and-triage.md). Full detail:
+  17](tickets/17-fix-product-row-alignment-and-triage.md). Same session,
+  after closure: tool substantially hardened (HTML dropped for Excel,
+  `compare_id_overlap`/`compare_categorical_overlap`/`compare_row_key_overlap`
+  added, raw-vs-cleaned staging, consistent "X divergence" naming) — see the
+  ticket's addendum. Full detail:
   [ticket 15](tickets/15-build-and-run-comparison-script.md).
 
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,

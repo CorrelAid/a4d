@@ -147,3 +147,60 @@ ticket 17 should re-verify once a real fix lands.
 **Tense.** All claims describe current repository/drive state as of this
 session (executed) or a diagnosis of why the current numbers can't be
 trusted (not yet fixed).
+
+## Addendum (same session, after closure)
+
+The user kept iterating on the tool directly after this ticket closed and
+[ticket 17](17-fix-product-row-alignment-and-triage.md) spawned — same
+session, same deliverable, substantial enough to record here rather than
+leave implicit in conversation history:
+
+- **Dropped `render_html_report`/HTML output entirely.** The user was
+  explicit: triage means loading results as a dataframe, filtering, sorting,
+  adding columns — Excel, not a static HTML page. Replaced with
+  `build_summary_rows` (same per-column/per-cause aggregate data as plain
+  dict rows) merged into the same per-stage Excel workbook the flagged-row
+  detail already went into. Each stage now produces exactly one `.xlsx`.
+- **Added `compare_id_overlap`/`IdOverlapResult`** (do the same identities —
+  `patient_id` for patient, product name for product — appear on both sides
+  at all, independent of the row-alignment key) and
+  **`compare_categorical_overlap`/`CategoricalOverlap`** (same idea per
+  categorical/label column). Both proved immediately useful precisely
+  because they don't depend on the broken product row-alignment key: they
+  confirmed product *names* match 100% across R and Python even where
+  cell-level comparison is meaningless noise.
+- **Added `compare_row_key_overlap`/`RowKeyOverlap`** — the piece that was
+  actually missing. Counts rows whose *full* row-alignment key (not just a
+  single identity column) found no partner on the other side at all, or
+  fanned out via a repeated key. This turned out to be essential: raw
+  product files were showing 0 cell mismatches, which read as "clean" but
+  actually meant the join matched zero rows for that file (e.g. Mahosot:
+  354 rows each side, 0 joined; live numbers confirmed near-100% row-key
+  divergence — 560/560 unmatched — right where cell divergence read 0).
+  Without this check, "0 cell mismatches" was indistinguishable from "the
+  key found nothing to compare," which is exactly backwards from what a
+  triage tool should say.
+- **Compared raw pipeline output (`patient_data_raw`/`product_data_raw`) in
+  addition to cleaned**, one report per stage, so a divergence can be
+  localized to extraction vs. cleaning. Discovered along the way that raw
+  extraction isn't schema-normalized like cleaned output (`apply_schema`
+  only runs at the cleaning stage) — column presence varies file by file,
+  which required making `compare_totals` and `compare_categorical_overlap`
+  skip a column missing from either side instead of crashing.
+- **Naming pass**: every count-based check renamed to a consistent "X
+  divergence" scheme (ID, Column, Categorical, Row-key, Totals, Cell) after
+  the user pointed out "ID overlap" was backwards — overlap should mean
+  shared/common, not what's flagged (which is the R-only/Python-only
+  divergence). Reordered so Row-key divergence sits immediately before Cell
+  divergence, since both depend on the same row-alignment key.
+- **Added `--only-mismatches`** (skip files where every measure is clean)
+  and grouped the console/Excel output by tracker year, descending.
+
+Net effect for [ticket 17](17-fix-product-row-alignment-and-triage.md): the
+tool it inherits is meaningfully more capable than what this ticket
+originally closed with. Row-key divergence in particular gives ticket 17 a
+direct, per-file measurement of how badly the current key is failing
+(matched/r_unmatched/py_unmatched), which should make validating a proposed
+fix far more precise than re-eyeballing cell-mismatch counts.
+
+Commits: `296fa86`, `3f5ebde`, `512c6a1`, `ac4090e`, `9fd16bb`, `a96ffc4`.
