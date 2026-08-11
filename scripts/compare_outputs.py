@@ -14,7 +14,7 @@ Usage:
     uv run python scripts/compare_outputs.py \
         --r-dir "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r" \
         --py-dir "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python" \
-        --report-out compare_report.xlsx
+        --output-dir output/comparison
 """
 
 import json
@@ -317,21 +317,30 @@ def _write_excel_report(path: Path, rows_by_sheet: dict[str, list[dict]]) -> Non
     workbook.save(path)
 
 
-def _history_dir(report_out: Path, subdir: str) -> Path:
-    return report_out.parent / "compare_history" / subdir
+def _previous_run_dirs(output_dir: Path, current_run_dir: Path) -> list[Path]:
+    # Run directories are named by ISO-8601 timestamp, so lexicographic sort is
+    # chronological -- most recent first, excluding the run just created.
+    if not output_dir.exists():
+        return []
+    run_dirs = [p for p in output_dir.iterdir() if p.is_dir() and p != current_run_dir]
+    return sorted(run_dirs, reverse=True)
 
 
-def _load_latest_snapshot(history_dir: Path) -> dict[str, dict[str, int]] | None:
-    # Filenames are ISO-8601 timestamps, so lexicographic sort is chronological.
-    snapshots = sorted(history_dir.glob("*.json")) if history_dir.exists() else []
-    if not snapshots:
-        return None
-    return json.loads(snapshots[-1].read_text())
+def _load_latest_snapshot(
+    output_dir: Path, current_run_dir: Path, subdir: str
+) -> dict[str, dict[str, int]] | None:
+    # A stage can be missing from an older run (e.g. it errored, or the stage
+    # set changed) -- walk back further rather than only checking the single
+    # most recent run directory.
+    for run_dir in _previous_run_dirs(output_dir, current_run_dir):
+        snapshot_path = run_dir / f"snapshot_{subdir}.json"
+        if snapshot_path.exists():
+            return json.loads(snapshot_path.read_text())
+    return None
 
 
-def _write_snapshot(history_dir: Path, snapshot: dict[str, dict[str, int]]) -> Path:
-    history_dir.mkdir(parents=True, exist_ok=True)
-    path = history_dir / f"{datetime.now(UTC).strftime('%Y-%m-%dT%H%M%SZ')}.json"
+def _write_snapshot(run_dir: Path, subdir: str, snapshot: dict[str, dict[str, int]]) -> Path:
+    path = run_dir / f"snapshot_{subdir}.json"
     path.write_text(json.dumps(snapshot, indent=2, sort_keys=True))
     return path
 
@@ -371,9 +380,12 @@ def _delta_rows(deltas: list[Delta]) -> list[dict]:
 def compare(
     r_dir: Annotated[Path, typer.Option("--r-dir", help="Root of the frozen R output directory")],
     py_dir: Annotated[Path, typer.Option("--py-dir", help="Root of the Python output directory")],
-    report_out: Annotated[
-        Path, typer.Option("--report-out", help="Where to write the Excel report")
-    ] = Path("compare_report.xlsx"),
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output-dir", help="Directory each run's own timestamped subfolder is created under"
+        ),
+    ] = Path("output/comparison"),
     only_mismatches: Annotated[
         bool,
         typer.Option(
@@ -382,6 +394,12 @@ def compare(
     ] = False,
 ) -> None:
     _print_legend()
+    # Every stage of this run shares one timestamped subfolder, so a run is a
+    # single self-contained unit on disk -- its reports and snapshots (for the
+    # *next* run's delta) live together, and nothing gets overwritten by a
+    # later run.
+    run_dir = output_dir / datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     for label, subdir, key_cols, id_col, categorical_cols, ordinal_group_cols in STAGES:
         comparison = _compare_arm(
@@ -392,17 +410,16 @@ def compare(
         # One workbook per stage -- combining raw and cleaned into one per-column
         # aggregate would sum e.g. product_entry_date mismatches from both stages
         # into a single count, defeating the point of separating them.
-        stage_report_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
+        stage_report_out = run_dir / f"compare_report_{subdir}.xlsx"
         summary_sheets = build_summary_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
         detail_sheets = build_mismatch_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
 
         # Run-over-run history (ticket 19): compare this run's per-column/per-cause
-        # counts against the most recent prior snapshot for this stage before
-        # overwriting it, so a triage fix's actual effect (or a regression) is
-        # visible directly rather than only ever seeing the current numbers.
+        # counts against the most recent prior run's snapshot for this stage, so a
+        # triage fix's actual effect (or a regression) is visible directly rather
+        # than only ever seeing the current numbers.
         current_snapshot = snapshot_from_summary(summary_sheets)
-        history_dir = _history_dir(report_out, subdir)
-        previous_snapshot = _load_latest_snapshot(history_dir)
+        previous_snapshot = _load_latest_snapshot(output_dir, run_dir, subdir)
         column_deltas = (
             compute_deltas(previous_snapshot["per_column"], current_snapshot["per_column"])
             if previous_snapshot
@@ -414,14 +431,14 @@ def compare(
             else []
         )
         if previous_snapshot is None:
-            console.print(f"[dim]{label}: no previous run in history to compare against.[/dim]")
+            console.print(f"[dim]{label}: no previous run to compare against.[/dim]")
         else:
             _print_deltas(label, column_deltas, cause_deltas)
         history_sheets = {
             "history_column_deltas": _delta_rows(column_deltas),
             "history_cause_deltas": _delta_rows(cause_deltas),
         }
-        _write_snapshot(history_dir, current_snapshot)
+        _write_snapshot(run_dir, subdir, current_snapshot)
 
         _write_excel_report(stage_report_out, {**summary_sheets, **detail_sheets, **history_sheets})
 

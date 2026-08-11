@@ -1,8 +1,8 @@
 """Coarse sanity check of a production run against a `just backup-bq` snapshot.
 
-Not a cell-by-cell R-vs-Python comparison (that lives in scripts/compare_r_vs_python.py
-and the future automated report) -- this only catches gross regressions (a table going
-near-empty, losing clinics, or changing shape) right after a real production run.
+Not a cell-by-cell R-vs-Python comparison (that lives in scripts/compare_outputs.py)
+-- this only catches gross regressions (a table going near-empty, losing clinics,
+or changing shape) right after a real production run.
 """
 
 from dataclasses import dataclass
