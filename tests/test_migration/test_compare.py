@@ -10,6 +10,7 @@ from a4d.migration.compare import (
     CategoricalOverlap,
     CellMismatch,
     ColumnsResult,
+    Delta,
     DirectoryComparison,
     FileComparison,
     IdOverlapResult,
@@ -28,6 +29,8 @@ from a4d.migration.compare import (
     compare_row_key_overlap,
     compare_shape,
     compare_totals,
+    compute_deltas,
+    snapshot_from_summary,
 )
 
 
@@ -482,6 +485,72 @@ class TestBuildSummaryRows:
         } in summary["per_cause"]
         assert summary["only_in_r"] == [{"file": "missing.parquet"}]
         assert summary["only_in_py"] == []
+
+
+class TestSnapshotFromSummary:
+    def test_reduces_to_column_and_cause_count_dicts(self):
+        summary = {
+            "per_column": [
+                {"column": "product_entry_date", "mismatches": 559},
+                {"column": "product_balance", "mismatches": 480},
+            ],
+            "per_cause": [
+                {"column": "product_entry_date", "cause": "typo_rescue", "mismatches": 408},
+            ],
+            "only_in_r": [{"file": "x.parquet"}],
+            "only_in_py": [],
+        }
+
+        snapshot = snapshot_from_summary(summary)
+
+        assert snapshot == {
+            "per_column": {"product_entry_date": 559, "product_balance": 480},
+            "per_cause": {"product_entry_date|typo_rescue": 408},
+        }
+
+    def test_empty_summary_yields_empty_snapshot(self):
+        summary = {"per_column": [], "per_cause": [], "only_in_r": [], "only_in_py": []}
+
+        assert snapshot_from_summary(summary) == {"per_column": {}, "per_cause": {}}
+
+
+class TestComputeDeltas:
+    def test_only_reports_changed_keys(self):
+        previous = {"a": 10, "b": 5, "c": 3}
+        current = {"a": 10, "b": 2, "c": 3}
+
+        deltas = compute_deltas(previous, current)
+
+        assert deltas == [Delta(key="b", previous=5, current=2)]
+
+    def test_key_missing_from_current_reads_as_resolved_to_zero(self):
+        previous = {"product_sheet_name": 201}
+        current = {}
+
+        deltas = compute_deltas(previous, current)
+
+        assert deltas == [Delta(key="product_sheet_name", previous=201, current=0)]
+
+    def test_key_new_in_current_reads_as_regression_from_zero(self):
+        previous = {}
+        current = {"product_category": 214}
+
+        deltas = compute_deltas(previous, current)
+
+        assert deltas == [Delta(key="product_category", previous=0, current=214)]
+
+    def test_no_deltas_when_snapshots_identical(self):
+        snapshot = {"a": 1, "b": 2}
+
+        assert compute_deltas(snapshot, snapshot) == []
+
+    def test_deltas_sorted_by_key(self):
+        previous = {"z": 1, "a": 1}
+        current = {"z": 2, "a": 2}
+
+        deltas = compute_deltas(previous, current)
+
+        assert [d.key for d in deltas] == ["a", "z"]
 
 
 class TestBuildMismatchRows:

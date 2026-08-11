@@ -17,7 +17,9 @@ Usage:
         --report-out compare_report.xlsx
 """
 
+import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -30,12 +32,15 @@ from rich.table import Table
 
 from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
+    Delta,
     DirectoryComparison,
     FileComparison,
     add_row_ordinal,
     build_mismatch_rows,
     build_summary_rows,
     compare_directory,
+    compute_deltas,
+    snapshot_from_summary,
 )
 
 console = Console()
@@ -312,6 +317,56 @@ def _write_excel_report(path: Path, rows_by_sheet: dict[str, list[dict]]) -> Non
     workbook.save(path)
 
 
+def _history_dir(report_out: Path, subdir: str) -> Path:
+    return report_out.parent / "compare_history" / subdir
+
+
+def _load_latest_snapshot(history_dir: Path) -> dict[str, dict[str, int]] | None:
+    # Filenames are ISO-8601 timestamps, so lexicographic sort is chronological.
+    snapshots = sorted(history_dir.glob("*.json")) if history_dir.exists() else []
+    if not snapshots:
+        return None
+    return json.loads(snapshots[-1].read_text())
+
+
+def _write_snapshot(history_dir: Path, snapshot: dict[str, dict[str, int]]) -> Path:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    path = history_dir / f"{datetime.now(UTC).strftime('%Y-%m-%dT%H%M%SZ')}.json"
+    path.write_text(json.dumps(snapshot, indent=2, sort_keys=True))
+    return path
+
+
+def _print_deltas(label: str, column_deltas: list[Delta], cause_deltas: list[Delta]) -> None:
+    if not column_deltas and not cause_deltas:
+        console.print(f"[dim]{label}: no change from the previous run.[/dim]")
+        return
+
+    table = Table(title=f"{label} — change since previous run")
+    table.add_column("Column")
+    table.add_column("Previous", justify="right")
+    table.add_column("Current", justify="right")
+    table.add_column("Diff", justify="right")
+    for delta in column_deltas:
+        diff = delta.current - delta.previous
+        style = "red" if diff > 0 else "green"
+        table.add_row(
+            delta.key, str(delta.previous), str(delta.current), f"[{style}]{diff:+d}[/{style}]"
+        )
+    console.print(table)
+
+
+def _delta_rows(deltas: list[Delta]) -> list[dict]:
+    return [
+        {
+            "key": delta.key,
+            "previous": delta.previous,
+            "current": delta.current,
+            "diff": delta.current - delta.previous,
+        }
+        for delta in deltas
+    ]
+
+
 @app.command()
 def compare(
     r_dir: Annotated[Path, typer.Option("--r-dir", help="Root of the frozen R output directory")],
@@ -340,7 +395,35 @@ def compare(
         stage_report_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
         summary_sheets = build_summary_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
         detail_sheets = build_mismatch_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
-        _write_excel_report(stage_report_out, {**summary_sheets, **detail_sheets})
+
+        # Run-over-run history (ticket 19): compare this run's per-column/per-cause
+        # counts against the most recent prior snapshot for this stage before
+        # overwriting it, so a triage fix's actual effect (or a regression) is
+        # visible directly rather than only ever seeing the current numbers.
+        current_snapshot = snapshot_from_summary(summary_sheets)
+        history_dir = _history_dir(report_out, subdir)
+        previous_snapshot = _load_latest_snapshot(history_dir)
+        column_deltas = (
+            compute_deltas(previous_snapshot["per_column"], current_snapshot["per_column"])
+            if previous_snapshot
+            else []
+        )
+        cause_deltas = (
+            compute_deltas(previous_snapshot["per_cause"], current_snapshot["per_cause"])
+            if previous_snapshot
+            else []
+        )
+        if previous_snapshot is None:
+            console.print(f"[dim]{label}: no previous run in history to compare against.[/dim]")
+        else:
+            _print_deltas(label, column_deltas, cause_deltas)
+        history_sheets = {
+            "history_column_deltas": _delta_rows(column_deltas),
+            "history_cause_deltas": _delta_rows(cause_deltas),
+        }
+        _write_snapshot(history_dir, current_snapshot)
+
+        _write_excel_report(stage_report_out, {**summary_sheets, **detail_sheets, **history_sheets})
 
         console.print(f"[bold green]{label} report written to {stage_report_out}[/bold green]")
 
