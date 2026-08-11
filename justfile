@@ -115,8 +115,10 @@ run *ARGS:
     uv run a4d run {{ARGS}}
 
 # Diff a Python output directory against the frozen R baseline (migration-only, ticket 15)
-compare-outputs *ARGS:
-    uv run python scripts/compare_outputs.py {{ARGS}}
+# Named params (not *ARGS) so paths with spaces (e.g. the USB drive) survive just's interpolation
+compare-outputs r_dir py_dir report_out="compare_report.html":
+    uv run python scripts/compare_outputs.py \
+        --r-dir "{{r_dir}}" --py-dir "{{py_dir}}" --report-out "{{report_out}}"
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 
