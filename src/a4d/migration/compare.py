@@ -1,9 +1,11 @@
 """R-vs-Python output comparison for the migration (ticket 15).
 
 Diffs two existing output directories (a Python run, the frozen R baseline)
-in four increasingly granular layers: shape, aggregate totals, columns/dtypes,
-cell-by-cell. This is migration-only tooling with a defined end-of-life (R's
-retirement) -- deliberately not wired into ``a4d.cli``.
+across six layers: shape (row count), ID divergence (identities present on
+only one side), columns/dtypes, categorical divergence (label values present
+on only one side, per column), aggregate totals, and cell-by-cell. This is
+migration-only tooling with a defined end-of-life (R's retirement) --
+deliberately not wired into ``a4d.cli``.
 """
 
 import datetime
@@ -256,6 +258,73 @@ def compare_directory(
     )
 
 
+def build_mismatch_rows(
+    comparison: DirectoryComparison,
+    classifiers_by_column: dict[str, dict[str, Classifier]] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    classifiers_by_column = classifiers_by_column or {}
+
+    id_overlap_rows = []
+    categorical_overlap_rows = []
+    totals_rows = []
+    cell_mismatch_rows = []
+
+    for file_comparison in comparison.files:
+        name = file_comparison.file_name
+
+        if file_comparison.id_overlap is not None:
+            for value in file_comparison.id_overlap.only_in_r:
+                id_overlap_rows.append({"file": name, "side": "R only", "value": value})
+            for value in file_comparison.id_overlap.only_in_py:
+                id_overlap_rows.append({"file": name, "side": "Python only", "value": value})
+
+        for overlap in file_comparison.categorical_overlap:
+            for value in overlap.only_in_r:
+                categorical_overlap_rows.append(
+                    {"file": name, "column": overlap.column, "side": "R only", "value": value}
+                )
+            for value in overlap.only_in_py:
+                categorical_overlap_rows.append(
+                    {
+                        "file": name,
+                        "column": overlap.column,
+                        "side": "Python only",
+                        "value": value,
+                    }
+                )
+
+        for totals_mismatch in file_comparison.totals:
+            totals_rows.append(
+                {
+                    "file": name,
+                    "column": totals_mismatch.column,
+                    "r_total": totals_mismatch.r_total,
+                    "py_total": totals_mismatch.py_total,
+                    "diff": totals_mismatch.py_total - totals_mismatch.r_total,
+                }
+            )
+
+        for mismatch in file_comparison.cell_mismatches:
+            registry = classifiers_by_column.get(mismatch.column, {})
+            cell_mismatch_rows.append(
+                {
+                    "file": name,
+                    "key": "; ".join(f"{k}={v}" for k, v in mismatch.key.items()),
+                    "column": mismatch.column,
+                    "r_value": mismatch.r_value,
+                    "py_value": mismatch.py_value,
+                    "cause": classify(mismatch, registry),
+                }
+            )
+
+    return {
+        "id_overlap": id_overlap_rows,
+        "categorical_overlap": categorical_overlap_rows,
+        "totals": totals_rows,
+        "cell_mismatches": cell_mismatch_rows,
+    }
+
+
 def _rows(headers: list[str], rows: list[tuple]) -> str:
     head = "".join(f"<th>{h}</th>" for h in headers)
     body = "".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows)
@@ -295,14 +364,19 @@ def render_html_report(
         "<dt><b>Shape match</b></dt>"
         "<dd>Do R and Python have the same row count for this file? A coarse structural "
         "check: matching shape says nothing about whether individual cell values agree.</dd>"
-        "<dt><b>ID overlap</b></dt>"
-        "<dd>Do the same identities (patient_id for patient, product name for product) "
-        "appear on both sides at all, regardless of row count? Independent of the "
-        "row-alignment key used for cell mismatches -- catches a patient or product "
-        "dropped entirely, even when that key is unreliable.</dd>"
+        "<dt><b>ID divergence</b></dt>"
+        "<dd>Identities (patient_id for patient, product name for product) present on "
+        "only one side, regardless of row count. Independent of the row-alignment key "
+        "used for cell mismatches -- catches a patient or product dropped entirely, "
+        "even when that key is unreliable.</dd>"
         "<dt><b>Column diffs</b></dt>"
         "<dd>Columns present on only one side, plus columns present on both sides but "
         "with a different dtype. Structural, like shape -- no values are compared.</dd>"
+        "<dt><b>Categorical divergence</b></dt>"
+        "<dd>Of the file's categorical/label columns, how many have a label value on "
+        "one side that never appears on the other? Also independent of the "
+        "row-alignment key -- a distinct-value-set check per column, not tied to row "
+        "identity.</dd>"
         "<dt><b>Totals mismatches</b></dt>"
         "<dd>Of the file's numeric columns, how many have a column-sum that differs "
         "beyond a float tolerance? The first check that actually compares values, at the "
