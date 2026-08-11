@@ -1,0 +1,259 @@
+"""Tests for the R-vs-Python output comparison (ticket 15)."""
+
+import datetime
+
+import polars as pl
+
+from a4d.migration.compare import (
+    PRODUCT_ENTRY_DATE_CLASSIFIERS,
+    SENTINEL_DATE,
+    CellMismatch,
+    ColumnsResult,
+    DirectoryComparison,
+    FileComparison,
+    ShapeResult,
+    TotalsMismatch,
+    classify,
+    compare_cells,
+    compare_columns,
+    compare_directory,
+    compare_shape,
+    compare_totals,
+    render_html_report,
+)
+
+
+class TestCompareShape:
+    def test_match_when_row_counts_equal(self):
+        r_df = pl.DataFrame({"a": [1, 2, 3]})
+        py_df = pl.DataFrame({"a": [1, 2, 3]})
+
+        result = compare_shape(r_df, py_df)
+
+        assert result == ShapeResult(r_rows=3, py_rows=3, match=True)
+
+    def test_no_match_when_row_counts_differ(self):
+        r_df = pl.DataFrame({"a": [1, 2, 3]})
+        py_df = pl.DataFrame({"a": [1, 2]})
+
+        result = compare_shape(r_df, py_df)
+
+        assert result == ShapeResult(r_rows=3, py_rows=2, match=False)
+
+
+class TestCompareTotals:
+    def test_no_mismatches_when_sums_match(self):
+        r_df = pl.DataFrame({"balance": [1.0, 2.0, 3.0]})
+        py_df = pl.DataFrame({"balance": [3.0, 2.0, 1.0]})
+
+        assert compare_totals(r_df, py_df, numeric_cols=["balance"]) == []
+
+    def test_flags_column_whose_sum_differs(self):
+        r_df = pl.DataFrame({"balance": [1.0, 2.0, 3.0]})
+        py_df = pl.DataFrame({"balance": [1.0, 2.0, 30.0]})
+
+        result = compare_totals(r_df, py_df, numeric_cols=["balance"])
+
+        assert result == [TotalsMismatch(column="balance", r_total=6.0, py_total=33.0)]
+
+    def test_ignores_negligible_float_drift(self):
+        r_df = pl.DataFrame({"balance": [0.1, 0.2]})
+        py_df = pl.DataFrame({"balance": [0.1 + 1e-12, 0.2]})
+
+        assert compare_totals(r_df, py_df, numeric_cols=["balance"]) == []
+
+
+class TestCompareColumns:
+    def test_no_diff_when_columns_and_dtypes_match(self):
+        r_df = pl.DataFrame({"a": [1], "b": ["x"]})
+        py_df = pl.DataFrame({"a": [1], "b": ["x"]})
+
+        result = compare_columns(r_df, py_df)
+
+        assert result == ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[])
+
+    def test_flags_columns_present_in_only_one_side(self):
+        r_df = pl.DataFrame({"a": [1], "b": ["x"]})
+        py_df = pl.DataFrame({"a": [1], "c": ["y"]})
+
+        result = compare_columns(r_df, py_df)
+
+        assert result.only_in_r == ["b"]
+        assert result.only_in_py == ["c"]
+
+    def test_flags_dtype_mismatch_on_common_column(self):
+        r_df = pl.DataFrame({"a": [1]}, schema={"a": pl.Int64})
+        py_df = pl.DataFrame({"a": [1.0]}, schema={"a": pl.Float64})
+
+        result = compare_columns(r_df, py_df)
+
+        assert result.dtype_mismatches == [("a", pl.Int64, pl.Float64)]
+
+
+class TestCompareCells:
+    def test_no_mismatches_when_matched_rows_equal(self):
+        r_df = pl.DataFrame({"id": [1, 2], "balance": [10.0, 20.0]})
+        py_df = pl.DataFrame({"id": [2, 1], "balance": [20.0, 10.0]})
+
+        assert compare_cells(r_df, py_df, key_cols=["id"]) == []
+
+    def test_flags_value_mismatch_on_common_column(self):
+        r_df = pl.DataFrame({"id": [1], "balance": [10.0]})
+        py_df = pl.DataFrame({"id": [1], "balance": [99.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["id"])
+
+        assert result == [
+            CellMismatch(key={"id": 1}, column="balance", r_value=10.0, py_value=99.0)
+        ]
+
+    def test_null_status_mismatch_is_flagged(self):
+        r_df = pl.DataFrame({"id": [1], "note": [None]}, schema={"id": pl.Int64, "note": pl.Utf8})
+        py_df = pl.DataFrame({"id": [1], "note": ["x"]})
+
+        result = compare_cells(r_df, py_df, key_cols=["id"])
+
+        assert result == [CellMismatch(key={"id": 1}, column="note", r_value=None, py_value="x")]
+
+    def test_ignores_float_drift_within_tolerance(self):
+        r_df = pl.DataFrame({"id": [1], "balance": [0.1]})
+        py_df = pl.DataFrame({"id": [1], "balance": [0.1 + 1e-12]})
+
+        assert compare_cells(r_df, py_df, key_cols=["id"]) == []
+
+    def test_only_diffs_rows_matched_on_key(self):
+        r_df = pl.DataFrame({"id": [1, 2], "balance": [10.0, 999.0]})
+        py_df = pl.DataFrame({"id": [1], "balance": [10.0]})
+
+        assert compare_cells(r_df, py_df, key_cols=["id"]) == []
+
+
+def _mismatch(r_value, py_value, column="product_entry_date"):
+    return CellMismatch(key={"id": 1}, column=column, r_value=r_value, py_value=py_value)
+
+
+class TestClassify:
+    def test_sentinel_null_when_r_is_null_and_python_is_sentinel(self):
+        mismatch = _mismatch(r_value=None, py_value=SENTINEL_DATE)
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "sentinel_null"
+
+    def test_typo_rescue_when_r_is_null_and_python_parsed_a_real_date(self):
+        mismatch = _mismatch(r_value=None, py_value=datetime.date(2021, 3, 10))
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "typo_rescue"
+
+    def test_off_by_one_day_when_dates_are_one_day_apart(self):
+        mismatch = _mismatch(
+            r_value=datetime.date(2020, 11, 28), py_value=datetime.date(2020, 11, 29)
+        )
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "off_by_one_day"
+
+    def test_ce_typo_when_years_are_far_apart(self):
+        mismatch = _mismatch(r_value=datetime.date(2565, 12, 24), py_value=SENTINEL_DATE)
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "ce_typo"
+
+    def test_unclassified_when_no_classifier_matches(self):
+        mismatch = _mismatch(r_value=datetime.date(2021, 1, 1), py_value=datetime.date(2021, 6, 1))
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "unclassified"
+
+
+class TestCompareDirectory:
+    def test_matched_file_gets_a_full_comparison(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [10.0]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [10.0]})}
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"], numeric_cols=["balance"])
+
+        assert result.files == [
+            FileComparison(
+                file_name="a.parquet",
+                shape=ShapeResult(r_rows=1, py_rows=1, match=True),
+                totals=[],
+                columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                cell_mismatches=[],
+            )
+        ]
+        assert result.only_in_r == []
+        assert result.only_in_py == []
+
+    def test_flags_totals_mismatch_within_a_matched_file(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [10.0]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [999.0]})}
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"], numeric_cols=["balance"])
+
+        assert result.files[0].totals == [
+            TotalsMismatch(column="balance", r_total=10.0, py_total=999.0)
+        ]
+
+    def test_flags_cell_mismatch_within_a_matched_file(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [10.0]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [99.0]})}
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"])
+
+        assert result.files[0].cell_mismatches == [
+            CellMismatch(key={"id": 1}, column="balance", r_value=10.0, py_value=99.0)
+        ]
+
+    def test_tracks_files_present_on_only_one_side(self):
+        r_frames = {
+            "a.parquet": pl.DataFrame({"id": [1]}),
+            "only_r.parquet": pl.DataFrame({"id": [1]}),
+        }
+        py_frames = {
+            "a.parquet": pl.DataFrame({"id": [1]}),
+            "only_py.parquet": pl.DataFrame({"id": [1]}),
+        }
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"])
+
+        assert result.only_in_r == ["only_r.parquet"]
+        assert result.only_in_py == ["only_py.parquet"]
+        assert [f.file_name for f in result.files] == ["a.parquet"]
+
+
+class TestRenderHtmlReport:
+    def test_reports_per_column_and_per_cause_counts(self):
+        comparison = DirectoryComparison(
+            files=[
+                FileComparison(
+                    file_name="a.parquet",
+                    shape=ShapeResult(r_rows=2, py_rows=2, match=True),
+                    totals=[],
+                    columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                    cell_mismatches=[
+                        CellMismatch(
+                            key={"id": 1},
+                            column="product_entry_date",
+                            r_value=None,
+                            py_value=SENTINEL_DATE,
+                        ),
+                        CellMismatch(
+                            key={"id": 2},
+                            column="other_col",
+                            r_value=1,
+                            py_value=2,
+                        ),
+                    ],
+                )
+            ],
+            only_in_r=["missing.parquet"],
+            only_in_py=[],
+        )
+
+        html = render_html_report(
+            comparison, classifiers_by_column={"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS}
+        )
+
+        assert "product_entry_date" in html
+        assert "other_col" in html
+        assert "sentinel_null" in html
+        assert "unclassified" in html
+        assert "missing.parquet" in html
+        # per-column mismatch counts
+        assert html.count("<td>1</td>") >= 2

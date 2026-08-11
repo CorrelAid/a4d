@@ -38,8 +38,8 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
-    T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
+    T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -47,7 +47,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 10"]
+  subgraph DECIDED["Decided · 11"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -59,6 +59,7 @@ flowchart TD
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
+    T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -86,15 +87,15 @@ flowchart TD
   T13 --> T6
   T13 --> T10
   T14 --> T6
-  T15 --> T6
-  T15 --> T12
+  T17 --> T6
+  T17 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T15,T16 frontier
+  class T16,T17 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -372,17 +373,40 @@ own open question of whether it's needed before promotion or is a
 nice-to-have outside the promotion path. Full detail: [ticket
 11](tickets/11-cli-ux-observability.md).
 
-**The frontier is now ticket 15 and ticket 16**: [Build and run the R/Python
-output comparison script, then triage every flagged
-difference](tickets/15-build-and-run-comparison-script.md) and [Build a
+**Twelve tickets resolved.** [Build and run the R/Python output comparison
+script, then triage every flagged difference](tickets/15-build-and-run-comparison-script.md)
+is done for its infrastructure half: `src/a4d/migration/compare.py` (four
+pure, unit-tested layers — shape, totals, columns, cell-by-cell — plus the
+seeded cause classifier and HTML report renderer, 23 tests, TDD'd) and
+`scripts/compare_outputs.py` + `just compare-outputs` were built per ticket
+2's design. A fresh Python pipeline pass ran against `a4dphase2_upload`
+(both arms), landing on the USB drive next to the frozen `output_r/`
+(replacing a stale 2025-11-15 copy) — 174/174 patient and 174/174 product
+trackers succeeded. Running the comparison found the **patient row-alignment
+key is sound** (`patient_id` + `sheet_name`, duplicate keys in only 5/172
+files) but the **product row-alignment key is broken**: `product_entry_date`
+being null on many rows collapses the key onto far fewer distinct values
+than rows exist (one file: 154 distinct keys for 1,194 rows, up to 35-way
+duplication), which both inflates reported mismatches by orders of magnitude
+via join fan-out and silently excludes `product_entry_date` — the PDF's
+largest single divergence column — from classification entirely, since it's
+one of the join keys. Building a corrected alignment strategy and actually
+triaging the flagged differences (for both arms) was split off into [ticket
+17](tickets/17-fix-product-row-alignment-and-triage.md), per ticket 15's own
+pre-authorization to split if triage didn't converge in one session. Full
+detail: [ticket 15](tickets/15-build-and-run-comparison-script.md).
+
+**The frontier is now ticket 16 and ticket 17**: [Fix the product
+comparison's row-alignment key, then triage every flagged R/Python
+difference](tickets/17-fix-product-row-alignment-and-triage.md) and [Build a
 drill-down log analyzer for admins to inspect a specific tracker file's
-errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is still
-blocked, on ticket 15. Ticket 6 (promote to `dev`) is `blocked_by: [8, 3, 4,
-5, 10, 11, 12, 13, 14, 15]` — tickets 3, 4, 5, 8, 10, 11, 13, 14 are closed;
-tickets 12 and 15 are what remain (ticket 16 isn't wired as a blocker yet —
-its own question 4 is whether it should be). The user has said they intend
-to keep working this map session by session on `migration` until confident
-enough to roll out, rather than promoting early.
+errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is now
+blocked on ticket 17 instead of ticket 15. Ticket 6 (promote to `dev`) is
+`blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 17]` — tickets 3, 4, 5, 8, 10,
+11, 13, 14 are closed; tickets 12 and 17 are what remain (ticket 16 isn't
+wired as a blocker yet — its own question 4 is whether it should be). The
+user has said they intend to keep working this map session by session on
+`migration` until confident enough to roll out, rather than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
@@ -533,6 +557,20 @@ ticket 12's git-tracked R cleanup.
   split off into [ticket 16](tickets/16-log-analyzer-drill-down.md). Full
   detail: [ticket 11](tickets/11-cli-ux-observability.md).
 
+- [Build and run the R/Python output comparison script, then triage every
+  flagged difference](tickets/15-build-and-run-comparison-script.md) —
+  decided and partially executed: built `src/a4d/migration/compare.py` (four
+  unit-tested layers + seeded cause classifier + HTML report renderer) and
+  `scripts/compare_outputs.py` + `just compare-outputs` per ticket 2's
+  design; ran a fresh Python pipeline pass against `a4dphase2_upload` onto
+  the USB drive (174/174 both arms) and diffed it against the frozen
+  `output_r/`. Found patient's row-alignment key sound but product's broken
+  (null `product_entry_date` collapses the join key, causing fan-out
+  inflation and hiding `product_entry_date` from classification entirely).
+  Split the fix + actual triage into [ticket
+  17](tickets/17-fix-product-row-alignment-and-triage.md). Full detail:
+  [ticket 15](tickets/15-build-and-run-comparison-script.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -623,13 +661,17 @@ flowchart TB
     direction LR
     U11["<b>11</b><br/>Decide what CLI/TUI UX<br/>and error-log<br/>observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
   end
+  subgraph S2026_08_10["Session 2026-08-10"]
+    direction LR
+    U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
-    U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
+    U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -640,7 +682,8 @@ flowchart TB
   S2026_08_09d ~~~ S2026_08_09e
   S2026_08_09e ~~~ S2026_08_09f
   S2026_08_09f ~~~ S2026_08_09g
-  S2026_08_09g ~~~ Sopen
+  S2026_08_09g ~~~ S2026_08_10
+  S2026_08_10 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -656,7 +699,7 @@ flowchart TB
   U12 --->|blocked| U6
   U13 --->|blocked| U6
   U14 --->|blocked| U6
-  U15 --->|blocked| U6
+  U17 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -665,19 +708,20 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U15 --->|blocked| U12
+  U17 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
   U11 -.->|spawned| U16
+  U15 -.->|spawned| U17
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U15,U16 tfrontier
+  class U16,U17 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

@@ -3,7 +3,7 @@ id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
-blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 15]
+blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 17]
 assignee: null
 claimed_at: null
 resolution: null
@@ -30,15 +30,18 @@ observability improvements admins/developers need before
 rollout](11-cli-ux-observability.md), [Retire R from the workspace once the
 pipeline is fully verified Python-only](12-retire-r-workspace.md), [Audit and
 update all dependencies and library versions before
-rollout](13-dependency-audit.md), and [Build and run the R/Python output
-comparison script, then triage every flagged
-difference](15-build-and-run-comparison-script.md) — this last one replaced
-[Retire the PDF/notebook analysis docs for an automated, script-based
-report](02-documentation-strategy.md) in this list once that ticket closed:
-it settled the comparison script's *design*, but the destination's own
-requirement that "every Python/R difference [be] documented and explicitly
-decided" isn't satisfied until the script is actually built, run, and its
-findings triaged — that's ticket 15's job.
+rollout](13-dependency-audit.md), and [Fix the product comparison's
+row-alignment key, then triage every flagged R/Python
+difference](17-fix-product-row-alignment-and-triage.md) — this last one
+replaced [Retire the PDF/notebook analysis docs for an automated,
+script-based report](02-documentation-strategy.md) in this list once that
+ticket closed, and was itself replaced by ticket 17 once [Build and run the
+R/Python output comparison script, then triage every flagged
+difference](15-build-and-run-comparison-script.md) closed having built and
+run the tooling but found product's row alignment broken before any triage
+could happen. The destination's own requirement that "every Python/R
+difference [be] documented and explicitly decided" isn't satisfied until
+ticket 17's triage is done.
 
 PR #2 (`migration` -> `dev`) already exists and is `mergeable: MERGEABLE`; it is
 gated only on the work above landing first.

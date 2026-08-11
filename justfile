@@ -114,6 +114,10 @@ run-download *ARGS:
 run *ARGS:
     uv run a4d run {{ARGS}}
 
+# Diff a Python output directory against the frozen R baseline (migration-only, ticket 15)
+compare-outputs *ARGS:
+    uv run python scripts/compare_outputs.py {{ARGS}}
+
 # ── Docker ────────────────────────────────────────────────────────────────────
 
 # --provenance=false: suppress BuildKit attestation manifests so the registry
