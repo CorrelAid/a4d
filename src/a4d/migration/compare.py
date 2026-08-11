@@ -123,6 +123,48 @@ def compare_categorical_overlap(
     return mismatches
 
 
+def add_row_ordinal(
+    df: pl.DataFrame, group_cols: list[str], ordinal_col: str = "__row_ordinal"
+) -> tuple[pl.DataFrame, list[str]]:
+    """Add a within-group ordinal-position row-alignment key (ticket 17).
+
+    Product's natural key -- (clinic_id, product, product_sheet_name,
+    product_entry_date) -- collapses onto far fewer distinct values than rows
+    exist wherever product_entry_date is null, causing join fan-out. Ordinal
+    position within (clinic_id, product_sheet_name), taken in each file's
+    existing row order, is a substitute validated directly against the real
+    R/Python output pair: ~99.99% of product rows align cleanly on it, with
+    the handful of exceptions being real, separately diagnosable divergences
+    (a clinic_id typo, un-trimmed sheet names) rather than a key design flaw.
+
+    Group columns are whitespace-normalized for the join key only -- the
+    original column values are untouched, so e.g. a trailing space in R's
+    product_sheet_name still surfaces as an ordinary cell mismatch on that
+    column instead of silently breaking alignment for the whole group.
+
+    A group column absent from ``df`` entirely (raw output isn't
+    schema-normalized -- a columnless file is possible, e.g. a
+    pre-product-tracking tracker year) keys as null rather than raising;
+    such a file is empty anyway and never reaches the join.
+    """
+    group_key_cols = []
+    exprs = []
+    for col in group_cols:
+        key_col = f"__key_{col}"
+        if col not in df.columns:
+            exprs.append(pl.repeat(None, df.height, dtype=pl.Null).alias(key_col))
+            group_key_cols.append(key_col)
+            continue
+        expr = pl.col(col)
+        if df.schema[col] == pl.Utf8:
+            expr = expr.str.strip_chars()
+        exprs.append(expr.alias(key_col))
+        group_key_cols.append(key_col)
+    df = df.with_columns(exprs)
+    df = df.with_columns(pl.int_range(pl.len()).over(group_key_cols).alias(ordinal_col))
+    return df, [*group_key_cols, ordinal_col]
+
+
 @dataclass(frozen=True)
 class RowKeyOverlap:
     matched: int

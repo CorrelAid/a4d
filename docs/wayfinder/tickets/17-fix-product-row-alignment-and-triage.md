@@ -4,8 +4,8 @@ title: Fix the product comparison's row-alignment key, then triage every flagged
 labels: [wayfinder:task]
 status: open
 blocked_by: []
-assignee: null
-claimed_at: null
+assignee: session-2026-08-11
+claimed_at: 2026-08-11
 resolution: null
 evidence: null
 closed_by: null
