@@ -297,11 +297,21 @@ def build_mismatch_rows(
 
     id_overlap_rows = []
     categorical_overlap_rows = []
+    row_key_overlap_rows = []
     totals_rows = []
     cell_mismatch_rows = []
 
     for file_comparison in comparison.files:
         name = file_comparison.file_name
+
+        row_key_overlap_rows.append(
+            {
+                "file": name,
+                "matched": file_comparison.row_key_overlap.matched,
+                "r_unmatched": file_comparison.row_key_overlap.r_unmatched,
+                "py_unmatched": file_comparison.row_key_overlap.py_unmatched,
+            }
+        )
 
         if file_comparison.id_overlap is not None:
             for value in file_comparison.id_overlap.only_in_r:
@@ -351,6 +361,7 @@ def build_mismatch_rows(
     return {
         "id_overlap": id_overlap_rows,
         "categorical_overlap": categorical_overlap_rows,
+        "row_key_overlap": row_key_overlap_rows,
         "totals": totals_rows,
         "cell_mismatches": cell_mismatch_rows,
     }

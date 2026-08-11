@@ -477,6 +477,30 @@ class TestBuildMismatchRows:
             {"file": "a.parquet", "column": "status", "side": "Python only", "value": "y"},
         ]
 
+    def test_row_key_overlap_rows_have_one_row_per_file(self):
+        comparison = DirectoryComparison(
+            files=[
+                FileComparison(
+                    file_name="a.parquet",
+                    shape=ShapeResult(r_rows=3, py_rows=3, match=True),
+                    totals=[],
+                    columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                    id_overlap=None,
+                    categorical_overlap=[],
+                    row_key_overlap=RowKeyOverlap(matched=1, r_unmatched=2, py_unmatched=0),
+                    cell_mismatches=[],
+                )
+            ],
+            only_in_r=[],
+            only_in_py=[],
+        )
+
+        rows = build_mismatch_rows(comparison)
+
+        assert rows["row_key_overlap"] == [
+            {"file": "a.parquet", "matched": 1, "r_unmatched": 2, "py_unmatched": 0}
+        ]
+
     def test_totals_rows_include_the_diff(self):
         rows = build_mismatch_rows(self._comparison())
 
