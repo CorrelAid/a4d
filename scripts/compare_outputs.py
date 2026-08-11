@@ -5,14 +5,16 @@ Migration-only tooling with a defined end-of-life (R's retirement, ticket 12)
 -- deliberately not wired into `a4d.cli`. Decoupled from pipeline execution:
 takes two existing output directories and diffs them. Logic lives in
 `a4d.migration.compare`; this is a thin CLI + report writer. Per stage
-(patient/product x raw/cleaned) writes an HTML summary dashboard (aggregate
-counts) and an Excel workbook (the actual flagged rows, for triage).
+(patient/product x raw/cleaned) writes one Excel workbook -- summary sheets
+(aggregate counts) plus the actual flagged rows, one sheet per measure. Excel,
+not HTML, because triage means loading this as a dataframe, filtering,
+sorting, and adding columns -- not just reading a static page.
 
 Usage:
     uv run python scripts/compare_outputs.py \
         --r-dir "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r" \
         --py-dir "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python" \
-        --report-out compare_report.html
+        --report-out compare_report.xlsx
 """
 
 import re
@@ -31,8 +33,8 @@ from a4d.migration.compare import (
     DirectoryComparison,
     FileComparison,
     build_mismatch_rows,
+    build_summary_rows,
     compare_directory,
-    render_html_report,
 )
 
 console = Console()
@@ -141,15 +143,15 @@ def _compare_arm(
 
 
 LEGEND = """\
-[bold]Shape match[/bold]      -- do R and Python have the same row count for this file? \
-A coarse structural check: matching shape says nothing about whether individual cell values agree.
+[bold]Shape match[/bold]        -- do R and Python have the same row count for this file? A \
+coarse structural check: matching shape says nothing about whether individual cell values agree.
 
-[bold]ID divergence[/bold]       -- do the same identities (patient_id for patient, product name \
-for product) appear on both sides at all, regardless of row count? Independent of the \
-row-alignment key used for cell mismatches below -- this catches a patient or product dropped \
-entirely, or one that only exists on one side, even if the row-alignment key is unreliable.
+[bold]ID divergence[/bold]      -- identities (patient_id for patient, product name for \
+product) present on only one side, regardless of row count. Independent of the row-alignment \
+key used for row-key/cell divergence below -- catches a patient or product dropped entirely, \
+even when that key is unreliable.
 
-[bold]Column diffs[/bold]     -- columns present on only one side, plus columns present on \
+[bold]Column divergence[/bold]  -- columns present on only one side, plus columns present on \
 both sides but with a different dtype. Structural, like shape -- no values are compared.
 
 [bold]Categorical divergence[/bold] -- of the file's categorical/label columns (allowed-value \
@@ -157,14 +159,20 @@ fields for patient; product_category/product_balance_status for product), how ma
 label value on one side that never appears on the other? Also independent of the \
 row-alignment key -- a distinct-value-set check per column, not tied to row identity.
 
-[bold]Totals mismatches[/bold] -- of the file's numeric columns, how many have a column-sum \
+[bold]Totals divergence[/bold]  -- of the file's numeric columns, how many have a column-sum \
 that differs beyond a float tolerance? The first check that actually compares values, at the \
 coarsest (whole-column) granularity.
 
-[bold]Cell mismatches[/bold]  -- rows matched across R and Python (via the arm's row-alignment \
-key), diffed value by value. The most granular value comparison -- but it's only \
-trustworthy if the row-alignment key is actually unique per row. See the per-column/per-cause \
-breakdown in the HTML report for where these land and why (ticket 15/17 on the wayfinder map).\
+[bold]Row-key divergence[/bold] -- rows whose full row-alignment key (all of it, not just the \
+single identity column above) found no partner on the other side at all, counted per row, not \
+per distinct key. A repeated key on one side with no matching repeat on the other also counts \
+here -- that's the fan-out failure mode. This is what tells you whether Cell divergence below \
+is measuring real disagreement or just has nothing to compare.
+
+[bold]Cell divergence[/bold]    -- rows matched across R and Python (via the arm's \
+row-alignment key), diffed value by value. The most granular value comparison -- but it's only \
+meaningful once Row-key divergence above confirms the key actually paired the rows; 0 here can \
+mean "everything agreed" or "nothing was paired to compare" (ticket 15/17 on the wayfinder map).\
 """
 
 
@@ -189,6 +197,8 @@ def _has_any_mismatch(file_comparison: FileComparison) -> bool:
         or bool(file_comparison.totals)
         or bool(file_comparison.categorical_overlap)
         or bool(file_comparison.cell_mismatches)
+        or file_comparison.row_key_overlap.r_unmatched > 0
+        or file_comparison.row_key_overlap.py_unmatched > 0
         or (
             file_comparison.id_overlap is not None
             and bool(file_comparison.id_overlap.only_in_r or file_comparison.id_overlap.only_in_py)
@@ -216,31 +226,37 @@ def _print_summary(arm: str, comparison: DirectoryComparison, only_mismatches: b
         table.add_column("File")
         table.add_column("Shape match")
         table.add_column("ID divergence (R-only / Py-only)")
-        table.add_column("Column diffs", justify="right")
+        table.add_column("Column divergence", justify="right")
         table.add_column("Categorical divergence", justify="right")
-        table.add_column("Totals mismatches", justify="right")
-        table.add_column("Cell mismatches", justify="right")
+        table.add_column("Totals divergence", justify="right")
+        table.add_column("Row-key divergence (R-only / Py-only)")
+        table.add_column("Cell divergence", justify="right")
 
         for file_comparison in by_year[year]:
-            column_diffs = (
+            column_divergence = (
                 len(file_comparison.columns.only_in_r)
                 + len(file_comparison.columns.only_in_py)
                 + len(file_comparison.columns.dtype_mismatches)
             )
             if file_comparison.id_overlap is None:
-                id_overlap_str = "n/a"
+                id_divergence_str = "n/a"
             else:
-                id_overlap_str = (
+                id_divergence_str = (
                     f"{len(file_comparison.id_overlap.only_in_r)} / "
                     f"{len(file_comparison.id_overlap.only_in_py)}"
                 )
+            row_key_str = (
+                f"{file_comparison.row_key_overlap.r_unmatched} / "
+                f"{file_comparison.row_key_overlap.py_unmatched}"
+            )
             table.add_row(
                 file_comparison.file_name,
                 "✓" if file_comparison.shape.match else "✗",
-                id_overlap_str,
-                str(column_diffs),
+                id_divergence_str,
+                str(column_divergence),
                 str(len(file_comparison.categorical_overlap)),
                 str(len(file_comparison.totals)),
+                row_key_str,
                 str(len(file_comparison.cell_mismatches)),
             )
         console.print(table)
@@ -277,8 +293,8 @@ def compare(
     r_dir: Annotated[Path, typer.Option("--r-dir", help="Root of the frozen R output directory")],
     py_dir: Annotated[Path, typer.Option("--py-dir", help="Root of the Python output directory")],
     report_out: Annotated[
-        Path, typer.Option("--report-out", help="Where to write the HTML summary report")
-    ] = Path("compare_report.html"),
+        Path, typer.Option("--report-out", help="Where to write the Excel report")
+    ] = Path("compare_report.xlsx"),
     only_mismatches: Annotated[
         bool,
         typer.Option(
@@ -294,24 +310,15 @@ def compare(
         )
         _print_summary(label, comparison, only_mismatches)
 
-        # One pair of reports per stage -- combining raw and cleaned into one
-        # per-column aggregate would sum e.g. product_entry_date mismatches from
-        # both stages into a single count, defeating the point of separating them.
-        # HTML is the summary dashboard (aggregate counts only); Excel carries the
-        # actual flagged rows, since that's the format ticket 17's triage needs to
-        # filter/sort/annotate while working through them.
-        stage_html_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
-        html = render_html_report(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
-        stage_html_out.write_text(html)
+        # One workbook per stage -- combining raw and cleaned into one per-column
+        # aggregate would sum e.g. product_entry_date mismatches from both stages
+        # into a single count, defeating the point of separating them.
+        stage_report_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
+        summary_sheets = build_summary_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
+        detail_sheets = build_mismatch_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
+        _write_excel_report(stage_report_out, {**summary_sheets, **detail_sheets})
 
-        stage_excel_out = stage_html_out.with_suffix(".xlsx")
-        rows_by_sheet = build_mismatch_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
-        _write_excel_report(stage_excel_out, rows_by_sheet)
-
-        console.print(
-            f"[bold green]{label}: summary -> {stage_html_out}, "
-            f"detail -> {stage_excel_out}[/bold green]"
-        )
+        console.print(f"[bold green]{label} report written to {stage_report_out}[/bold green]")
 
 
 if __name__ == "__main__":

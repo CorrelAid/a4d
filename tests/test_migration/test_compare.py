@@ -13,18 +13,20 @@ from a4d.migration.compare import (
     DirectoryComparison,
     FileComparison,
     IdOverlapResult,
+    RowKeyOverlap,
     ShapeResult,
     TotalsMismatch,
     build_mismatch_rows,
+    build_summary_rows,
     classify,
     compare_categorical_overlap,
     compare_cells,
     compare_columns,
     compare_directory,
     compare_id_overlap,
+    compare_row_key_overlap,
     compare_shape,
     compare_totals,
-    render_html_report,
 )
 
 
@@ -193,6 +195,32 @@ class TestCompareCategoricalOverlap:
         assert result == []
 
 
+class TestCompareRowKeyOverlap:
+    def test_all_rows_matched_when_keys_align_1to1(self):
+        r_df = pl.DataFrame({"id": [1, 2], "sheet": ["a", "b"]})
+        py_df = pl.DataFrame({"id": [2, 1], "sheet": ["b", "a"]})
+
+        result = compare_row_key_overlap(r_df, py_df, key_cols=["id", "sheet"])
+
+        assert result == RowKeyOverlap(matched=2, r_unmatched=0, py_unmatched=0)
+
+    def test_flags_rows_whose_key_never_appears_on_the_other_side(self):
+        r_df = pl.DataFrame({"id": [1, 2]})
+        py_df = pl.DataFrame({"id": [1, 3]})
+
+        result = compare_row_key_overlap(r_df, py_df, key_cols=["id"])
+
+        assert result == RowKeyOverlap(matched=1, r_unmatched=1, py_unmatched=1)
+
+    def test_fan_out_excess_counts_as_unmatched_on_the_heavier_side(self):
+        r_df = pl.DataFrame({"id": [1, 1, 1]})
+        py_df = pl.DataFrame({"id": [1]})
+
+        result = compare_row_key_overlap(r_df, py_df, key_cols=["id"])
+
+        assert result == RowKeyOverlap(matched=1, r_unmatched=2, py_unmatched=0)
+
+
 class TestCompareCells:
     def test_no_mismatches_when_matched_rows_equal(self):
         r_df = pl.DataFrame({"id": [1, 2], "balance": [10.0, 20.0]})
@@ -279,6 +307,7 @@ class TestCompareDirectory:
                 columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
                 id_overlap=None,
                 categorical_overlap=[],
+                row_key_overlap=RowKeyOverlap(matched=1, r_unmatched=0, py_unmatched=0),
                 cell_mismatches=[],
             )
         ]
@@ -352,7 +381,7 @@ class TestCompareDirectory:
         assert [f.file_name for f in result.files] == ["a.parquet"]
 
 
-class TestRenderHtmlReport:
+class TestBuildSummaryRows:
     def test_reports_per_column_and_per_cause_counts(self):
         comparison = DirectoryComparison(
             files=[
@@ -363,6 +392,7 @@ class TestRenderHtmlReport:
                     columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
                     id_overlap=None,
                     categorical_overlap=[],
+                    row_key_overlap=RowKeyOverlap(matched=2, r_unmatched=0, py_unmatched=0),
                     cell_mismatches=[
                         CellMismatch(
                             key={"id": 1},
@@ -383,29 +413,24 @@ class TestRenderHtmlReport:
             only_in_py=[],
         )
 
-        html = render_html_report(
+        summary = build_summary_rows(
             comparison, classifiers_by_column={"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS}
         )
 
-        assert "product_entry_date" in html
-        assert "other_col" in html
-        assert "sentinel_null" in html
-        assert "unclassified" in html
-        assert "missing.parquet" in html
-        # per-column mismatch counts
-        assert html.count("<td>1</td>") >= 2
-
-    def test_includes_a_legend_explaining_each_measure(self):
-        comparison = DirectoryComparison(files=[], only_in_r=[], only_in_py=[])
-
-        html = render_html_report(comparison)
-
-        assert "Shape match" in html
-        assert "ID divergence" in html
-        assert "Totals mismatches" in html
-        assert "Column diffs" in html
-        assert "Categorical divergence" in html
-        assert "Cell mismatches" in html
+        assert {"column": "product_entry_date", "mismatches": 1} in summary["per_column"]
+        assert {"column": "other_col", "mismatches": 1} in summary["per_column"]
+        assert {
+            "column": "product_entry_date",
+            "cause": "sentinel_null",
+            "mismatches": 1,
+        } in summary["per_cause"]
+        assert {
+            "column": "other_col",
+            "cause": "unclassified",
+            "mismatches": 1,
+        } in summary["per_cause"]
+        assert summary["only_in_r"] == [{"file": "missing.parquet"}]
+        assert summary["only_in_py"] == []
 
 
 class TestBuildMismatchRows:
@@ -421,6 +446,7 @@ class TestBuildMismatchRows:
                     categorical_overlap=[
                         CategoricalOverlap(column="status", only_in_r=["x"], only_in_py=["y"])
                     ],
+                    row_key_overlap=RowKeyOverlap(matched=1, r_unmatched=0, py_unmatched=0),
                     cell_mismatches=[
                         CellMismatch(
                             key={"id": 1},

@@ -1,14 +1,18 @@
 """R-vs-Python output comparison for the migration (ticket 15).
 
 Diffs two existing output directories (a Python run, the frozen R baseline)
-across six layers: shape (row count), ID divergence (identities present on
+across seven layers: shape (row count), ID divergence (identities present on
 only one side), columns/dtypes, categorical divergence (label values present
-on only one side, per column), aggregate totals, and cell-by-cell. This is
-migration-only tooling with a defined end-of-life (R's retirement) --
-deliberately not wired into ``a4d.cli``.
+on only one side, per column), aggregate totals, row-key overlap (rows whose
+full row-alignment key found no partner on the other side, or fanned out via
+a repeated key), and cell-by-cell -- the last two grouped together since both
+depend on the same row-alignment key. This is migration-only tooling with a
+defined end-of-life (R's retirement) -- deliberately not wired into
+``a4d.cli``.
 """
 
 import datetime
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -120,6 +124,31 @@ def compare_categorical_overlap(
 
 
 @dataclass(frozen=True)
+class RowKeyOverlap:
+    matched: int
+    r_unmatched: int
+    py_unmatched: int
+
+
+def compare_row_key_overlap(
+    r_df: pl.DataFrame, py_df: pl.DataFrame, key_cols: list[str]
+) -> RowKeyOverlap:
+    r_counts = Counter(r_df.select(key_cols).iter_rows())
+    py_counts = Counter(py_df.select(key_cols).iter_rows())
+
+    matched = 0
+    r_unmatched = 0
+    py_unmatched = 0
+    for key in r_counts.keys() | py_counts.keys():
+        r_count, py_count = r_counts.get(key, 0), py_counts.get(key, 0)
+        matched += min(r_count, py_count)
+        r_unmatched += r_count - min(r_count, py_count)
+        py_unmatched += py_count - min(r_count, py_count)
+
+    return RowKeyOverlap(matched=matched, r_unmatched=r_unmatched, py_unmatched=py_unmatched)
+
+
+@dataclass(frozen=True)
 class CellMismatch:
     key: dict[str, Any]
     column: str
@@ -213,6 +242,7 @@ class FileComparison:
     columns: ColumnsResult
     id_overlap: IdOverlapResult | None
     categorical_overlap: list[CategoricalOverlap]
+    row_key_overlap: RowKeyOverlap
     cell_mismatches: list[CellMismatch]
 
 
@@ -247,6 +277,7 @@ def compare_directory(
                 columns=compare_columns(r_df, py_df),
                 id_overlap=compare_id_overlap(r_df, py_df, id_col) if id_col else None,
                 categorical_overlap=compare_categorical_overlap(r_df, py_df, categorical_cols),
+                row_key_overlap=compare_row_key_overlap(r_df, py_df, key_cols),
                 cell_mismatches=compare_cells(r_df, py_df, key_cols),
             )
         )
@@ -325,16 +356,10 @@ def build_mismatch_rows(
     }
 
 
-def _rows(headers: list[str], rows: list[tuple]) -> str:
-    head = "".join(f"<th>{h}</th>" for h in headers)
-    body = "".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows)
-    return f"<table><tr>{head}</tr>{body}</table>"
-
-
-def render_html_report(
+def build_summary_rows(
     comparison: DirectoryComparison,
     classifiers_by_column: dict[str, dict[str, Classifier]] | None = None,
-) -> str:
+) -> dict[str, list[dict[str, Any]]]:
     classifiers_by_column = classifiers_by_column or {}
 
     per_column: dict[str, int] = {}
@@ -346,55 +371,15 @@ def render_html_report(
             cause = classify(mismatch, registry)
             per_cause[(mismatch.column, cause)] = per_cause.get((mismatch.column, cause), 0) + 1
 
-    column_table = _rows(
-        ["column", "mismatches"], sorted(per_column.items(), key=lambda kv: -kv[1])
-    )
-    cause_table = _rows(
-        ["column", "cause", "mismatches"],
-        sorted(
-            ((col, cause, count) for (col, cause), count in per_cause.items()),
-            key=lambda row: -row[2],
-        ),
-    )
-    only_in_r = "".join(f"<li>{name}</li>" for name in comparison.only_in_r)
-    only_in_py = "".join(f"<li>{name}</li>" for name in comparison.only_in_py)
-
-    legend = (
-        "<dl>"
-        "<dt><b>Shape match</b></dt>"
-        "<dd>Do R and Python have the same row count for this file? A coarse structural "
-        "check: matching shape says nothing about whether individual cell values agree.</dd>"
-        "<dt><b>ID divergence</b></dt>"
-        "<dd>Identities (patient_id for patient, product name for product) present on "
-        "only one side, regardless of row count. Independent of the row-alignment key "
-        "used for cell mismatches -- catches a patient or product dropped entirely, "
-        "even when that key is unreliable.</dd>"
-        "<dt><b>Column diffs</b></dt>"
-        "<dd>Columns present on only one side, plus columns present on both sides but "
-        "with a different dtype. Structural, like shape -- no values are compared.</dd>"
-        "<dt><b>Categorical divergence</b></dt>"
-        "<dd>Of the file's categorical/label columns, how many have a label value on "
-        "one side that never appears on the other? Also independent of the "
-        "row-alignment key -- a distinct-value-set check per column, not tied to row "
-        "identity.</dd>"
-        "<dt><b>Totals mismatches</b></dt>"
-        "<dd>Of the file's numeric columns, how many have a column-sum that differs "
-        "beyond a float tolerance? The first check that actually compares values, at the "
-        "coarsest (whole-column) granularity.</dd>"
-        "<dt><b>Cell mismatches</b></dt>"
-        "<dd>Rows matched across R and Python (via the arm's row-alignment key), diffed "
-        "value by value. The most granular value comparison -- but it's only "
-        "trustworthy if the row-alignment key is actually unique per row.</dd>"
-        "</dl>"
-    )
-
-    return (
-        "<html><body>"
-        "<h1>R vs Python output comparison</h1>"
-        f"<h2>What these measures mean</h2>{legend}"
-        f"<h2>Per-column mismatches</h2>{column_table}"
-        f"<h2>Per-cause mismatches</h2>{cause_table}"
-        f"<h2>Files only in R</h2><ul>{only_in_r}</ul>"
-        f"<h2>Files only in Python</h2><ul>{only_in_py}</ul>"
-        "</body></html>"
-    )
+    return {
+        "per_column": [
+            {"column": col, "mismatches": count}
+            for col, count in sorted(per_column.items(), key=lambda kv: -kv[1])
+        ],
+        "per_cause": [
+            {"column": col, "cause": cause, "mismatches": count}
+            for (col, cause), count in sorted(per_cause.items(), key=lambda kv: -kv[1])
+        ],
+        "only_in_r": [{"file": name} for name in comparison.only_in_r],
+        "only_in_py": [{"file": name} for name in comparison.only_in_py],
+    }
