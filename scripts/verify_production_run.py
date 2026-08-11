@@ -3,7 +3,7 @@
 
 Compares row counts, distinct clinic counts and schema for each WRITE_TRUNCATE'd
 pipeline table against its dated snapshot, flagging gross regressions. Not a
-cell-by-cell R-vs-Python comparison -- see scripts/compare_r_vs_python.py for that.
+cell-by-cell R-vs-Python comparison -- see scripts/compare_outputs.py for that.
 
 Usage:
     uv run python scripts/verify_production_run.py --backup-suffix 20260809

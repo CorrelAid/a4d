@@ -9,7 +9,7 @@ SELECT
     MIN(timestamp) as earliest,
     MAX(timestamp) as latest
 FROM
-    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output_python/tables/table_logs.parquet';
+    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/tables/table_logs.parquet';
 
 -- Level Distribution
 SELECT
@@ -19,7 +19,7 @@ SELECT
     level,
     COUNT(*) as count
 FROM
-    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output_python/tables/table_logs.parquet'
+    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/tables/table_logs.parquet'
 GROUP BY
     level
 ORDER BY
@@ -33,7 +33,7 @@ SELECT
     file_name,
     COUNT(*) as issues
 FROM
-    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output_python/tables/table_logs.parquet'
+    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/tables/table_logs.parquet'
 WHERE
     level = 'ERROR'
 GROUP BY
@@ -47,7 +47,7 @@ SELECT
     file_name,
     COUNT(*) as issues
 FROM
-    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output_python/tables/table_logs.parquet'
+    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/tables/table_logs.parquet'
 WHERE
     level = 'WARNING'
 GROUP BY
@@ -65,7 +65,7 @@ SELECT
     exception_type,
     COUNT(*) as count
 FROM
-    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/a4dphase2_upload/output_python/tables/table_logs.parquet'
+    '/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python/tables/table_logs.parquet'
 WHERE
     has_exception = true
 GROUP BY
