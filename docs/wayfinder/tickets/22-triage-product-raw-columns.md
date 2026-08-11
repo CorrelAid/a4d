@@ -30,6 +30,25 @@ evidence yet they share entry_date's serial-vs-parsed problem (most are
 numeric or plain string columns, not dates) — check each independently
 before assuming the same representation issue applies.
 
+**Updated after ticket 20 closed:** normalization dropped raw-stage
+`product_entry_date` mismatches from 65,743 to 91, but didn't triage the
+residual — 46 already land in ticket 18's existing seeded classifiers
+(`ce_typo`, `off_by_one_day`, `sentinel_null`, `r_value_missing`), leaving
+50 `unclassified` and undecided, per the destination's "every difference
+documented and explicitly decided" bar. Folded into this ticket's scope
+rather than spawning a separate one, now that it's down to a small tail
+alongside the other raw columns. One concrete finding already surfaced
+while triaging (not chased further): Python's raw extraction for
+`2020_Sarawak General Hospital A4D Tracker_DC_product_raw.parquet`, sheet
+`May20`, has a stray extra row with `product_entry_date = "\n"` (a literal
+newline) that R's output doesn't have — a real extraction bug, not a
+representation or ordering artifact. Several other files in the residual
+(same tracker across other months, `2020_Sultanah Bahiyah Hospital...`,
+`2024_CDA A4D Tracker..._Dec24`, `2019_Vietnam National Children's
+Hospital..._Oct19`) show a similar single-row insertion/shift pattern
+within one sheet — worth checking whether they share the same cause before
+assuming each is independent.
+
 **Updated same day, per ticket 18's addendum:** R and Python were both
 re-run against the current 248-tracker production set (up from 177) and
 `output_r/` now holds that fresh R output (old baseline preserved at
@@ -42,8 +61,10 @@ Use the current `output_r`/`output_python`, not the backup.
 
 ## Question
 
-For each remaining raw-stage product column, pull the flagged mismatch rows
-and determine whether the divergence is a real R/Python content difference
+For each remaining raw-stage product column — including `product_entry_date`'s
+50 residual `unclassified` rows now that ticket 20 has cleared the
+representation-artifact bulk of it — pull the flagged mismatch rows and
+determine whether the divergence is a real R/Python content difference
 (worth a named classifier and, if it points at a Python bug, a fix) or
 another comparison-tool artifact like ticket 20's (worth a normalization
 fix instead). Fall back to the real source Excel trackers as the arbiter

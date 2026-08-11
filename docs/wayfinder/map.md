@@ -585,12 +585,14 @@ on `scripts/compare_outputs.py`'s `STAGES` table. Verified against the real
 `output_r`/`output_python` on the USB drive: raw-stage `product_entry_date`
 mismatches dropped from 65,743 to 91 (99.86% was the representation
 artifact). Triaged the remaining 91: 46 already land in the existing seeded
-classifiers, 50 are `unclassified` and spread across 14 files with no
-dominant pattern (the largest single cluster, 32 of 50, is one file/sheet
-that looks like a localized row-ordering issue) — left as residual signal,
-not spawned as its own ticket. Full detail (including a genuine single-row
-year-typo-rescue miss noticed along the way, not investigated further):
-[ticket 20](tickets/20-fix-raw-entry-date-representation.md).
+classifiers, and the other 50 — spread across 14 files, including a
+confirmed real bug (a stray `"\n"`-dated row in Python's raw extraction for
+`2020_Sarawak General Hospital..._May20`) and several files showing a
+similar single-row insertion/shift pattern — were folded into [ticket
+22](tickets/22-triage-product-raw-columns.md)'s scope rather than left
+untracked in this closed ticket, per the destination's "every difference
+explicitly decided" bar. Full detail: [ticket
+20](tickets/20-fix-raw-entry-date-representation.md).
 
 ## Decisions so far
 
@@ -808,9 +810,12 @@ year-typo-rescue miss noticed along the way, not investigated further):
   to a common `date` before diffing, wired in for the `Product (raw)` stage
   only. Verified against the real drive data: raw-stage `product_entry_date`
   mismatches dropped from 65,743 to 91 (99.86% was the representation
-  artifact); the residual 91 mostly land in existing seeded classifiers or
-  spread thinly across 14 files with no dominant pattern, left as signal
-  rather than spawning a new ticket. Full detail: [ticket
+  artifact); 46 of the residual land in existing seeded classifiers, and the
+  other 50 (including a confirmed real bug — a stray `"\n"`-dated row in
+  Python's raw extraction for one Sarawak sheet) were folded into [ticket
+  22](tickets/22-triage-product-raw-columns.md)'s scope rather than left
+  untracked, since the destination requires every difference explicitly
+  decided. Full detail: [ticket
   20](tickets/20-fix-raw-entry-date-representation.md).
 
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,

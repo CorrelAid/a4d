@@ -95,16 +95,23 @@ the current `output_r`/`output_python` on the USB drive: raw-stage
 representation artifact), landing in the same order of magnitude as the
 other raw product columns (70-720). Triaged the remaining 91: 46 already
 land in the existing seeded classifiers (`ce_typo` 25, `off_by_one_day` 9,
-`sentinel_null` 6, `r_value_missing` 1); 50 are `unclassified` and spread
-across 14 files, with the single largest concentration (32 of 50) in one
-file/sheet (`2019_Vietnam National Children's Hospital..._Oct19`) that looks
-like a localized row-ordering divergence within that sheet rather than a
-general pattern -- not large or clear enough to warrant a new named
-classifier or its own ticket yet; left as residual signal for whoever next
-works raw-stage product triage to notice. One `ce_typo` case (`06 Penang
-General Hospital..._Apr26`) has Python parsing to year `3026` where R has no
-value at all -- a genuine year-typo-rescue miss, but a single row, not
-investigated further here.
+`sentinel_null` 6, `r_value_missing` 1); the other 50 are `unclassified`.
+Spot-checked a sample rather than all 50 (per the map's destination
+requiring every difference *decided*, not every difference independently
+re-derived by hand at this volume) -- one concrete real bug surfaced along
+the way: Python's raw extraction for `2020_Sarawak General Hospital A4D
+Tracker_DC_product_raw.parquet`, sheet `May20`, has a stray extra row with
+`product_entry_date = "\n"` (a literal newline) that R's output doesn't
+have. Several other files show a similar single-row insertion/shift pattern
+within one sheet. Rather than leave the 50 as untracked residue in this
+closed ticket -- where nobody would think to look for undecided
+differences -- folded them into [ticket
+22](22-triage-product-raw-columns.md)'s scope (it already owns "remaining
+raw-stage product columns"; `product_entry_date`'s tail is now small enough
+to be one more column in that same pass) rather than spawning a separate
+ticket. One `ce_typo` case (`06 Penang General Hospital..._Apr26`) has
+Python parsing to year `3026` where R has no value at all -- a genuine
+year-typo-rescue miss, also left for ticket 22 rather than fixed here.
 
 **Tense**: all claims above describe current, executed behaviour -- the
 code is committed and the counts are from a real re-run, not a projection.
