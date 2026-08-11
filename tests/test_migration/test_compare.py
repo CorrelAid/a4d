@@ -7,16 +7,20 @@ import polars as pl
 from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     SENTINEL_DATE,
+    CategoricalOverlap,
     CellMismatch,
     ColumnsResult,
     DirectoryComparison,
     FileComparison,
+    IdOverlapResult,
     ShapeResult,
     TotalsMismatch,
     classify,
+    compare_categorical_overlap,
     compare_cells,
     compare_columns,
     compare_directory,
+    compare_id_overlap,
     compare_shape,
     compare_totals,
     render_html_report,
@@ -62,6 +66,22 @@ class TestCompareTotals:
 
         assert compare_totals(r_df, py_df, numeric_cols=["balance"]) == []
 
+    def test_skips_a_column_missing_from_either_side(self):
+        r_df = pl.DataFrame({"balance": [1.0]})
+        py_df = pl.DataFrame({"balance": [1.0]})
+
+        result = compare_totals(r_df, py_df, numeric_cols=["balance", "not_in_either"])
+
+        assert result == []
+
+    def test_skips_a_column_present_only_on_one_side(self):
+        r_df = pl.DataFrame({"balance": [1.0], "only_r_has_this": [5.0]})
+        py_df = pl.DataFrame({"balance": [1.0]})
+
+        result = compare_totals(r_df, py_df, numeric_cols=["balance", "only_r_has_this"])
+
+        assert result == []
+
 
 class TestCompareColumns:
     def test_no_diff_when_columns_and_dtypes_match(self):
@@ -88,6 +108,88 @@ class TestCompareColumns:
         result = compare_columns(r_df, py_df)
 
         assert result.dtype_mismatches == [("a", pl.Int64, pl.Float64)]
+
+
+class TestCompareIdOverlap:
+    def test_no_diff_when_ids_match(self):
+        r_df = pl.DataFrame({"patient_id": ["a", "b", "c"]})
+        py_df = pl.DataFrame({"patient_id": ["c", "b", "a"]})
+
+        result = compare_id_overlap(r_df, py_df, id_col="patient_id")
+
+        assert result == IdOverlapResult(only_in_r=[], only_in_py=[], common_count=3)
+
+    def test_flags_ids_present_on_only_one_side(self):
+        r_df = pl.DataFrame({"patient_id": ["a", "b", "dropped"]})
+        py_df = pl.DataFrame({"patient_id": ["a", "b", "new"]})
+
+        result = compare_id_overlap(r_df, py_df, id_col="patient_id")
+
+        assert result == IdOverlapResult(only_in_r=["dropped"], only_in_py=["new"], common_count=2)
+
+    def test_ignores_nulls(self):
+        r_df = pl.DataFrame({"product": ["a", None]}, schema={"product": pl.Utf8})
+        py_df = pl.DataFrame({"product": ["a", None]}, schema={"product": pl.Utf8})
+
+        result = compare_id_overlap(r_df, py_df, id_col="product")
+
+        assert result == IdOverlapResult(only_in_r=[], only_in_py=[], common_count=1)
+
+    def test_deduplicates_repeated_ids(self):
+        r_df = pl.DataFrame({"product": ["a", "a", "b"]})
+        py_df = pl.DataFrame({"product": ["a"]})
+
+        result = compare_id_overlap(r_df, py_df, id_col="product")
+
+        assert result == IdOverlapResult(only_in_r=["b"], only_in_py=[], common_count=1)
+
+
+class TestCompareCategoricalOverlap:
+    def test_no_mismatches_when_all_categorical_columns_agree(self):
+        r_df = pl.DataFrame({"category": ["a", "b"], "status": ["x", "y"]})
+        py_df = pl.DataFrame({"category": ["b", "a"], "status": ["y", "x"]})
+
+        result = compare_categorical_overlap(r_df, py_df, categorical_cols=["category", "status"])
+
+        assert result == []
+
+    def test_flags_only_columns_with_unseen_values(self):
+        r_df = pl.DataFrame({"category": ["a", "b"], "status": ["x", "y"]})
+        py_df = pl.DataFrame({"category": ["a", "typo"], "status": ["x", "y"]})
+
+        result = compare_categorical_overlap(r_df, py_df, categorical_cols=["category", "status"])
+
+        assert result == [
+            CategoricalOverlap(column="category", only_in_r=["b"], only_in_py=["typo"])
+        ]
+
+    def test_ignores_columns_not_listed(self):
+        r_df = pl.DataFrame({"category": ["a"], "unrelated": ["z"]})
+        py_df = pl.DataFrame({"category": ["a"], "unrelated": ["different"]})
+
+        result = compare_categorical_overlap(r_df, py_df, categorical_cols=["category"])
+
+        assert result == []
+
+    def test_skips_a_column_missing_from_either_side(self):
+        r_df = pl.DataFrame({"category": ["a"]})
+        py_df = pl.DataFrame({"category": ["a"]})
+
+        result = compare_categorical_overlap(
+            r_df, py_df, categorical_cols=["category", "not_in_either"]
+        )
+
+        assert result == []
+
+    def test_skips_a_column_present_only_on_one_side(self):
+        r_df = pl.DataFrame({"category": ["a"], "only_r_has_this": ["x"]})
+        py_df = pl.DataFrame({"category": ["a"]})
+
+        result = compare_categorical_overlap(
+            r_df, py_df, categorical_cols=["category", "only_r_has_this"]
+        )
+
+        assert result == []
 
 
 class TestCompareCells:
@@ -174,11 +276,43 @@ class TestCompareDirectory:
                 shape=ShapeResult(r_rows=1, py_rows=1, match=True),
                 totals=[],
                 columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                id_overlap=None,
+                categorical_overlap=[],
                 cell_mismatches=[],
             )
         ]
         assert result.only_in_r == []
         assert result.only_in_py == []
+
+    def test_computes_categorical_overlap_when_categorical_cols_given(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1], "category": ["a"]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1], "category": ["typo"]})}
+
+        result = compare_directory(
+            r_frames, py_frames, key_cols=["id"], categorical_cols=["category"]
+        )
+
+        assert result.files[0].categorical_overlap == [
+            CategoricalOverlap(column="category", only_in_r=["a"], only_in_py=["typo"])
+        ]
+
+    def test_computes_id_overlap_when_id_col_given(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1, 2], "balance": [10.0, 20.0]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1, 3], "balance": [10.0, 30.0]})}
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"], id_col="id")
+
+        assert result.files[0].id_overlap == IdOverlapResult(
+            only_in_r=[2], only_in_py=[3], common_count=1
+        )
+
+    def test_id_overlap_is_none_when_id_col_not_given(self):
+        r_frames = {"a.parquet": pl.DataFrame({"id": [1]})}
+        py_frames = {"a.parquet": pl.DataFrame({"id": [1]})}
+
+        result = compare_directory(r_frames, py_frames, key_cols=["id"])
+
+        assert result.files[0].id_overlap is None
 
     def test_flags_totals_mismatch_within_a_matched_file(self):
         r_frames = {"a.parquet": pl.DataFrame({"id": [1], "balance": [10.0]})}
@@ -226,6 +360,8 @@ class TestRenderHtmlReport:
                     shape=ShapeResult(r_rows=2, py_rows=2, match=True),
                     totals=[],
                     columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                    id_overlap=None,
+                    categorical_overlap=[],
                     cell_mismatches=[
                         CellMismatch(
                             key={"id": 1},

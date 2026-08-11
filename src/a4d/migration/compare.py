@@ -44,6 +44,8 @@ def compare_totals(
 ) -> list[TotalsMismatch]:
     mismatches = []
     for col in numeric_cols:
+        if col not in r_df.columns or col not in py_df.columns:
+            continue
         r_total = float(r_df[col].sum() or 0.0)
         py_total = float(py_df[col].sum() or 0.0)
         tolerance = max(TOTALS_REL_TOL * max(abs(r_total), abs(py_total)), TOTALS_ABS_TOL)
@@ -72,6 +74,47 @@ def compare_columns(r_df: pl.DataFrame, py_df: pl.DataFrame) -> ColumnsResult:
         only_in_py=sorted(py_cols - r_cols),
         dtype_mismatches=dtype_mismatches,
     )
+
+
+@dataclass(frozen=True)
+class IdOverlapResult:
+    only_in_r: list[Any]
+    only_in_py: list[Any]
+    common_count: int
+
+
+def compare_id_overlap(r_df: pl.DataFrame, py_df: pl.DataFrame, id_col: str) -> IdOverlapResult:
+    r_ids = set(r_df[id_col].drop_nulls().to_list())
+    py_ids = set(py_df[id_col].drop_nulls().to_list())
+    return IdOverlapResult(
+        only_in_r=sorted(r_ids - py_ids),
+        only_in_py=sorted(py_ids - r_ids),
+        common_count=len(r_ids & py_ids),
+    )
+
+
+@dataclass(frozen=True)
+class CategoricalOverlap:
+    column: str
+    only_in_r: list[Any]
+    only_in_py: list[Any]
+
+
+def compare_categorical_overlap(
+    r_df: pl.DataFrame, py_df: pl.DataFrame, categorical_cols: list[str]
+) -> list[CategoricalOverlap]:
+    mismatches = []
+    for col in categorical_cols:
+        if col not in r_df.columns or col not in py_df.columns:
+            continue
+        overlap = compare_id_overlap(r_df, py_df, col)
+        if overlap.only_in_r or overlap.only_in_py:
+            mismatches.append(
+                CategoricalOverlap(
+                    column=col, only_in_r=overlap.only_in_r, only_in_py=overlap.only_in_py
+                )
+            )
+    return mismatches
 
 
 @dataclass(frozen=True)
@@ -166,6 +209,8 @@ class FileComparison:
     shape: ShapeResult
     totals: list[TotalsMismatch]
     columns: ColumnsResult
+    id_overlap: IdOverlapResult | None
+    categorical_overlap: list[CategoricalOverlap]
     cell_mismatches: list[CellMismatch]
 
 
@@ -181,8 +226,11 @@ def compare_directory(
     py_frames: dict[str, pl.DataFrame],
     key_cols: list[str],
     numeric_cols: list[str] | None = None,
+    id_col: str | None = None,
+    categorical_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     numeric_cols = numeric_cols or []
+    categorical_cols = categorical_cols or []
     r_names, py_names = set(r_frames), set(py_frames)
     common = sorted(r_names & py_names)
 
@@ -195,6 +243,8 @@ def compare_directory(
                 shape=compare_shape(r_df, py_df),
                 totals=compare_totals(r_df, py_df, numeric_cols),
                 columns=compare_columns(r_df, py_df),
+                id_overlap=compare_id_overlap(r_df, py_df, id_col) if id_col else None,
+                categorical_overlap=compare_categorical_overlap(r_df, py_df, categorical_cols),
                 cell_mismatches=compare_cells(r_df, py_df, key_cols),
             )
         )
@@ -243,18 +293,23 @@ def render_html_report(
     legend = (
         "<dl>"
         "<dt><b>Shape match</b></dt>"
-        "<dd>Do R and Python have the same row count for this file? A coarse check: "
-        "matching shape says nothing about whether individual cell values agree.</dd>"
-        "<dt><b>Totals mismatches</b></dt>"
-        "<dd>Of the file's numeric columns, how many have a column-sum that differs "
-        "beyond a float tolerance? A cheap aggregate check that can catch gross "
-        "divergence without comparing every row.</dd>"
+        "<dd>Do R and Python have the same row count for this file? A coarse structural "
+        "check: matching shape says nothing about whether individual cell values agree.</dd>"
+        "<dt><b>ID overlap</b></dt>"
+        "<dd>Do the same identities (patient_id for patient, product name for product) "
+        "appear on both sides at all, regardless of row count? Independent of the "
+        "row-alignment key used for cell mismatches -- catches a patient or product "
+        "dropped entirely, even when that key is unreliable.</dd>"
         "<dt><b>Column diffs</b></dt>"
         "<dd>Columns present on only one side, plus columns present on both sides but "
-        "with a different dtype. Independent of row content.</dd>"
+        "with a different dtype. Structural, like shape -- no values are compared.</dd>"
+        "<dt><b>Totals mismatches</b></dt>"
+        "<dd>Of the file's numeric columns, how many have a column-sum that differs "
+        "beyond a float tolerance? The first check that actually compares values, at the "
+        "coarsest (whole-column) granularity.</dd>"
         "<dt><b>Cell mismatches</b></dt>"
         "<dd>Rows matched across R and Python (via the arm's row-alignment key), diffed "
-        "value by value. This is the real per-value divergence count -- but it's only "
+        "value by value. The most granular value comparison -- but it's only "
         "trustworthy if the row-alignment key is actually unique per row.</dd>"
         "</dl>"
     )
