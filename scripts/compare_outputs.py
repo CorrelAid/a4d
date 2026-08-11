@@ -32,6 +32,7 @@ from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     DirectoryComparison,
     FileComparison,
+    add_row_ordinal,
     build_mismatch_rows,
     build_summary_rows,
     compare_directory,
@@ -68,18 +69,22 @@ PATIENT_CATEGORICAL_COLS = [
     "support_level",
 ]
 
-PRODUCT_KEY_COLS = ["clinic_id", "product", "product_sheet_name", "product_entry_date"]
-# product_entry_date is unreliable as an identity anchor (see ticket 17) -- "product"
-# (the product name) is the natural identity check here instead.
+# Ordinal position within (clinic_id, product_sheet_name) -- see
+# add_row_ordinal's docstring. Replaces the old equi-join key (clinic_id,
+# product, product_sheet_name, product_entry_date), which collapsed onto far
+# fewer distinct values than rows exist wherever product_entry_date is null
+# (ticket 17).
+PRODUCT_ORDINAL_GROUP_COLS = ["clinic_id", "product_sheet_name"]
 PRODUCT_ID_COL = "product"
 PRODUCT_CATEGORICAL_COLS = ["product_category", "product_balance_status"]
 
 CLASSIFIERS_BY_COLUMN = {"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS}
 
-# (label, output subdir, row-alignment key, identity column, categorical columns).
-# Raw and cleaned are compared separately so a divergence can be localized to
-# extraction vs. cleaning; categorical columns listed here that don't exist yet
-# at the raw stage are silently skipped by compare_categorical_overlap.
+# (label, output subdir, row-alignment key or ordinal-group cols, identity
+# column, categorical columns, ordinal_group_cols). Raw and cleaned are
+# compared separately so a divergence can be localized to extraction vs.
+# cleaning; categorical columns listed here that don't exist yet at the raw
+# stage are silently skipped by compare_categorical_overlap.
 STAGES = [
     (
         "Patient (raw)",
@@ -87,6 +92,7 @@ STAGES = [
         PATIENT_KEY_COLS,
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
+        None,
     ),
     (
         "Patient (cleaned)",
@@ -94,20 +100,23 @@ STAGES = [
         PATIENT_KEY_COLS,
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
+        None,
     ),
     (
         "Product (raw)",
         "product_data_raw",
-        PRODUCT_KEY_COLS,
+        None,
         PRODUCT_ID_COL,
         PRODUCT_CATEGORICAL_COLS,
+        PRODUCT_ORDINAL_GROUP_COLS,
     ),
     (
         "Product (cleaned)",
         "product_data_cleaned",
-        PRODUCT_KEY_COLS,
+        None,
         PRODUCT_ID_COL,
         PRODUCT_CATEGORICAL_COLS,
+        PRODUCT_ORDINAL_GROUP_COLS,
     ),
 ]
 
@@ -124,11 +133,26 @@ def _numeric_cols(frames: dict[str, pl.DataFrame]) -> list[str]:
 
 
 def _compare_arm(
-    r_dir: Path, py_dir: Path, key_cols: list[str], id_col: str, categorical_cols: list[str]
+    r_dir: Path,
+    py_dir: Path,
+    key_cols: list[str] | None,
+    id_col: str,
+    categorical_cols: list[str],
+    ordinal_group_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
-    numeric_cols = _numeric_cols(r_frames)
+    if ordinal_group_cols is not None:
+        resolved_key_cols = None
+        for frames in (r_frames, py_frames):
+            for name, df in frames.items():
+                frames[name], resolved_key_cols = add_row_ordinal(df, ordinal_group_cols)
+        key_cols = resolved_key_cols
+    assert key_cols is not None
+    # __-prefixed helper columns from add_row_ordinal are join-key-only synthetic
+    # data (an ordinal counter, normalized group values) -- summing/diffing them
+    # as if they were real output columns would be noise, not signal.
+    numeric_cols = [c for c in _numeric_cols(r_frames) if not c.startswith("__")]
     # compare_directory/compare_categorical_overlap skip a column not present on
     # both sides of a given file -- raw output isn't schema-normalized like cleaned
     # output, so which columns exist can vary file by file, not just by directory.
@@ -304,9 +328,9 @@ def compare(
 ) -> None:
     _print_legend()
 
-    for label, subdir, key_cols, id_col, categorical_cols in STAGES:
+    for label, subdir, key_cols, id_col, categorical_cols, ordinal_group_cols in STAGES:
         comparison = _compare_arm(
-            r_dir / subdir, py_dir / subdir, key_cols, id_col, categorical_cols
+            r_dir / subdir, py_dir / subdir, key_cols, id_col, categorical_cols, ordinal_group_cols
         )
         _print_summary(label, comparison, only_mismatches)
 

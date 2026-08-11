@@ -16,6 +16,7 @@ from a4d.migration.compare import (
     RowKeyOverlap,
     ShapeResult,
     TotalsMismatch,
+    add_row_ordinal,
     build_mismatch_rows,
     build_summary_rows,
     classify,
@@ -28,6 +29,56 @@ from a4d.migration.compare import (
     compare_shape,
     compare_totals,
 )
+
+
+class TestAddRowOrdinal:
+    def test_assigns_sequential_ordinal_within_group(self):
+        df = pl.DataFrame({"clinic_id": ["A", "A", "A", "B"], "value": [10, 20, 30, 40]})
+
+        result, key_cols = add_row_ordinal(df, ["clinic_id"])
+
+        assert key_cols == ["__key_clinic_id", "__row_ordinal"]
+        assert result["__row_ordinal"].to_list() == [0, 1, 2, 0]
+
+    def test_resets_ordinal_per_distinct_group_combination(self):
+        df = pl.DataFrame(
+            {
+                "clinic_id": ["A", "A", "B", "B", "B"],
+                "sheet": ["Jan", "Feb", "Jan", "Jan", "Feb"],
+            }
+        )
+
+        result, key_cols = add_row_ordinal(df, ["clinic_id", "sheet"])
+
+        assert key_cols == ["__key_clinic_id", "__key_sheet", "__row_ordinal"]
+        assert result["__row_ordinal"].to_list() == [0, 0, 0, 1, 0]
+
+    def test_strips_whitespace_for_the_join_key_but_not_the_original_column(self):
+        r_df = pl.DataFrame({"sheet": ["May19 "]})
+        py_df = pl.DataFrame({"sheet": ["May19"]})
+
+        r_result, key_cols = add_row_ordinal(r_df, ["sheet"])
+        py_result, _ = add_row_ordinal(py_df, ["sheet"])
+
+        assert r_result["__key_sheet"].to_list() == py_result["__key_sheet"].to_list()
+        assert r_result["sheet"].to_list() == ["May19 "]
+        assert py_result["sheet"].to_list() == ["May19"]
+
+    def test_leaves_non_string_group_columns_unstripped(self):
+        df = pl.DataFrame({"year": [2019, 2019, 2020]})
+
+        result, key_cols = add_row_ordinal(df, ["year"])
+
+        assert result["__key_year"].to_list() == [2019, 2019, 2020]
+        assert result["__row_ordinal"].to_list() == [0, 1, 0]
+
+    def test_keys_as_null_when_group_column_is_missing_entirely(self):
+        df = pl.DataFrame(schema={})
+
+        result, key_cols = add_row_ordinal(df, ["clinic_id"])
+
+        assert key_cols == ["__key_clinic_id", "__row_ordinal"]
+        assert result.height == 0
 
 
 class TestCompareShape:
