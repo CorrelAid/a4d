@@ -250,7 +250,18 @@ def _is_sentinel_null(m: CellMismatch) -> bool:
     return m.r_value is None and m.py_value == SENTINEL_DATE
 
 
-def _is_typo_rescue(m: CellMismatch) -> bool:
+def _is_r_value_missing(m: CellMismatch) -> bool:
+    """R produced null where Python has a real value.
+
+    Named generically rather than "typo_rescue" (its original name): ticket 18
+    found the R source has no forward-fill for this column and, separately,
+    that R sometimes fails to extract a perfectly clean source value (see
+    2018_Mahosot Hospital, Jan18) -- i.e. most cases in this bucket aren't
+    typo-driven at all. classify() only sees the parsed (r_value, py_value)
+    pair, not the raw source cell, so it can't distinguish a genuine
+    source-typo rescue from a plain R extraction gap; both look identical
+    here and are lumped together deliberately.
+    """
     return m.r_value is None and m.py_value is not None and m.py_value != SENTINEL_DATE
 
 
@@ -270,9 +281,25 @@ def _is_off_by_one_day(m: CellMismatch) -> bool:
 
 PRODUCT_ENTRY_DATE_CLASSIFIERS: dict[str, Classifier] = {
     "sentinel_null": _is_sentinel_null,
-    "typo_rescue": _is_typo_rescue,
+    "r_value_missing": _is_r_value_missing,
     "ce_typo": _is_ce_typo,
     "off_by_one_day": _is_off_by_one_day,
+}
+
+
+def _is_r_category_lookup_miss(m: CellMismatch) -> bool:
+    """R's add_product_categories (read_product_data.R) left-joins the raw
+    product string against the category mapping with no normalization; a
+    case or whitespace difference in the tracker's product name misses the
+    join and leaves product_category null, while Python's reference/products.py
+    lowercases and strips before matching. Verified via source read (ticket
+    18), not just the data pattern -- a genuine R limitation, not a Python bug.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PRODUCT_CATEGORY_CLASSIFIERS: dict[str, Classifier] = {
+    "r_category_lookup_miss": _is_r_category_lookup_miss,
 }
 
 

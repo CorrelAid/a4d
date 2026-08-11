@@ -31,6 +31,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from a4d.migration.compare import (
+    PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     Delta,
     DirectoryComparison,
@@ -83,7 +84,10 @@ PRODUCT_ORDINAL_GROUP_COLS = ["clinic_id", "product_sheet_name"]
 PRODUCT_ID_COL = "product"
 PRODUCT_CATEGORICAL_COLS = ["product_category", "product_balance_status"]
 
-CLASSIFIERS_BY_COLUMN = {"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS}
+CLASSIFIERS_BY_COLUMN = {
+    "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
+    "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
+}
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity
 # column, categorical columns, ordinal_group_cols). Raw and cleaned are
