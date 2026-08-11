@@ -240,9 +240,29 @@ def render_html_report(
     only_in_r = "".join(f"<li>{name}</li>" for name in comparison.only_in_r)
     only_in_py = "".join(f"<li>{name}</li>" for name in comparison.only_in_py)
 
+    legend = (
+        "<dl>"
+        "<dt><b>Shape match</b></dt>"
+        "<dd>Do R and Python have the same row count for this file? A coarse check: "
+        "matching shape says nothing about whether individual cell values agree.</dd>"
+        "<dt><b>Totals mismatches</b></dt>"
+        "<dd>Of the file's numeric columns, how many have a column-sum that differs "
+        "beyond a float tolerance? A cheap aggregate check that can catch gross "
+        "divergence without comparing every row.</dd>"
+        "<dt><b>Column diffs</b></dt>"
+        "<dd>Columns present on only one side, plus columns present on both sides but "
+        "with a different dtype. Independent of row content.</dd>"
+        "<dt><b>Cell mismatches</b></dt>"
+        "<dd>Rows matched across R and Python (via the arm's row-alignment key), diffed "
+        "value by value. This is the real per-value divergence count -- but it's only "
+        "trustworthy if the row-alignment key is actually unique per row.</dd>"
+        "</dl>"
+    )
+
     return (
         "<html><body>"
         "<h1>R vs Python output comparison</h1>"
+        f"<h2>What these measures mean</h2>{legend}"
         f"<h2>Per-column mismatches</h2>{column_table}"
         f"<h2>Per-cause mismatches</h2>{cause_table}"
         f"<h2>Files only in R</h2><ul>{only_in_r}</ul>"

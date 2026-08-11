@@ -61,6 +61,7 @@ output/
 *.parquet
 *.xlsx
 !reference_data/
+compare_report.html
 
 # OS
 .DS_Store

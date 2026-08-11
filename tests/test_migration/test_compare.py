@@ -257,3 +257,13 @@ class TestRenderHtmlReport:
         assert "missing.parquet" in html
         # per-column mismatch counts
         assert html.count("<td>1</td>") >= 2
+
+    def test_includes_a_legend_explaining_each_measure(self):
+        comparison = DirectoryComparison(files=[], only_in_r=[], only_in_py=[])
+
+        html = render_html_report(comparison)
+
+        assert "Shape match" in html
+        assert "Totals mismatches" in html
+        assert "Column diffs" in html
+        assert "Cell mismatches" in html

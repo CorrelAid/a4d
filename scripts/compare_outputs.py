@@ -19,6 +19,7 @@ from typing import Annotated
 import polars as pl
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from a4d.migration.compare import (
@@ -53,6 +54,28 @@ def _compare_arm(r_dir: Path, py_dir: Path, key_cols: list[str]) -> DirectoryCom
     py_frames = _load_parquet_dir(py_dir)
     numeric_cols = _numeric_cols(r_frames)
     return compare_directory(r_frames, py_frames, key_cols=key_cols, numeric_cols=numeric_cols)
+
+
+LEGEND = """\
+[bold]Shape match[/bold]      -- do R and Python have the same row count for this file? \
+A coarse check: matching shape says nothing about whether individual cell values agree.
+
+[bold]Totals mismatches[/bold] -- of the file's numeric columns, how many have a column-sum \
+that differs beyond a float tolerance? A cheap aggregate check that can catch gross \
+divergence without comparing every row.
+
+[bold]Column diffs[/bold]     -- columns present on only one side, plus columns present on \
+both sides but with a different dtype. Independent of row content.
+
+[bold]Cell mismatches[/bold]  -- rows matched across R and Python (via the arm's row-alignment \
+key), diffed value by value. This is the real per-value divergence count -- but it's only \
+trustworthy if the row-alignment key is actually unique per row. See the per-column/per-cause \
+breakdown in the HTML report for where these land and why (ticket 15/17 on the wayfinder map).\
+"""
+
+
+def _print_legend() -> None:
+    console.print(Panel(LEGEND, title="What these columns measure", expand=False))
 
 
 def _print_summary(arm: str, comparison: DirectoryComparison) -> None:
@@ -98,6 +121,8 @@ def compare(
         Path, typer.Option("--report-out", help="Where to write the HTML report")
     ] = Path("compare_report.html"),
 ) -> None:
+    _print_legend()
+
     patient_comparison = _compare_arm(
         r_dir / "patient_data_cleaned", py_dir / "patient_data_cleaned", PATIENT_KEY_COLS
     )
