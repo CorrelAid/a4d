@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [17]
+blocked_by: [18]
 assignee: null
 claimed_at: null
 resolution: null
@@ -33,11 +33,14 @@ comparison script, then triage every flagged
 difference](15-build-and-run-comparison-script.md) is now closed too — it
 built and ran the comparison tooling but split the actual triage into
 [ticket 17](17-fix-product-row-alignment-and-triage.md) after finding
-product's row-alignment key was broken. This ticket is blocked on ticket 17
-instead of ticket 15 — not because retiring `r-archive/` needs R itself, but
-because that triage work is still investigative and might turn up a need to
-consult R's logic/behavior one more time before it's gone for good; safer to
-keep this ticket blocked until that work concludes.
+product's row-alignment key was broken. Ticket 17 is now closed too — it
+fixed and validated the row-alignment key but the actual per-column triage
+still didn't converge, splitting again into [ticket
+18](18-triage-comparison-flagged-differences.md). This ticket is blocked on
+ticket 18 instead of ticket 17 — not because retiring `r-archive/` needs R
+itself, but because that triage work is still investigative and might turn
+up a need to consult R's logic/behavior one more time before it's gone for
+good; safer to keep this ticket blocked until that work concludes.
 
 Not blocked on [ticket 11](11-cli-ux-observability.md): the user confirmed
 `tools/LogViewerA4D` (an R Shiny app another developer wrote for viewing R

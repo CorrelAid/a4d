@@ -39,7 +39,7 @@ flowchart TD
   subgraph FRONTIER["Frontier · 2"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
+    T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -47,7 +47,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 11"]
+  subgraph DECIDED["Decided · 12"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -60,6 +60,7 @@ flowchart TD
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
+    T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -87,15 +88,15 @@ flowchart TD
   T13 --> T6
   T13 --> T10
   T14 --> T6
-  T17 --> T6
-  T17 --> T12
+  T18 --> T6
+  T18 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T17 frontier
+  class T16,T18 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -418,14 +419,48 @@ count-based check). [Ticket 17](tickets/17-fix-product-row-alignment-and-triage.
 inherits this more capable tool — its premise was updated to note
 `RowKeyOverlap.matched` can validate a proposed alignment fix directly.
 
-**The frontier is now ticket 16 and ticket 17**: [Fix the product
-comparison's row-alignment key, then triage every flagged R/Python
-difference](tickets/17-fix-product-row-alignment-and-triage.md) and [Build a
-drill-down log analyzer for admins to inspect a specific tracker file's
-errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is now
-blocked on ticket 17 instead of ticket 15. Ticket 6 (promote to `dev`) is
-`blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 17]` — tickets 3, 4, 5, 8, 10,
-11, 13, 14 are closed; tickets 12 and 17 are what remain (ticket 16 isn't
+**Thirteen tickets resolved.** [Fix the product comparison's row-alignment
+key, then triage every flagged R/Python difference](tickets/17-fix-product-row-alignment-and-triage.md)
+is done for its row-alignment-key half: the old equi-join key (`clinic_id`,
+`product`, `product_sheet_name`, `product_entry_date`) is replaced by
+`add_row_ordinal()` (`src/a4d/migration/compare.py`) — ordinal position
+within `(clinic_id, product_sheet_name)`, computed at comparison time
+(never stored, since R's frozen baseline can't be re-run to pick up a new
+column), with whitespace-normalized group keys so a divergence like R's
+un-trimmed sheet names still surfaces as an ordinary cell mismatch instead
+of breaking alignment. Along the way, found R's own `index` helper
+(`clean/product.py` step 2.5) resets per-sheet while Python's is a single
+global counter across the whole file — a real, previously undocumented
+divergence between the two pipelines, though not one this ticket needed to
+fix in the pipeline itself. Validated directly against the real R/Python
+output pair on the USB drive: row-key match on cleaned product jumped from
+near-0% to 97.2% (46,314/47,644), with the remaining 2.8% isolated entirely
+to one clinic — R's frozen output has `clinic_id = "NGH"` for North
+Okkalapa General Hospital across all three of its tracker years, where
+Python (matching the tracker's actual folder name) correctly has `"NOH"`.
+`product_sheet_name`'s mismatch count (201) now reproduces the
+parity-presentation PDF's number exactly, the strongest available
+confirmation the new key is sound. Actually triaging the flagged
+differences did not converge in this session — initial per-column counts
+are still far larger than the PDF's even with alignment fixed
+(`product_category`: 13,638 vs 214; `product_entry_date`: 10,424 vs 559),
+and a first look found `product_category` mismatches are systematically
+`r_value=None` where Python has a real value, an unexplained pattern rather
+than a diagnosis — so that work, plus patient-arm triage and the
+still-unreconciled 189-vs-155-tracker discrepancy (confirmed unchanged by
+this ticket's fix — the currently-frozen `output_r/` genuinely has 155
+files/47,644 rows), split into [ticket
+18](tickets/18-triage-comparison-flagged-differences.md). Full detail:
+[ticket 17](tickets/17-fix-product-row-alignment-and-triage.md).
+
+**The frontier is now ticket 16 and ticket 18**: [Triage every flagged
+R/Python difference for both arms, and resolve the 189-vs-155-tracker
+discrepancy](tickets/18-triage-comparison-flagged-differences.md) and
+[Build a drill-down log analyzer for admins to inspect a specific tracker
+file's errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is now
+blocked on ticket 18 instead of ticket 17. Ticket 6 (promote to `dev`) is
+`blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 18]` — tickets 3, 4, 5, 8, 10,
+11, 13, 14 are closed; tickets 12 and 18 are what remain (ticket 16 isn't
 wired as a blocker yet — its own question 4 is whether it should be). The
 user has said they intend to keep working this map session by session on
 `migration` until confident enough to roll out, rather than promoting early.
@@ -597,6 +632,22 @@ ticket 12's git-tracked R cleanup.
   ticket's addendum. Full detail:
   [ticket 15](tickets/15-build-and-run-comparison-script.md).
 
+- [Fix the product comparison's row-alignment key, then triage every flagged
+  R/Python difference](tickets/17-fix-product-row-alignment-and-triage.md) —
+  decided and implemented (row-alignment-key half only): replaced the broken
+  equi-join key with `add_row_ordinal()`'s ordinal-position-within-group key,
+  computed at comparison time rather than stored (R's frozen baseline can't
+  be re-run). Validated directly: cleaned-product row-key match jumped from
+  near-0% to 97.2%; the remaining 2.8% is a single clinic where R's frozen
+  output has a `clinic_id` typo (`"NGH"` for North Okkalapa General
+  Hospital, correct value `"NOH"`). `product_sheet_name`'s mismatch count
+  (201) now reproduces the parity-presentation PDF's number exactly. Actual
+  per-column triage (both arms) didn't converge — split into [ticket
+  18](tickets/18-triage-comparison-flagged-differences.md), which also
+  inherits the still-open 189-vs-155-tracker discrepancy (confirmed
+  unaffected by this fix). Full detail: [ticket
+  17](tickets/17-fix-product-row-alignment-and-triage.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -691,13 +742,17 @@ flowchart TB
     direction LR
     U15["<b>15</b><br/>Build and run the<br/>R/Python output<br/>comparison script, then<br/>triage every flagged<br/>difference"]
   end
+  subgraph S2026_08_11["Session 2026-08-11"]
+    direction LR
+    U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
+    U18["<b>18</b><br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve<br/>the 189-vs-155-tracker<br/>discrepancy"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -709,7 +764,8 @@ flowchart TB
   S2026_08_09e ~~~ S2026_08_09f
   S2026_08_09f ~~~ S2026_08_09g
   S2026_08_09g ~~~ S2026_08_10
-  S2026_08_10 ~~~ Sopen
+  S2026_08_10 ~~~ S2026_08_11
+  S2026_08_11 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -725,7 +781,7 @@ flowchart TB
   U12 --->|blocked| U6
   U13 --->|blocked| U6
   U14 --->|blocked| U6
-  U17 --->|blocked| U6
+  U18 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -734,20 +790,21 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U17 --->|blocked| U12
+  U18 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
   U11 -.->|spawned| U16
   U15 -.->|spawned| U17
+  U17 -.->|spawned| U18
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U17 tfrontier
+  class U16,U18 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
