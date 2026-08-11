@@ -15,6 +15,7 @@ from a4d.migration.compare import (
     IdOverlapResult,
     ShapeResult,
     TotalsMismatch,
+    build_mismatch_rows,
     classify,
     compare_categorical_overlap,
     compare_cells,
@@ -400,6 +401,87 @@ class TestRenderHtmlReport:
         html = render_html_report(comparison)
 
         assert "Shape match" in html
+        assert "ID divergence" in html
         assert "Totals mismatches" in html
         assert "Column diffs" in html
+        assert "Categorical divergence" in html
         assert "Cell mismatches" in html
+
+
+class TestBuildMismatchRows:
+    def _comparison(self):
+        return DirectoryComparison(
+            files=[
+                FileComparison(
+                    file_name="a.parquet",
+                    shape=ShapeResult(r_rows=2, py_rows=2, match=True),
+                    totals=[TotalsMismatch(column="balance", r_total=10.0, py_total=99.0)],
+                    columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+                    id_overlap=IdOverlapResult(only_in_r=["p1"], only_in_py=["p2"], common_count=1),
+                    categorical_overlap=[
+                        CategoricalOverlap(column="status", only_in_r=["x"], only_in_py=["y"])
+                    ],
+                    cell_mismatches=[
+                        CellMismatch(
+                            key={"id": 1},
+                            column="product_entry_date",
+                            r_value=None,
+                            py_value=SENTINEL_DATE,
+                        )
+                    ],
+                )
+            ],
+            only_in_r=[],
+            only_in_py=[],
+        )
+
+    def test_id_overlap_rows_have_one_row_per_side_per_value(self):
+        rows = build_mismatch_rows(self._comparison())
+
+        assert rows["id_overlap"] == [
+            {"file": "a.parquet", "side": "R only", "value": "p1"},
+            {"file": "a.parquet", "side": "Python only", "value": "p2"},
+        ]
+
+    def test_categorical_overlap_rows_have_one_row_per_side_per_value(self):
+        rows = build_mismatch_rows(self._comparison())
+
+        assert rows["categorical_overlap"] == [
+            {"file": "a.parquet", "column": "status", "side": "R only", "value": "x"},
+            {"file": "a.parquet", "column": "status", "side": "Python only", "value": "y"},
+        ]
+
+    def test_totals_rows_include_the_diff(self):
+        rows = build_mismatch_rows(self._comparison())
+
+        assert rows["totals"] == [
+            {
+                "file": "a.parquet",
+                "column": "balance",
+                "r_total": 10.0,
+                "py_total": 99.0,
+                "diff": 89.0,
+            }
+        ]
+
+    def test_cell_mismatch_rows_include_classified_cause(self):
+        rows = build_mismatch_rows(
+            self._comparison(),
+            classifiers_by_column={"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS},
+        )
+
+        assert rows["cell_mismatches"] == [
+            {
+                "file": "a.parquet",
+                "key": "id=1",
+                "column": "product_entry_date",
+                "r_value": None,
+                "py_value": SENTINEL_DATE,
+                "cause": "sentinel_null",
+            }
+        ]
+
+    def test_cell_mismatch_cause_is_unclassified_without_a_registry(self):
+        rows = build_mismatch_rows(self._comparison())
+
+        assert rows["cell_mismatches"][0]["cause"] == "unclassified"

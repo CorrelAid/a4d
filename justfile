@@ -116,9 +116,9 @@ run *ARGS:
 
 # Diff a Python output directory against the frozen R baseline (migration-only, ticket 15)
 # Named params (not *ARGS) so paths with spaces (e.g. the USB drive) survive just's interpolation
-compare-outputs r_dir py_dir report_out="compare_report.html":
+compare-outputs r_dir py_dir report_out="compare_report.html" *ARGS:
     uv run python scripts/compare_outputs.py \
-        --r-dir "{{r_dir}}" --py-dir "{{py_dir}}" --report-out "{{report_out}}"
+        --r-dir "{{r_dir}}" --py-dir "{{py_dir}}" --report-out "{{report_out}}" {{ARGS}}
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 

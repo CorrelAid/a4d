@@ -4,7 +4,9 @@
 Migration-only tooling with a defined end-of-life (R's retirement, ticket 12)
 -- deliberately not wired into `a4d.cli`. Decoupled from pipeline execution:
 takes two existing output directories and diffs them. Logic lives in
-`a4d.migration.compare`; this is a thin CLI + HTML report writer.
+`a4d.migration.compare`; this is a thin CLI + report writer. Per stage
+(patient/product x raw/cleaned) writes an HTML summary dashboard (aggregate
+counts) and an Excel workbook (the actual flagged rows, for triage).
 
 Usage:
     uv run python scripts/compare_outputs.py \
@@ -19,6 +21,7 @@ from typing import Annotated
 
 import polars as pl
 import typer
+from openpyxl import Workbook
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -26,6 +29,8 @@ from rich.table import Table
 from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     DirectoryComparison,
+    FileComparison,
+    build_mismatch_rows,
     compare_directory,
     render_html_report,
 )
@@ -71,8 +76,8 @@ CLASSIFIERS_BY_COLUMN = {"product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS}
 
 # (label, output subdir, row-alignment key, identity column, categorical columns).
 # Raw and cleaned are compared separately so a divergence can be localized to
-# extraction vs. cleaning; categorical columns are cleaning-derived, so they're
-# skipped (via _existing_cols) for the raw stages where they don't exist yet.
+# extraction vs. cleaning; categorical columns listed here that don't exist yet
+# at the raw stage are silently skipped by compare_categorical_overlap.
 STAGES = [
     (
         "Patient (raw)",
@@ -139,7 +144,7 @@ LEGEND = """\
 [bold]Shape match[/bold]      -- do R and Python have the same row count for this file? \
 A coarse structural check: matching shape says nothing about whether individual cell values agree.
 
-[bold]ID overlap[/bold]       -- do the same identities (patient_id for patient, product name \
+[bold]ID divergence[/bold]       -- do the same identities (patient_id for patient, product name \
 for product) appear on both sides at all, regardless of row count? Independent of the \
 row-alignment key used for cell mismatches below -- this catches a patient or product dropped \
 entirely, or one that only exists on one side, even if the row-alignment key is unreliable.
@@ -147,7 +152,7 @@ entirely, or one that only exists on one side, even if the row-alignment key is 
 [bold]Column diffs[/bold]     -- columns present on only one side, plus columns present on \
 both sides but with a different dtype. Structural, like shape -- no values are compared.
 
-[bold]Categorical overlap[/bold] -- of the file's categorical/label columns (allowed-value \
+[bold]Categorical divergence[/bold] -- of the file's categorical/label columns (allowed-value \
 fields for patient; product_category/product_balance_status for product), how many have a \
 label value on one side that never appears on the other? Also independent of the \
 row-alignment key -- a distinct-value-set check per column, not tied to row identity.
@@ -175,9 +180,34 @@ def _file_year(file_name: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _print_summary(arm: str, comparison: DirectoryComparison) -> None:
+def _has_any_mismatch(file_comparison: FileComparison) -> bool:
+    return (
+        not file_comparison.shape.match
+        or bool(file_comparison.columns.only_in_r)
+        or bool(file_comparison.columns.only_in_py)
+        or bool(file_comparison.columns.dtype_mismatches)
+        or bool(file_comparison.totals)
+        or bool(file_comparison.categorical_overlap)
+        or bool(file_comparison.cell_mismatches)
+        or (
+            file_comparison.id_overlap is not None
+            and bool(file_comparison.id_overlap.only_in_r or file_comparison.id_overlap.only_in_py)
+        )
+    )
+
+
+def _print_summary(arm: str, comparison: DirectoryComparison, only_mismatches: bool) -> None:
+    files = (
+        [f for f in comparison.files if _has_any_mismatch(f)]
+        if only_mismatches
+        else comparison.files
+    )
+    if only_mismatches and not files:
+        console.print(f"[green]{arm}: no mismatches in any file.[/green]")
+        return
+
     by_year: dict[int | None, list] = {}
-    for file_comparison in comparison.files:
+    for file_comparison in files:
         by_year.setdefault(_file_year(file_comparison.file_name), []).append(file_comparison)
 
     for year in sorted(by_year, key=lambda y: (y is None, -(y or 0))):
@@ -185,9 +215,9 @@ def _print_summary(arm: str, comparison: DirectoryComparison) -> None:
         table = Table(title=title)
         table.add_column("File")
         table.add_column("Shape match")
-        table.add_column("ID overlap (R-only / Py-only)")
+        table.add_column("ID divergence (R-only / Py-only)")
         table.add_column("Column diffs", justify="right")
-        table.add_column("Categorical overlap", justify="right")
+        table.add_column("Categorical divergence", justify="right")
         table.add_column("Totals mismatches", justify="right")
         table.add_column("Cell mismatches", justify="right")
 
@@ -227,13 +257,34 @@ def _print_summary(arm: str, comparison: DirectoryComparison) -> None:
         )
 
 
+def _write_excel_report(path: Path, rows_by_sheet: dict[str, list[dict]]) -> None:
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    for sheet_name, rows in rows_by_sheet.items():
+        worksheet = workbook.create_sheet(sheet_name[:31])
+        if not rows:
+            worksheet.append(["(no mismatches)"])
+            continue
+        headers = list(rows[0].keys())
+        worksheet.append(headers)
+        for row in rows:
+            worksheet.append([row[h] for h in headers])
+    workbook.save(path)
+
+
 @app.command()
 def compare(
     r_dir: Annotated[Path, typer.Option("--r-dir", help="Root of the frozen R output directory")],
     py_dir: Annotated[Path, typer.Option("--py-dir", help="Root of the Python output directory")],
     report_out: Annotated[
-        Path, typer.Option("--report-out", help="Where to write the HTML report")
+        Path, typer.Option("--report-out", help="Where to write the HTML summary report")
     ] = Path("compare_report.html"),
+    only_mismatches: Annotated[
+        bool,
+        typer.Option(
+            "--only-mismatches", help="Only print files with at least one measure flagged"
+        ),
+    ] = False,
 ) -> None:
     _print_legend()
 
@@ -241,15 +292,26 @@ def compare(
         comparison = _compare_arm(
             r_dir / subdir, py_dir / subdir, key_cols, id_col, categorical_cols
         )
-        _print_summary(label, comparison)
+        _print_summary(label, comparison, only_mismatches)
 
-        # One report per stage -- combining raw and cleaned into one per-column
-        # aggregate would sum e.g. product_entry_date mismatches from both stages
-        # into a single count, defeating the point of separating them.
-        stage_report_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
+        # One pair of reports per stage -- combining raw and cleaned into one
+        # per-column aggregate would sum e.g. product_entry_date mismatches from
+        # both stages into a single count, defeating the point of separating them.
+        # HTML is the summary dashboard (aggregate counts only); Excel carries the
+        # actual flagged rows, since that's the format ticket 17's triage needs to
+        # filter/sort/annotate while working through them.
+        stage_html_out = report_out.with_stem(f"{report_out.stem}_{subdir}")
         html = render_html_report(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
-        stage_report_out.write_text(html)
-        console.print(f"[bold green]{label} report written to {stage_report_out}[/bold green]")
+        stage_html_out.write_text(html)
+
+        stage_excel_out = stage_html_out.with_suffix(".xlsx")
+        rows_by_sheet = build_mismatch_rows(comparison, classifiers_by_column=CLASSIFIERS_BY_COLUMN)
+        _write_excel_report(stage_excel_out, rows_by_sheet)
+
+        console.print(
+            f"[bold green]{label}: summary -> {stage_html_out}, "
+            f"detail -> {stage_excel_out}[/bold green]"
+        )
 
 
 if __name__ == "__main__":
