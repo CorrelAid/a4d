@@ -31,8 +31,55 @@ from a4d.migration.compare import (
     compare_shape,
     compare_totals,
     compute_deltas,
+    normalize_date_column,
     snapshot_from_summary,
 )
+
+
+class TestNormalizeDateColumn:
+    def test_parses_excel_serial_string(self):
+        df = pl.DataFrame({"product_entry_date": ["42872.0"]})
+
+        result = normalize_date_column(df, "product_entry_date")
+
+        assert result["product_entry_date"].to_list() == [datetime.date(2017, 5, 17)]
+
+    def test_parses_excel_serial_string_without_decimal(self):
+        df = pl.DataFrame({"product_entry_date": ["46023"]})
+
+        result = normalize_date_column(df, "product_entry_date")
+
+        assert result["product_entry_date"].to_list() == [datetime.date(2026, 1, 1)]
+
+    def test_parses_iso_datetime_string_to_the_same_date(self):
+        r_df = pl.DataFrame({"product_entry_date": ["42872.0"]})
+        py_df = pl.DataFrame({"product_entry_date": ["2017-05-17 00:00:00"]})
+
+        r_result = normalize_date_column(r_df, "product_entry_date")
+        py_result = normalize_date_column(py_df, "product_entry_date")
+
+        assert r_result["product_entry_date"].to_list() == py_result["product_entry_date"].to_list()
+
+    def test_passes_through_null(self):
+        df = pl.DataFrame({"product_entry_date": [None]}, schema={"product_entry_date": pl.Utf8})
+
+        result = normalize_date_column(df, "product_entry_date")
+
+        assert result["product_entry_date"].to_list() == [None]
+
+    def test_falls_back_to_sentinel_date_on_unparseable_text(self):
+        df = pl.DataFrame({"product_entry_date": ["04-May-20026"]})
+
+        result = normalize_date_column(df, "product_entry_date")
+
+        assert result["product_entry_date"].to_list() == [SENTINEL_DATE]
+
+    def test_is_a_no_op_when_the_column_is_absent(self):
+        df = pl.DataFrame({"other": [1, 2]})
+
+        result = normalize_date_column(df, "product_entry_date")
+
+        assert result.columns == ["other"]
 
 
 class TestAddRowOrdinal:

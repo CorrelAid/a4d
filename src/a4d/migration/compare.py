@@ -19,7 +19,33 @@ from typing import Any
 
 import polars as pl
 
+from a4d.clean.date_parser import parse_date_flexible
+
 SENTINEL_DATE = datetime.date(9999, 9, 9)
+
+
+def normalize_date_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Parse a raw string date column to a common ``date`` representation.
+
+    R's raw extraction stores dates as unparsed source text -- an Excel
+    serial number (e.g. "42872.0") for cells Excel itself formats as dates,
+    or the literal free-text string otherwise -- while Python's raw
+    extraction already ISO-formats parsed dates. Comparing the two as raw
+    strings treats that representation difference as a false mismatch on
+    ~99% of product_entry_date rows (ticket 20). Reuses the same flexible
+    parser the cleaning stage already applies (including its Excel-serial
+    and typo handling), so a genuinely different underlying date -- not
+    just a different spelling of the same one -- still surfaces as a real
+    divergence.
+
+    A column absent from ``df`` entirely is a no-op, matching
+    ``add_row_ordinal``'s convention for raw output that isn't
+    schema-normalized.
+    """
+    if column not in df.columns:
+        return df
+    parsed = [parse_date_flexible(v) for v in df[column]]
+    return df.with_columns(pl.Series(column, parsed, dtype=pl.Date))
 
 
 @dataclass(frozen=True)
