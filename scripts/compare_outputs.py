@@ -41,6 +41,7 @@ from a4d.migration.compare import (
     build_summary_rows,
     compare_directory,
     compute_deltas,
+    normalize_date_column,
     snapshot_from_summary,
 )
 
@@ -90,10 +91,15 @@ CLASSIFIERS_BY_COLUMN = {
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity
-# column, categorical columns, ordinal_group_cols). Raw and cleaned are
-# compared separately so a divergence can be localized to extraction vs.
-# cleaning; categorical columns listed here that don't exist yet at the raw
-# stage are silently skipped by compare_categorical_overlap.
+# column, categorical columns, ordinal_group_cols, date_normalize_cols). Raw
+# and cleaned are compared separately so a divergence can be localized to
+# extraction vs. cleaning; categorical columns listed here that don't exist
+# yet at the raw stage are silently skipped by compare_categorical_overlap.
+# date_normalize_cols is raw-stage-only (ticket 20): R's raw extraction
+# stores unparsed source date text (an Excel serial for date-formatted
+# cells) while Python's raw extraction already ISO-formats parsed dates --
+# a representation difference, not a real divergence, that the cleaned
+# stage never has since both sides are already parsed dates there.
 STAGES = [
     (
         "Patient (raw)",
@@ -101,6 +107,7 @@ STAGES = [
         PATIENT_KEY_COLS,
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
+        None,
         None,
     ),
     (
@@ -110,6 +117,7 @@ STAGES = [
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
         None,
+        None,
     ),
     (
         "Product (raw)",
@@ -118,6 +126,7 @@ STAGES = [
         PRODUCT_ID_COL,
         PRODUCT_CATEGORICAL_COLS,
         PRODUCT_ORDINAL_GROUP_COLS,
+        ["product_entry_date"],
     ),
     (
         "Product (cleaned)",
@@ -126,6 +135,7 @@ STAGES = [
         PRODUCT_ID_COL,
         PRODUCT_CATEGORICAL_COLS,
         PRODUCT_ORDINAL_GROUP_COLS,
+        None,
     ),
 ]
 
@@ -148,9 +158,14 @@ def _compare_arm(
     id_col: str,
     categorical_cols: list[str],
     ordinal_group_cols: list[str] | None = None,
+    date_normalize_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
+    for column in date_normalize_cols or []:
+        for frames in (r_frames, py_frames):
+            for name, df in frames.items():
+                frames[name] = normalize_date_column(df, column)
     if ordinal_group_cols is not None:
         resolved_key_cols = None
         for frames in (r_frames, py_frames):
@@ -405,9 +420,23 @@ def compare(
     run_dir = output_dir / datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    for label, subdir, key_cols, id_col, categorical_cols, ordinal_group_cols in STAGES:
+    for (
+        label,
+        subdir,
+        key_cols,
+        id_col,
+        categorical_cols,
+        ordinal_group_cols,
+        date_normalize_cols,
+    ) in STAGES:
         comparison = _compare_arm(
-            r_dir / subdir, py_dir / subdir, key_cols, id_col, categorical_cols, ordinal_group_cols
+            r_dir / subdir,
+            py_dir / subdir,
+            key_cols,
+            id_col,
+            categorical_cols,
+            ordinal_group_cols,
+            date_normalize_cols,
         )
         _print_summary(label, comparison, only_mismatches)
 

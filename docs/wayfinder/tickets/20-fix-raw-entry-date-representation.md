@@ -2,12 +2,12 @@
 id: 20
 title: Normalize the raw-stage product_entry_date comparison so it stops flagging near-universal false mismatches
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-12
+claimed_at: 2026-08-12
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 18
 ---
@@ -46,3 +46,65 @@ have this problem (both sides are already parsed dates there). Re-run `just
 compare-outputs` against the USB drive's `output_r`/`output_python` and
 confirm the raw-stage `product_entry_date` count drops to a plausible
 signal-only number, then triage what (if anything) remains.
+
+## Resolution
+
+**Decision**: added `normalize_date_column()` to `src/a4d/migration/compare.py`,
+reusing `a4d.clean.date_parser.parse_date_flexible` (the same flexible parser
+the cleaning stage already applies, including its Excel-serial and
+typo-rescue handling) to parse both sides' raw `product_entry_date` strings
+to `datetime.date` before diffing. Applied only to the `Product (raw)` stage
+via a new `date_normalize_cols` field on `scripts/compare_outputs.py`'s
+`STAGES` table -- the cleaned stage already has parsed dates on both sides
+and doesn't need it, and patient's raw stage has no `product_entry_date`
+column at all.
+
+**Because**: the ticket's own premise, confirmed by direct query against
+`output_r`/`output_python` on the USB drive, is that R's raw extraction
+stores unparsed source text (an Excel serial string for date-formatted
+cells, e.g. `"42872.0"`) while Python's raw extraction already ISO-formats
+parsed dates (`"2017-05-17 00:00:00"`) for the same date -- a representation
+difference, not a real divergence. Reusing the cleaning stage's own parser
+(rather than writing a narrower ad hoc Excel-serial-only parser) also
+recovers signal on the non-serial free-text dates R stores as-is (e.g.
+`"20-Sept-2021"`, `"14/7/2022"`) instead of only fixing the serial-vs-ISO
+case.
+
+**Rejected**: a generic column-type hint inside `compare_cells` itself --
+rejected because the need is raw-stage-specific and single-column
+(`product_entry_date`); the cleaned-stage comparison has no representation
+mismatch to fix, so a general mechanism would be unused complexity for a
+one-column, one-stage problem. Writing a narrower Excel-serial-only parser
+inline in `compare_outputs.py` was also considered and rejected in favor of
+reusing `parse_date_flexible`, since it already handles the free-text and
+typo cases seen in the real R output and duplicating that logic would drift
+from the cleaning stage's parsing rules over time.
+
+**Evidence** (executed, not just read): confirmed via direct `duckdb` query
+against the real `output_r`/`output_python` parquet files on the USB drive
+that R stores excel serials as unparsed strings and Python stores parsed ISO
+datetimes for the same date (e.g. serial `42872.0` == `1899-12-30 +
+42872 days` == `2017-05-17`, matching Python's raw value exactly). Added 6
+unit tests for `normalize_date_column` (excel serial with/without decimal,
+ISO datetime, null passthrough, unparseable-text fallback to the sentinel
+date, no-op when the column is absent) -- all pass, along with the full
+existing suite (559 passed, 1 skipped), ruff, and `ty check src/`. Re-ran
+`just compare-outputs` (via `scripts/compare_outputs.py` directly) against
+the current `output_r`/`output_python` on the USB drive: raw-stage
+`product_entry_date` mismatches dropped from 65,743 to 91 (99.86% was the
+representation artifact), landing in the same order of magnitude as the
+other raw product columns (70-720). Triaged the remaining 91: 46 already
+land in the existing seeded classifiers (`ce_typo` 25, `off_by_one_day` 9,
+`sentinel_null` 6, `r_value_missing` 1); 50 are `unclassified` and spread
+across 14 files, with the single largest concentration (32 of 50) in one
+file/sheet (`2019_Vietnam National Children's Hospital..._Oct19`) that looks
+like a localized row-ordering divergence within that sheet rather than a
+general pattern -- not large or clear enough to warrant a new named
+classifier or its own ticket yet; left as residual signal for whoever next
+works raw-stage product triage to notice. One `ce_typo` case (`06 Penang
+General Hospital..._Apr26`) has Python parsing to year `3026` where R has no
+value at all -- a genuine year-typo-rescue miss, but a single row, not
+investigated further here.
+
+**Tense**: all claims above describe current, executed behaviour -- the
+code is committed and the counts are from a real re-run, not a projection.
