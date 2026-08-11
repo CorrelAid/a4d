@@ -36,10 +36,13 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 2"]
+  subgraph FRONTIER["Frontier · 5"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
+    T20["<b>20</b> · task<br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
+    T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
+    T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -47,7 +50,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 13"]
+  subgraph DECIDED["Decided · 14"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -61,6 +64,7 @@ flowchart TD
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
     T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
+    T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
     T19["<b>19</b> · task<br/>Persist comparison run<br/>history and show run-over-<br/>run deltas"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -89,15 +93,21 @@ flowchart TD
   T13 --> T6
   T13 --> T10
   T14 --> T6
-  T18 --> T6
-  T18 --> T12
+  T20 --> T6
+  T20 --> T12
+  T21 --> T6
+  T21 --> T12
+  T22 --> T6
+  T22 --> T12
+  T23 --> T6
+  T23 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T18 frontier
+  class T16,T20,T21,T22,T23 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T19 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -484,22 +494,84 @@ correctly) — not just unit-tested. This is tooling ticket 18 will use, not
 part of ticket 18's own triage scope. Full detail: [ticket
 19](tickets/19-compare-run-history-deltas.md).
 
-**The frontier is now ticket 16 and ticket 18**: [Triage every flagged
-R/Python difference for both arms, and resolve the 189-vs-155-tracker
-discrepancy](tickets/18-triage-comparison-flagged-differences.md) and
-[Build a drill-down log analyzer for admins to inspect a specific tracker
-file's errors/logs](tickets/16-log-analyzer-drill-down.md). Ticket 12 is now
-blocked on ticket 18 instead of ticket 17. Ticket 6 (promote to `dev`) is
-`blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 18]` — tickets 3, 4, 5, 8, 10,
-11, 13, 14 are closed; tickets 12 and 18 are what remain (ticket 16 isn't
-wired as a blocker yet — its own question 4 is whether it should be). The
-user has said they intend to keep working this map session by session on
-`migration` until confident enough to roll out, rather than promoting early.
+**Fifteen tickets resolved.** [Triage every flagged R/Python difference for
+both arms, and resolve the 189-vs-155-tracker discrepancy](tickets/18-triage-comparison-flagged-differences.md)
+is done for its diagnostic half: the 189-vs-155-tracker gap is resolved as
+unreconcilable — every product-output snapshot that exists anywhere on the
+USB drive (`output_r/`, `output_vm/`, `output.zip`,
+`a4dphase2_upload/output/`, `a4dphase2_upload.zip`) tops out at 174 files;
+none reach 189, so the parity-presentation PDF's baseline predates
+everything now on the drive and per-column counts should be judged by
+pattern, not by exact reproduction of the PDF's numbers. `product_category`
+(13,638 mismatches) is 100% `r_value=None`-with-Python-present, root-caused
+to `read_product_data.R`'s `add_product_categories()` doing a case/whitespace-
+sensitive left-join with no normalization (`src/a4d/reference/products.py`
+normalizes both sides) — a genuine, verified R limitation, not a Python
+defect. The dominant share of `product_entry_date` mismatches (10,211 of
+10,424) share the same R-null pattern; a concrete spot-check against the
+real source Excel (`2018_Mahosot Hospital A4D Tracker`, sheet `Jan18`) found
+R nulling out a perfectly clean, unambiguous date present on every row — a
+plain R extraction gap, not a typo, so the seeded `typo_rescue` classifier
+(which just matched any R-null case) was renamed `r_value_missing` to stop
+mislabeling it. A new `PRODUCT_CATEGORY_CLASSIFIERS` registry
+(`r_category_lookup_miss`) was added to `src/a4d/migration/compare.py`;
+`tests/test_migration/test_compare.py` updated and passing (60 tests). Also
+found the raw-stage `product_entry_date` report is ~99% a representation
+artifact (R stores unparsed Excel serials as strings, Python stores already-
+parsed dates) rather than real divergence — not fixed this session. The
+remaining product columns (`product_balance`, `product_received_from`,
+`product_released_to`, `product_remarks`, `product_units_received`,
+`product`, both stages) and the entire patient arm (never triaged since
+ticket 15 ran it) didn't converge in this session either — split into
+[ticket 20](tickets/20-fix-raw-entry-date-representation.md) (raw-stage
+entry_date representation fix), [ticket
+21](tickets/21-triage-remaining-product-columns.md) (remaining product
+cleaned-stage columns), [ticket
+22](tickets/22-triage-product-raw-columns.md) (remaining product raw-stage
+columns), and [ticket 23](tickets/23-triage-patient-arm.md) (patient arm,
+both stages). Full detail: [ticket
+18](tickets/18-triage-comparison-flagged-differences.md).
+
+**The frontier is now tickets 16, 20, 21, 22, and 23**: [Build a drill-down
+log analyzer for admins to inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Normalize the raw-stage product_entry_date comparison](tickets/20-fix-raw-entry-date-representation.md),
+[Triage the remaining product cleaned-stage column mismatches](tickets/21-triage-remaining-product-columns.md),
+[Triage the remaining product raw-stage column mismatches](tickets/22-triage-product-raw-columns.md),
+and [Triage every flagged R/Python difference for the patient arm](tickets/23-triage-patient-arm.md).
+Ticket 12 is now blocked on tickets 20-23 instead of ticket 18. Ticket 6
+(promote to `dev`) is `blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21,
+22, 23]` — tickets 3, 4, 5, 8, 10, 11, 13, 14 are closed; ticket 12 and
+tickets 20-23 are what remain (ticket 16 isn't wired as a blocker yet — its
+own question 4 is whether it should be). The user has said they intend to
+keep working this map session by session on `migration` until confident
+enough to roll out, rather than promoting early.
 
 Also noted, not yet acted on: a local, untracked `a4d-python/` directory at
 the repo root (stale leftover copy predating the current `src/` layout, not
 in git) — the user hasn't yet said whether to delete it; separate from
 ticket 12's git-tracked R cleanup.
+
+**Same day, after ticket 18 closed:** production tracker uploads grew from
+177 to 248 files (confirmed via `a4d download trackers` against live GCS,
+read-only). The user directed a one-time R re-run against the current
+tracker set to get comparable numbers — R code unchanged, framed
+explicitly as the final capture before ticket 12 removes R, not a reversal
+of ticket 2's "no R re-run, ever" decision. `output_r/` now holds fresh R
+output (229 product-cleaned files/66,020 rows, 243 patient-cleaned
+files/81,859 rows) with the old 155-file baseline preserved at
+`output_r_155_frozen_backup_2025-11-14`. This substantially changed
+ticket 18's picture: `product_category` mismatches dropped from 13,638 to
+866 (most of the original count was baseline staleness, not the
+case-sensitive-join bug itself, which is still real for what remains), the
+row-alignment key now matches 100% (up from 97.2%), and the 189-vs-155
+question is now much closer to reconciled (229/66,020 vs the PDF's
+189/61,077) though not re-verified as exactly resolved. Tickets 20, 21, 22,
+and 23 all had their premise numbers refreshed against the new baseline
+(none needed re-scoping — the columns/questions they ask are unchanged).
+Full detail: [ticket 18's addendum](tickets/18-triage-comparison-flagged-differences.md#addendum-same-day-after-closure-r-re-run-against-the-current-tracker-set).
+Also fixed in passing: `justfile`'s `compare-outputs` recipe default was
+out of sync with the script's own documented default, a leftover from
+ticket 19 — now both say `output/comparison`.
 
 ## Decisions so far
 
@@ -688,6 +760,28 @@ ticket 12's git-tracked R cleanup.
   unaffected by this fix). Full detail: [ticket
   17](tickets/17-fix-product-row-alignment-and-triage.md).
 
+- [Triage every flagged R/Python difference for both arms, and resolve the
+  189-vs-155-tracker discrepancy](tickets/18-triage-comparison-flagged-differences.md)
+  — decided and partially executed: the 189-vs-155 gap is unreconcilable (no
+  drive snapshot, including the current Python run, reaches 189 trackers —
+  the PDF's baseline predates everything that exists now), so per-column
+  counts are judged by pattern rather than exact reproduction.
+  `product_category` (13,638 mismatches) and most of `product_entry_date`
+  (10,211 of 10,424) are both root-caused to genuine R limitations — a
+  case/whitespace-sensitive category-lookup join in `read_product_data.R`,
+  and a plain R date-extraction gap confirmed against real source Excel —
+  and classified accordingly in `src/a4d/migration/compare.py`
+  (`r_category_lookup_miss` added; `typo_rescue` renamed `r_value_missing`
+  since most cases aren't typos). Raw-stage `product_entry_date` was found
+  to be ~99% a serial-vs-parsed representation artifact, not real
+  divergence. Remaining product columns, remaining raw-stage columns, and
+  the entire patient arm didn't converge — split into [ticket
+  20](tickets/20-fix-raw-entry-date-representation.md), [ticket
+  21](tickets/21-triage-remaining-product-columns.md), [ticket
+  22](tickets/22-triage-product-raw-columns.md), and [ticket
+  23](tickets/23-triage-patient-arm.md). Full detail: [ticket
+  18](tickets/18-triage-comparison-flagged-differences.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -785,6 +879,7 @@ flowchart TB
   subgraph S2026_08_11["Session 2026-08-11"]
     direction LR
     U17["<b>17</b><br/>Fix the product<br/>comparison's row-<br/>alignment key, then<br/>triage every flagged<br/>R/Python difference"]
+    U18["<b>18</b><br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve<br/>the 189-vs-155-tracker<br/>discrepancy"]
     U19["<b>19</b><br/>Persist comparison run<br/>history and show run-<br/>over-run deltas"]
   end
   subgraph Sopen["Not yet worked"]
@@ -793,7 +888,10 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U18["<b>18</b><br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve<br/>the 189-vs-155-tracker<br/>discrepancy"]
+    U20["<b>20</b><br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
+    U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
+    U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -822,7 +920,10 @@ flowchart TB
   U12 --->|blocked| U6
   U13 --->|blocked| U6
   U14 --->|blocked| U6
-  U18 --->|blocked| U6
+  U20 --->|blocked| U6
+  U21 --->|blocked| U6
+  U22 --->|blocked| U6
+  U23 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -831,7 +932,10 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U18 --->|blocked| U12
+  U20 --->|blocked| U12
+  U21 --->|blocked| U12
+  U22 --->|blocked| U12
+  U23 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -840,13 +944,17 @@ flowchart TB
   U15 -.->|spawned| U17
   U17 -.->|spawned| U18
   U17 -.->|spawned| U19
+  U18 -.->|spawned| U20
+  U18 -.->|spawned| U21
+  U18 -.->|spawned| U22
+  U18 -.->|spawned| U23
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U18 tfrontier
+  class U16,U20,U21,U22,U23 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U19 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

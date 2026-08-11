@@ -2,12 +2,12 @@
 id: 18
 title: Triage every flagged R/Python difference for both arms, and resolve the 189-vs-155-tracker discrepancy
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-11
+claimed_at: 2026-08-11
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 17
 ---
@@ -84,3 +84,196 @@ This ticket is large and investigative (up to ~47,644 product rows' worth
 of triage across multiple columns, plus the full patient arm) — if it
 doesn't converge in one session, split the remaining per-column
 investigation into further tickets rather than leaving it open-ended.
+
+## Resolution
+
+**Decision:** the 189-vs-155-tracker discrepancy is not reconcilable and is
+not a defect to fix. `product_category` and the dominant share of
+`product_entry_date` mismatches are root-caused to genuine R limitations
+(verified against R's own source, not just the data pattern) and the
+comparison tool's classifier registry now labels them accordingly. The
+remaining product columns and the entire patient arm did not converge this
+session and are split into four new tickets per this ticket's own
+pre-authorization.
+
+**Because:**
+
+- *189 vs 155 trackers* — checked every product-output snapshot that exists
+  anywhere on the USB drive: `output_r/` (155 files/47,644 rows),
+  `output_vm/` (identical: 155/47,644), `output.zip` (155), and even
+  `a4dphase2_upload/output/` (the current Python run, 174 files/55,466 rows)
+  and `a4dphase2_upload.zip` (174 source trackers). None reach 189 files or
+  61,077 rows — not even the *current* Python run, which processes more
+  trackers than R ever did. The PDF's 189/61,077 baseline predates every
+  snapshot now on the drive; there is no reachable tracker set to reconcile
+  it against, and the currently-frozen `output_r/` (used throughout tickets
+  15/17/18) is the only R baseline that still exists. Per-column deltas from
+  the PDF's numbers are therefore expected to differ in scale from a
+  different row population, not just from real R/Python divergence — the PDF
+  numbers are a historical reference point, not a reproducibility target.
+
+- *`product_category`* (13,638 mismatches, PDF: 214) — 100% of mismatches
+  are `r_value=None` with Python holding a real value (verified by full
+  aggregation over every mismatch row, not a sample). Root cause found in
+  `r-archive/R/read_product_data.R`'s `add_product_categories()` (line
+  481-487): it left-joins the raw `product` string against the category
+  mapping with **no case or whitespace normalization**. Python's
+  `src/a4d/reference/products.py` (`_load_...`, line ~40-45) explicitly
+  lowercases and strips both sides before matching. Any casing/whitespace
+  variant in a tracker's product name (common across 177 real trackers from
+  8+ countries) silently misses R's join and leaves the row's category null,
+  while Python's normalized lookup succeeds — confirmed this is a real
+  gap in R's logic, not a Python defect, per the map's standing preference
+  that R can be wrong and the source trackers are the arbiter (the category
+  itself isn't in the source sheet — it's derived from a reference table by
+  product name either way, so "arbiter" here means R's own documented left-join
+  semantics, which openly states missing categories yield NA). Added
+  `PRODUCT_CATEGORY_CLASSIFIERS` / `_is_r_category_lookup_miss` to
+  `src/a4d/migration/compare.py` — all 13,638 mismatches now classify as
+  `r_category_lookup_miss` (verified by re-running `just compare-outputs`).
+
+- *`product_entry_date`, cleaned stage* (10,424 mismatches, PDF: 559) —
+  98.6% are the same `r_value=None`-with-Python-value pattern. The existing
+  `typo_rescue` classifier (seeded from the PDF) is overbroad: it matches
+  *any* R-null case, not just genuine source-typo rescues, which inflated it
+  to 10,211 vs the PDF's 408. Traced two contributing root causes in R's
+  source: (1) `read_product_data.R` line 608 only forward-fills the
+  `product` column (`tidyr::fill(c(product), ...)`), never
+  `product_entry_date` — Python's equivalent step
+  (`_fill_product_names_and_sort`, `src/a4d/clean/product.py`) is
+  deliberately R-parity here and fills the same single column, so this
+  alone doesn't explain the gap; (2) spot-checked a concrete case
+  (`2018_Mahosot Hospital A4D Tracker`, sheet `Jan18`) directly against the
+  real source Excel: the raw sheet has a perfectly clean, unambiguous date
+  (`2018-01-17`) present on every single row, no typo, no ambiguity — yet R
+  produced null for all of them while Python correctly extracted it. This is
+  a plain R extraction/parsing gap, unrelated to typos. Because `classify()`
+  only sees the parsed `(r_value, py_value)` pair, not the raw source cell,
+  it cannot distinguish a genuine source-typo rescue from this kind of plain
+  extraction gap — both present identically. Renamed the classifier
+  `typo_rescue` -> `r_value_missing` to stop implying every case is a typo;
+  updated `tests/test_migration/test_compare.py` accordingly. The narrower,
+  structurally-specific classifiers (`sentinel_null`, `ce_typo`,
+  `off_by_one_day`) are unaffected and still fire correctly.
+
+- *`product_entry_date`, raw stage* (47,333 of ~47,644 total rows flagged —
+  essentially the entire dataset) — sampled several raw-stage mismatches
+  directly: R's raw parquet stores unparsed Excel serial numbers as strings
+  (e.g. `"42872.0"`), while Python's raw parquet already stores parsed ISO
+  datetimes (`"2017-05-17 00:00:00"`) for the *same* underlying date. This
+  is a representation artifact in the comparison tool, not a real R/Python
+  content divergence — the raw-stage `product_entry_date` report is
+  currently non-actionable noise. Not fixed this session (needs a
+  normalization step in `compare_directory`'s raw-stage cell comparison,
+  parsing both sides before diffing) — spawned as [ticket
+  20](20-fix-raw-entry-date-representation.md).
+
+- *Everything else* — `product_balance` (2,343), `product_received_from`
+  (330), `product_released_to` (3,834 — not in the PDF's known-cause list at
+  all), `product_remarks` (66), `product_units_received` (265), `product`
+  itself (652) at the cleaned stage; every raw-stage product column except
+  `product_entry_date`; and the entire patient arm (raw + cleaned, never
+  triaged since ticket 15 ran it) did not get investigated this session.
+  Split into [ticket 21](21-triage-remaining-product-columns.md) (remaining
+  product cleaned-stage columns), [ticket
+  22](22-triage-product-raw-columns.md) (remaining product raw-stage
+  columns), and [ticket 23](23-triage-patient-arm.md) (patient arm, both
+  stages).
+
+**Rejected:** trying to force-reconcile the PDF's per-column counts exactly
+was rejected as a goal — the 189-vs-155 finding means the PDF's row
+population is provably different from what's comparable today, so exact
+reproduction isn't achievable or meaningful; explaining the *pattern* of
+each divergence (as done here) is the right bar, matching `product_sheet_name`'s
+already-exact 201 match as the one case where the populations do align.
+Further splitting `r_value_missing` into "real typo" vs "extraction gap"
+sub-causes was considered and rejected: `classify()` operates on parsed
+`(r_value, py_value)` pairs only, with no access to the raw source cell text,
+so the two causes are indistinguishable from where it sits; doing so would
+require a different tool (joining back to raw extraction), which is a
+separate, currently out-of-scope enhancement, not a data question ticket 18
+can resolve.
+
+**Evidence:** executed throughout — every claim above was checked against
+real files (the USB drive's `output_r`/`output_python`/`output_vm`/
+`a4dphase2_upload`, the real source Excel trackers), real R source
+(`r-archive/R/read_product_data.R`), real Python source
+(`src/a4d/reference/products.py`, `src/a4d/clean/product.py`), and a live
+re-run of `just compare-outputs` confirming the new classifiers land as
+expected (`r_category_lookup_miss`: 13,638/13,638; `r_value_missing`:
+10,211, replacing `typo_rescue`). `tests/test_migration/test_compare.py`
+(60 tests, including 2 new ones for the category classifier) plus ruff and
+`ty check` on the touched files all pass.
+
+**Tense:** all claims above describe current, verified behavior of the code
+and data as they exist now (2026-08-11) — not proposed or future behavior.
+
+## Addendum (same day, after closure): R re-run against the current tracker set
+
+After this ticket closed, production tracker uploads grew from the 177 files
+`a4dphase2_upload/` had during this session to 248 (confirmed via
+`a4d download trackers` against the live GCS bucket — read-only, no
+production pipeline run or GCP spend). The user directed a one-time R
+re-run against the current tracker set (R code unchanged — R remains
+retired/frozen going forward; this was explicitly framed as the final
+capture before R is removed per [ticket 12](12-retire-r-workspace.md), not
+a reversal of [ticket 2](02-documentation-strategy.md)'s "no R re-run,
+ever" decision). Getting R running required `renv::restore()` (blocked by
+an `arrow` C++ build failure unrelated to this project — a macOS/Homebrew
+libtool conflict — worked around by installing `arrow` and the package's
+other dependencies as CRAN binaries instead of building from the lockfile's
+exact pinned source versions) and running from the repo root rather than
+`r-archive/` (R's scripts read `reference_data/` via bare relative paths).
+
+**This materially changes the picture ticket 18 closed with:**
+
+- Fresh R output: 229 product-cleaned files / 66,020 rows, 243
+  patient-cleaned files / 81,859 rows — much closer to the
+  parity-presentation PDF's 189/61,077 than the old frozen baseline's
+  155/47,644. The 189-vs-155 conclusion above (unreconcilable) needs
+  revisiting; a fresh 189-vs-229 comparison hasn't been done yet.
+- The old frozen `output_r/` was renamed to
+  `output_r_155_frozen_backup_2025-11-14` (not deleted) and the fresh R
+  output moved into `output_r/` in its place, so all tooling/tickets that
+  reference `output_r/` now see the fresh data automatically.
+- Ticket 17's ordinal row-alignment key still holds — now **100%** row-key
+  match (66,020/66,020, up from 97.2%; the old NGH/NOH clinic_id typo that
+  caused the previous gap is gone in the fresh R run).
+- `product_category`: mismatches dropped from 13,638 to **866** (93% drop,
+  now much closer to the PDF's 214). The remaining 866 are still 100%
+  `r_value=None`-with-Python-present (`r_category_lookup_miss` still fires
+  on all of them), concentrated in just 12 files (one file,
+  `2021_Lao Friends Hospital for Children A4D Tracker_DC`, accounts for
+  282). So the case/whitespace-sensitive-join root cause is still real for
+  what remains, but it was **not** the dominant driver of the original
+  13,638 — most of that count was an artifact of comparing against the
+  stale, smaller frozen baseline (misalignment/missing-file noise), not the
+  join logic itself. This is a correction to this ticket's earlier
+  resolution, not an addition to it.
+- `product_entry_date` (cleaned): 11,727 (up from 10,424, tracking the
+  larger dataset) — `r_value_missing` still the dominant cause (11,468).
+  Not re-diagnosed further this session.
+- Raw-stage `product_entry_date`: still ~99.9% unclassified (65,710 of
+  65,743) — consistent with [ticket 20](20-fix-raw-entry-date-representation.md)'s
+  representation-artifact finding; not yet fixed.
+- Also fixed in passing: `justfile`'s `compare-outputs` recipe had its own
+  default (`output_dir="compare_output"`) out of sync with
+  `scripts/compare_outputs.py`'s documented default (`output/comparison`) —
+  a leftover from ticket 19's rename of `--report-out` to `--output-dir`.
+  Fixed to `output/comparison` so the two match and run-history tracking
+  works through the normal `just` invocation.
+
+**Not done this session:** a full fresh triage of `product_balance`,
+`product_received_from`, `product_released_to`, `product_remarks`,
+`product_units_received`, `product` (identity), the raw-stage product
+columns, or the patient arm — the counts in tickets
+[21](21-triage-remaining-product-columns.md),
+[22](22-triage-product-raw-columns.md), and
+[23](23-triage-patient-arm.md) are updated below to the fresh numbers, but
+the actual investigation work in those tickets is unchanged in scope.
+
+**Evidence:** executed — R was actually run against the current 248-tracker
+set (not simulated), `just compare-outputs` was re-run against the fresh
+`output_r`/`output_python`, and the row-key-overlap and per-column claims
+above were read directly from that run's report
+(`output/comparison/2026-08-11T232419Z/`).

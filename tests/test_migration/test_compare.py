@@ -5,6 +5,7 @@ import datetime
 import polars as pl
 
 from a4d.migration.compare import (
+    PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     SENTINEL_DATE,
     CategoricalOverlap,
@@ -323,10 +324,10 @@ class TestClassify:
 
         assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "sentinel_null"
 
-    def test_typo_rescue_when_r_is_null_and_python_parsed_a_real_date(self):
+    def test_r_value_missing_when_r_is_null_and_python_parsed_a_real_date(self):
         mismatch = _mismatch(r_value=None, py_value=datetime.date(2021, 3, 10))
 
-        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "typo_rescue"
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "r_value_missing"
 
     def test_off_by_one_day_when_dates_are_one_day_apart(self):
         mismatch = _mismatch(
@@ -344,6 +345,16 @@ class TestClassify:
         mismatch = _mismatch(r_value=datetime.date(2021, 1, 1), py_value=datetime.date(2021, 6, 1))
 
         assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_r_category_lookup_miss_when_r_is_null_and_python_has_a_category(self):
+        mismatch = _mismatch(r_value=None, py_value="INSULIN", column="product_category")
+
+        assert classify(mismatch, PRODUCT_CATEGORY_CLASSIFIERS) == "r_category_lookup_miss"
+
+    def test_category_unclassified_when_no_classifier_matches(self):
+        mismatch = _mismatch(r_value="INSULIN", py_value="TEST STRIPS", column="product_category")
+
+        assert classify(mismatch, PRODUCT_CATEGORY_CLASSIFIERS) == "unclassified"
 
 
 class TestCompareDirectory:
@@ -495,7 +506,7 @@ class TestSnapshotFromSummary:
                 {"column": "product_balance", "mismatches": 480},
             ],
             "per_cause": [
-                {"column": "product_entry_date", "cause": "typo_rescue", "mismatches": 408},
+                {"column": "product_entry_date", "cause": "r_value_missing", "mismatches": 408},
             ],
             "only_in_r": [{"file": "x.parquet"}],
             "only_in_py": [],
@@ -505,7 +516,7 @@ class TestSnapshotFromSummary:
 
         assert snapshot == {
             "per_column": {"product_entry_date": 559, "product_balance": 480},
-            "per_cause": {"product_entry_date|typo_rescue": 408},
+            "per_cause": {"product_entry_date|r_value_missing": 408},
         }
 
     def test_empty_summary_yields_empty_snapshot(self):
