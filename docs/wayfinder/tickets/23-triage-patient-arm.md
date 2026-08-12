@@ -2,12 +2,12 @@
 id: 23
 title: Triage every flagged R/Python difference for the patient arm (raw and cleaned)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-12b
+claimed_at: 2026-08-12T09:20:00+00:00
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 18
 ---
@@ -60,3 +60,47 @@ this ticket would create the first one, if warranted). This ticket is large
 (patient has more columns and a longer history than product) — if it
 doesn't converge in one session, split further rather than leaving it
 open-ended, per the pattern ticket 18 itself used.
+
+## Resolution
+
+**Decision:** the patient raw-stage mismatch dominant cause is the same
+date-representation artifact ticket 20 fixed for product's raw
+`product_entry_date`. Extended `normalize_date_column` to the patient
+`Patient (raw)` stage in `scripts/compare_outputs.py`, using the cleaned
+schema's own `get_date_columns()` helper (18 `pl.Date` columns) rather than
+a hand-maintained list. Did not touch pipeline code — comparison tooling
+only.
+
+**Because:** a re-run of the fresh 248-tracker comparison (a newer run than
+the premise's referenced `2026-08-11T232419Z` snapshot already existed
+locally at `output/comparison/2026-08-12T085925Z/`, so that was used
+instead of triggering another full pipeline pass) showed patient raw-stage
+mismatches concentrated almost entirely in date columns (`dob`: 79,836;
+`last_clinic_visit_date`: 73,490; `fbg_updated_date`: 61,832;
+`hba1c_updated_date`: 61,769; `bmi_date`: 61,765; `recruitment_date`:
+51,605; `t1d_diagnosis_date`: 47,047; etc. — 17 of 18 schema date columns
+appeared in the top of the list). A direct file check (`dob` on
+`06 00GS Quirino Memorial Medical Center A4D Tracker_Jun_26`) confirmed the
+exact pattern: R holds the unparsed Excel serial (`"39490"`), Python holds
+the already-ISO-parsed date (`"2008-02-12 00:00:00"`).
+
+**Rejected:** doing the full per-column triage for both raw and cleaned in
+one session, as the ticket originally scoped — killed by scale, not by a
+premise problem. After the date fix, raw-stage mismatches dropped from
+564,096 to 46,788 (91.7%) across 70 -> 67 columns, but 46,788 across 67
+columns is still not a one-session triage, and the cleaned stage (120,639
+across 61 columns, confirmed unaffected by this fix) is untouched and
+larger still. Split into [ticket 27](27-triage-patient-raw-residual.md)
+(raw residual, with two leads already noted: `complication_screening`
+looks like a genuine multi-select extraction gap, and `meter_received_date`
+is a raw-only date column the schema-derived list didn't catch) and
+[ticket 28](28-triage-patient-cleaned.md) (cleaned stage, untouched).
+
+**Evidence:** executed — verified end-to-end against the real 248-tracker
+drive comparison (before/after snapshots diffed directly), a direct
+parquet-level check of the raw representation difference, `uv run pytest
+tests/test_migration` (83 passed), and `ruff check` clean. No pipeline code
+changed, only `scripts/compare_outputs.py` (comparison tooling).
+
+**Tense:** all claims describe current, verified behaviour — not a
+proposed design.

@@ -36,21 +36,22 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 5"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
+    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
+    T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
+    T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
-  subgraph BLOCKED["Blocked · 3"]
+  subgraph BLOCKED["Blocked · 2"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 17"]
+  subgraph DECIDED["Decided · 18"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -69,6 +70,7 @@ flowchart TD
     T20["<b>20</b> · task<br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
     T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
+    T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -106,11 +108,11 @@ flowchart TD
   T23 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T23,T24,T25,T26 frontier
+  class T12,T16,T24,T25,T26,T27,T28 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9,T12 blocked
+  class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -676,21 +678,59 @@ divergences in every one of 229 files —
 `product_remarks` Boolean-vs-String, in 103/229 files; raw stage has a
 different, smaller set, also unlooked-at; patient not yet checked at all).
 
-**The frontier is now [Build a drill-down log analyzer for admins to
-inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
-[Triage every flagged R/Python difference for the patient
-arm](tickets/23-triage-patient-arm.md), [Triage the residual
+**Nineteen tickets resolved.** [Triage every flagged R/Python difference for
+the patient arm](tickets/23-triage-patient-arm.md) is done for its
+raw-stage-dominant-cause half: patient raw-stage mismatches turned out to be
+the same date-representation artifact [ticket
+20](tickets/20-fix-raw-entry-date-representation.md) already fixed for
+product's raw `product_entry_date` — R's raw extraction stores the unparsed
+source text (an Excel serial for date-formatted cells) while Python's raw
+extraction already ISO-formats parsed dates. Wired
+`normalize_date_column` into `scripts/compare_outputs.py`'s `Patient (raw)`
+stage using the cleaned schema's own `get_date_columns()` helper (18
+`pl.Date` columns, derived rather than hand-listed) rather than pipeline
+code. Verified against the real 248-tracker drive comparison: raw-stage
+mismatches dropped from 564,096 to 46,788 (91.7%) across 70 -> 67 columns,
+with 17 of 18 date columns individually collapsing by 99%+ (`dob`: 79,836 ->
+2). The cleaned stage (120,639 mismatches, 61 columns) was confirmed
+byte-identically unaffected, as expected. Both the raw residual and the
+cleaned stage didn't converge in this session — split into [ticket
+27](tickets/27-triage-patient-raw-residual.md) (raw residual, with two
+leads already noted: `complication_screening`'s Python side looks like a
+genuine multi-select extraction the R side only partially captures, and
+`meter_received_date` is a raw-only date column the schema-derived list
+didn't catch) and [ticket 28](tickets/28-triage-patient-cleaned.md) (cleaned
+stage, entirely untouched). Full suite (83 `test_migration` tests), ruff
+clean. Full detail: [ticket 23](tickets/23-triage-patient-arm.md).
+
+**Ticket 12 is now unblocked.** Its `blocked_by: [20, 21, 22, 23]` is now
+fully closed (ticket 23 was the last of the four) — [Retire R from the
+workspace once the pipeline is fully verified
+Python-only](tickets/12-retire-r-workspace.md) joins the frontier for the
+first time this map. It is the ticket most directly on the destination's
+critical path: closing it removes one of [ticket
+6](tickets/06-promote-migration-to-dev.md)'s eight remaining blockers.
+Tickets 24, 25, 26, 27, and 28 are not wired as blockers of ticket 12 (same
+precedent as before: they're residuals of already-closed ticket scope, or a
+newly surfaced gap the destination doesn't yet name as a promotion
+blocker).
+
+**The frontier is now [Retire R from the workspace once the pipeline is
+fully verified Python-only](tickets/12-retire-r-workspace.md), [Build a
+drill-down log analyzer for admins to inspect a specific tracker file's
+errors/logs](tickets/16-log-analyzer-drill-down.md), [Triage the residual
 product_units_received/product_units_released/product_received_from
 raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md),
 [Triage the product_units_released cleaned-stage column
-mismatches](tickets/25-triage-product-units-released-cleaned.md), and
-[Triage the product pipeline's column-existence and dtype
-divergence](tickets/26-triage-product-column-divergence.md).**
-Ticket 12 is `blocked_by: [20, 21, 22, 23]` — ticket 21's closure leaves only
-23 remaining (tickets 24, 25, and 26 aren't wired as blockers of ticket 12:
-24 and 25 are residuals of already-closed ticket scope, and 26 is a newly
-surfaced gap the destination doesn't yet name as a promotion blocker —
-worth revisiting once its findings land).
+mismatches](tickets/25-triage-product-units-released-cleaned.md), [Triage
+the product pipeline's column-existence and dtype
+divergence](tickets/26-triage-product-column-divergence.md), [Triage the
+residual patient raw-stage column mismatches after date
+normalization](tickets/27-triage-patient-raw-residual.md), and [Triage the
+patient cleaned-stage column mismatches](tickets/28-triage-patient-cleaned.md) —
+seven tickets, up from five. Ticket 12 is the one most directly on the
+route to the destination; the other six are independent triage residuals
+and a separate feature (ticket 16), takeable in any order.**
 
 ## Decisions so far
 
@@ -953,6 +993,20 @@ worth revisiting once its findings land).
   25](tickets/25-triage-product-units-released-cleaned.md). Full detail:
   [ticket 21](tickets/21-triage-remaining-product-columns.md).
 
+- [Triage every flagged R/Python difference for the patient
+  arm](tickets/23-triage-patient-arm.md) — decided and implemented
+  (raw-stage dominant cause only): patient raw-stage mismatches were
+  dominated by the same date-representation artifact ticket 20 fixed for
+  product — `normalize_date_column` extended to `Patient (raw)` via the
+  cleaned schema's `get_date_columns()` helper. Verified: raw-stage
+  mismatches dropped 564,096 -> 46,788 (91.7%) across 70 -> 67 columns; the
+  cleaned stage (120,639 mismatches, 61 columns) confirmed unaffected. This
+  unblocks [ticket 12](tickets/12-retire-r-workspace.md) — its last
+  remaining blocker. Raw residual and cleaned-stage triage split into
+  [ticket 27](tickets/27-triage-patient-raw-residual.md) and [ticket
+  28](tickets/28-triage-patient-cleaned.md). Full detail: [ticket
+  23](tickets/23-triage-patient-arm.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -1059,16 +1113,21 @@ flowchart TB
     U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
+  subgraph S2026_08_12b["Session 2026-08-12b"]
+    direction LR
+    U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
+    U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
+    U28["<b>28</b><br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1082,7 +1141,8 @@ flowchart TB
   S2026_08_09g ~~~ S2026_08_10
   S2026_08_10 ~~~ S2026_08_11
   S2026_08_11 ~~~ S2026_08_12
-  S2026_08_12 ~~~ Sopen
+  S2026_08_12 ~~~ S2026_08_12b
+  S2026_08_12b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1128,13 +1188,15 @@ flowchart TB
   U18 -.->|spawned| U23
   U22 -.->|spawned| U24
   U21 -.->|spawned| U25
+  U23 -.->|spawned| U27
+  U23 -.->|spawned| U28
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U23,U24,U25,U26 tfrontier
+  class U12,U16,U24,U25,U26,U27,U28 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9,U12 tblocked
+  class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
