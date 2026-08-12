@@ -246,6 +246,20 @@ def test_remove_header_rows_empty_input():
     assert out.height == 0
 
 
+def test_remove_header_rows_drops_row_of_empty_strings():
+    # A formula-emptied Excel cell can surface as "" rather than None; such a
+    # row carries no information and R's is.na()-based check drops it too.
+    df = pl.DataFrame(
+        {
+            "product": ["Insulin", ""],
+            "product_entry_date": ["2024-06", ""],
+        },
+        schema={"product": pl.String, "product_entry_date": pl.String},
+    )
+    out = remove_header_rows(df)
+    assert out["product"].to_list() == ["Insulin"]
+
+
 def test_read_all_product_sheets_end_to_end(tmp_path: Path):
     """End-to-end: build a tracker workbook with one month sheet, stub the
     mapper, and verify the orchestrator wires extract → harmonize →

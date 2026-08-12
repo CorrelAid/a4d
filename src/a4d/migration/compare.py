@@ -48,6 +48,53 @@ def normalize_date_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
     return df.with_columns(pl.Series(column, parsed, dtype=pl.Date))
 
 
+def normalize_numeric_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Parse a raw numeric-string column to ``float`` so float tolerance applies.
+
+    R's and Python's own float-to-string conversions round a binary float's
+    trailing digits differently (e.g. "9.300000000000001" vs "9.3" for the
+    same value) -- a representation difference, not a real divergence, that
+    ``_values_differ``'s float tolerance already handles once both sides are
+    parsed back to ``float`` rather than compared as strings. A value that
+    isn't numeric (product_units_received's raw column also holds text like
+    "START BALANCE") passes through unchanged, so it still surfaces as an
+    ordinary string mismatch if it genuinely differs.
+    """
+    if column not in df.columns:
+        return df
+
+    def _try_float(value: Any) -> Any:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+
+    parsed = [_try_float(v) for v in df[column]]
+    return df.with_columns(pl.Series(column, parsed, dtype=pl.Object))
+
+
+def normalize_whitespace_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Strip leading/trailing whitespace from a raw string column.
+
+    readxl's ``read_xlsx`` (R's raw extraction) trims whitespace from every
+    character column by default (``trim_ws = TRUE``) and represents an
+    embedded line break as ``\\r\\n``; openpyxl-based Python extraction
+    preserves a cell's leading/trailing whitespace exactly as stored and
+    normalizes embedded breaks to ``\\n`` alone. Both defaults are
+    representation differences, not real divergences -- verified against
+    real raw output (ticket 22), where together they account for the large
+    majority of non-numeric, non-date raw-stage product column mismatches.
+    A whitespace-only cell strips to an empty string, which R's own
+    ``trim_ws`` reduces further to NA, so this normalizes that too.
+    """
+    if column not in df.columns:
+        return df
+    stripped = pl.col(column).str.replace_all("\r\n", "\n").str.strip_chars()
+    return df.with_columns(pl.when(stripped == "").then(None).otherwise(stripped).alias(column))
+
+
 @dataclass(frozen=True)
 class ShapeResult:
     r_rows: int

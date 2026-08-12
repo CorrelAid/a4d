@@ -32,6 +32,8 @@ from a4d.migration.compare import (
     compare_totals,
     compute_deltas,
     normalize_date_column,
+    normalize_numeric_column,
+    normalize_whitespace_column,
     snapshot_from_summary,
 )
 
@@ -78,6 +80,96 @@ class TestNormalizeDateColumn:
         df = pl.DataFrame({"other": [1, 2]})
 
         result = normalize_date_column(df, "product_entry_date")
+
+        assert result.columns == ["other"]
+
+
+class TestNormalizeNumericColumn:
+    def test_parses_numeric_strings_to_float(self):
+        df = pl.DataFrame({"product_balance": ["9.300000000000001"]})
+
+        result = normalize_numeric_column(df, "product_balance")
+
+        assert result["product_balance"].to_list() == [9.300000000000001]
+
+    def test_same_float_from_different_string_representations_compare_equal(self):
+        r_df = pl.DataFrame({"product_balance": ["9.300000000000001"]})
+        py_df = pl.DataFrame({"product_balance": ["9.3"]})
+
+        r_result = normalize_numeric_column(r_df, "product_balance")
+        py_result = normalize_numeric_column(py_df, "product_balance")
+
+        assert r_result["product_balance"][0] == py_result["product_balance"][0]
+
+    def test_passes_through_null(self):
+        df = pl.DataFrame({"product_balance": [None]}, schema={"product_balance": pl.Utf8})
+
+        result = normalize_numeric_column(df, "product_balance")
+
+        assert result["product_balance"].to_list() == [None]
+
+    def test_leaves_non_numeric_text_unchanged(self):
+        df = pl.DataFrame({"product_units_received": ["START BALANCE"]})
+
+        result = normalize_numeric_column(df, "product_units_received")
+
+        assert result["product_units_received"].to_list() == ["START BALANCE"]
+
+    def test_is_a_no_op_when_the_column_is_absent(self):
+        df = pl.DataFrame({"other": [1, 2]})
+
+        result = normalize_numeric_column(df, "product_balance")
+
+        assert result.columns == ["other"]
+
+
+class TestNormalizeWhitespaceColumn:
+    def test_strips_leading_and_trailing_whitespace(self):
+        df = pl.DataFrame({"product": ["WIZ Twist Lancets (25s)\t"]})
+
+        result = normalize_whitespace_column(df, "product")
+
+        assert result["product"].to_list() == ["WIZ Twist Lancets (25s)"]
+
+    def test_r_and_python_representations_compare_equal_after_strip(self):
+        r_df = pl.DataFrame({"product_remarks": ["Remote"]})
+        py_df = pl.DataFrame({"product_remarks": ["Remote "]})
+
+        r_result = normalize_whitespace_column(r_df, "product_remarks")
+        py_result = normalize_whitespace_column(py_df, "product_remarks")
+
+        assert r_result["product_remarks"].to_list() == py_result["product_remarks"].to_list()
+
+    def test_passes_through_null(self):
+        df = pl.DataFrame({"product": [None]}, schema={"product": pl.Utf8})
+
+        result = normalize_whitespace_column(df, "product")
+
+        assert result["product"].to_list() == [None]
+
+    def test_normalizes_crlf_line_endings_to_lf(self):
+        r_df = pl.DataFrame({"product": ["Accu-Chek Instant Forward \r\nGlucometer Set"]})
+        py_df = pl.DataFrame({"product": ["Accu-Chek Instant Forward \nGlucometer Set"]})
+
+        r_result = normalize_whitespace_column(r_df, "product")
+        py_result = normalize_whitespace_column(py_df, "product")
+
+        assert r_result["product"].to_list() == py_result["product"].to_list()
+
+    def test_whitespace_only_cell_normalizes_to_null(self):
+        col = "product_received_from"
+        r_df = pl.DataFrame({col: [None]}, schema={col: pl.Utf8})
+        py_df = pl.DataFrame({col: [" "]})
+
+        r_result = normalize_whitespace_column(r_df, col)
+        py_result = normalize_whitespace_column(py_df, col)
+
+        assert r_result[col].to_list() == py_result[col].to_list()
+
+    def test_is_a_no_op_when_the_column_is_absent(self):
+        df = pl.DataFrame({"other": [1, 2]})
+
+        result = normalize_whitespace_column(df, "product")
 
         assert result.columns == ["other"]
 

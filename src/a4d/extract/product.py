@@ -195,7 +195,15 @@ def remove_header_rows(df: pl.DataFrame) -> pl.DataFrame:
     if df.height == 0:
         return df
 
-    df = df.filter(~pl.all_horizontal(pl.all().is_null()))
+    # A formula-emptied Excel cell can surface as "" rather than None, which
+    # is.null() alone won't catch; R's is.na()-based check drops such rows too.
+    blank_exprs = [
+        pl.col(name).is_null() | (pl.col(name).str.strip_chars() == "")
+        if dtype == pl.String
+        else pl.col(name).is_null()
+        for name, dtype in df.schema.items()
+    ]
+    df = df.filter(~pl.all_horizontal(blank_exprs))
 
     if "product" in df.columns:
         df = df.filter(
