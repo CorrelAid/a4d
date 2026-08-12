@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 7"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
@@ -45,6 +45,7 @@ flowchart TD
     T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
+    T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -121,7 +122,7 @@ flowchart TD
   T31 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T25,T29,T30,T31,T32,T34 frontier
+  class T16,T25,T29,T30,T31,T32,T34,T35 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -1387,6 +1388,18 @@ feature.**
   blocker on [ticket 6](tickets/06-promote-migration-to-dev.md) is
   released, now that CI green is restored.
 
+- **CI is green again on `migration`** (run `31644262255`, 2026-08-12g) —
+  first success since 2026-08-09, and the first run in that window to get
+  past the formatting step and actually execute the test suite. With its
+  output readable again, the suite's **17 Polars 2.0 deprecation warnings**
+  (three source sites: `empty_as_null` on `str.split` in `clean/product.py`
+  and its mirror in `validate/source_vs_output_product.py`, plus a
+  String->Date cast in `clean/converters.py`) were surfaced and ticketed as
+  [ticket 35](tickets/35-polars-2-deprecation-warnings.md). Not silencing
+  work: each warning is a real behaviour question (does an empty split
+  fragment become `null` or a phantom empty-string product row?), to be
+  decided against real tracker data per the map's triage bar.
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1515,6 +1528,7 @@ flowchart TB
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
+    U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1594,9 +1608,10 @@ flowchart TB
   U27 -.->|spawned| U31
   U27 -.->|spawned| U32
   U33 -.->|spawned| U34
+  U33 -.->|spawned| U35
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31,U32,U34 tfrontier
+  class U16,U25,U29,U30,U31,U32,U34,U35 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
