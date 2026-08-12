@@ -7,6 +7,7 @@ import polars as pl
 from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
+    PRODUCT_ROW_ORDER_CLASSIFIERS,
     SENTINEL_DATE,
     CategoricalOverlap,
     CellMismatch,
@@ -452,6 +453,58 @@ class TestCompareCells:
 
         assert compare_cells(r_df, py_df, key_cols=["id"]) == []
 
+    def test_row_order_candidate_false_without_order_group_cols(self):
+        r_df = pl.DataFrame({"grp": ["a", "a"], "id": [0, 1], "balance": [10.0, 20.0]})
+        py_df = pl.DataFrame({"grp": ["a", "a"], "id": [0, 1], "balance": [20.0, 10.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"])
+
+        assert all(m.row_order_candidate is False for m in result)
+
+    def test_row_order_candidate_true_when_value_present_elsewhere_in_group(self):
+        # R's row 0 (10.0) matches Python's row 1 (10.0) within the same group --
+        # a shifted-row pattern, not a genuine content divergence.
+        r_df = pl.DataFrame({"grp": ["a", "a"], "id": [0, 1], "balance": [10.0, 999.0]})
+        py_df = pl.DataFrame({"grp": ["a", "a"], "id": [0, 1], "balance": [20.0, 10.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        by_id = {m.key["id"]: m for m in result}
+        assert by_id[0].row_order_candidate is True
+        assert by_id[1].row_order_candidate is False
+
+    def test_row_order_candidate_false_when_value_genuinely_absent_from_group(self):
+        r_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [10.0]})
+        py_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [999.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        assert result == [
+            CellMismatch(
+                key={"grp": "a", "id": 0},
+                column="balance",
+                r_value=10.0,
+                py_value=999.0,
+                row_order_candidate=False,
+            )
+        ]
+
+    def test_row_order_candidate_scoped_to_own_group(self):
+        r_df = pl.DataFrame({"grp": ["a", "b"], "id": [0, 0], "balance": [10.0, 10.0]})
+        py_df = pl.DataFrame({"grp": ["a", "b"], "id": [0, 0], "balance": [999.0, 10.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        assert result == [
+            CellMismatch(
+                key={"grp": "a", "id": 0},
+                column="balance",
+                r_value=10.0,
+                py_value=999.0,
+                row_order_candidate=False,
+            )
+        ]
+
 
 def _mismatch(r_value, py_value, column="product_entry_date"):
     return CellMismatch(key={"id": 1}, column=column, r_value=r_value, py_value=py_value)
@@ -494,6 +547,28 @@ class TestClassify:
         mismatch = _mismatch(r_value="INSULIN", py_value="TEST STRIPS", column="product_category")
 
         assert classify(mismatch, PRODUCT_CATEGORY_CLASSIFIERS) == "unclassified"
+
+    def test_row_order_divergence_when_flagged_as_candidate(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="product_balance",
+            r_value=10.0,
+            py_value=999.0,
+            row_order_candidate=True,
+        )
+
+        assert classify(mismatch, PRODUCT_ROW_ORDER_CLASSIFIERS) == "row_order_divergence"
+
+    def test_row_order_unclassified_when_not_flagged_as_candidate(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="product_balance",
+            r_value=10.0,
+            py_value=999.0,
+            row_order_candidate=False,
+        )
+
+        assert classify(mismatch, PRODUCT_ROW_ORDER_CLASSIFIERS) == "unclassified"
 
 
 class TestCompareDirectory:

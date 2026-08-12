@@ -269,6 +269,12 @@ class CellMismatch:
     column: str
     r_value: Any
     py_value: Any
+    # Set by compare_cells when order_group_cols is given: True if r_value
+    # appears anywhere in the Python side's own group for this column --
+    # i.e. the mismatch could be a within-group row-order divergence
+    # (ticket 21) rather than a genuine content difference. Diagnostic only;
+    # never suppresses a mismatch, only informs its classification.
+    row_order_candidate: bool = False
 
 
 CELL_FLOAT_REL_TOL = 1e-9
@@ -285,19 +291,57 @@ def _values_differ(r_value: Any, py_value: Any) -> bool:
 
 
 def compare_cells(
-    r_df: pl.DataFrame, py_df: pl.DataFrame, key_cols: list[str]
+    r_df: pl.DataFrame,
+    py_df: pl.DataFrame,
+    key_cols: list[str],
+    order_group_cols: list[str] | None = None,
 ) -> list[CellMismatch]:
+    """Diff matched rows cell-by-cell.
+
+    ``order_group_cols`` (ticket 21) opts into an extra diagnostic: for a
+    positional row-alignment key (``add_row_ordinal``'s ``__row_ordinal``,
+    not a real identity key), a within-group sort-order divergence between R
+    and Python -- e.g. R falling back to raw input order when
+    ``product_entry_date`` fails to parse, while Python sorts chronologically
+    -- produces a cascade of cell mismatches that are really the *same*
+    value landing on a different row, not a content difference. Per column,
+    each mismatched cell is checked against a multiset of the Python side's
+    own values across its whole ``order_group_cols`` group (not just
+    adjacent rows, since a shift can be more than one position); a hit sets
+    ``row_order_candidate`` for the classifier registry to act on. Omit
+    ``order_group_cols`` for a genuine identity key (e.g. patient's
+    ``patient_id`` + ``sheet_name``), where this check doesn't apply.
+    """
     joined = r_df.join(py_df, on=key_cols, how="inner", suffix="_py")
     value_cols = [c for c in r_df.columns if c not in key_cols and c in py_df.columns]
+
+    group_value_counts: dict[tuple[Any, ...], dict[str, Counter[Any]]] = {}
+    if order_group_cols:
+        for row in py_df.iter_rows(named=True):
+            gkey = tuple(row[c] for c in order_group_cols)
+            per_column = group_value_counts.setdefault(gkey, {})
+            for col in value_cols:
+                per_column.setdefault(col, Counter())[row[col]] += 1
 
     mismatches = []
     for row in joined.iter_rows(named=True):
         key = {k: row[k] for k in key_cols}
+        gkey = tuple(row[c] for c in order_group_cols) if order_group_cols else None
         for col in value_cols:
             r_value, py_value = row[col], row[f"{col}_py"]
             if _values_differ(r_value, py_value):
+                row_order_candidate = False
+                if gkey is not None:
+                    counts = group_value_counts.get(gkey, {}).get(col)
+                    row_order_candidate = bool(counts) and counts[r_value] > 0
                 mismatches.append(
-                    CellMismatch(key=key, column=col, r_value=r_value, py_value=py_value)
+                    CellMismatch(
+                        key=key,
+                        column=col,
+                        r_value=r_value,
+                        py_value=py_value,
+                        row_order_candidate=row_order_candidate,
+                    )
                 )
     return mismatches
 
@@ -376,6 +420,27 @@ PRODUCT_CATEGORY_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_row_order_divergence(m: CellMismatch) -> bool:
+    """R's value for this cell shows up elsewhere in Python's own group.
+
+    Root-caused (ticket 21) to R's per-(clinic, sheet) sort falling back to
+    raw input order whenever ``product_entry_date`` fails to parse for a
+    row -- itself the same R date-extraction gap ticket 18 already
+    root-caused for the date column directly (see ``r_value_missing``).
+    Python parses the date and sorts chronologically instead, so both sides
+    land on the same total (e.g. same end-of-sheet balance) via a different
+    per-row order -- not a genuine content divergence, and not something to
+    "fix" toward R's order, since Python's is the one verified against the
+    real source Excel dates.
+    """
+    return m.row_order_candidate
+
+
+PRODUCT_ROW_ORDER_CLASSIFIERS: dict[str, Classifier] = {
+    "row_order_divergence": _is_row_order_divergence,
+}
+
+
 @dataclass(frozen=True)
 class FileComparison:
     file_name: str
@@ -402,6 +467,7 @@ def compare_directory(
     numeric_cols: list[str] | None = None,
     id_col: str | None = None,
     categorical_cols: list[str] | None = None,
+    order_group_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     numeric_cols = numeric_cols or []
     categorical_cols = categorical_cols or []
@@ -420,7 +486,7 @@ def compare_directory(
                 id_overlap=compare_id_overlap(r_df, py_df, id_col) if id_col else None,
                 categorical_overlap=compare_categorical_overlap(r_df, py_df, categorical_cols),
                 row_key_overlap=compare_row_key_overlap(r_df, py_df, key_cols),
-                cell_mismatches=compare_cells(r_df, py_df, key_cols),
+                cell_mismatches=compare_cells(r_df, py_df, key_cols, order_group_cols),
             )
         )
 
