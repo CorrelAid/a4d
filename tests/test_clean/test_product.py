@@ -907,3 +907,94 @@ def test_clean_product_data_handles_columnless_raw_frame():
     assert out.width == 20
     assert "product" in out.columns
     assert len(collector) == 0
+
+
+def _balance_reconciliation_frame(source_closing, released, status=None):
+    """Fixture for the closing-balance reconciliation check (ticket 36).
+
+    Two transactions off a start balance of 100, with the source's own
+    recorded closing balance supplied by the caller so a test can make it
+    agree or disagree with what step 2.15 computes.
+    """
+    n = 3
+    return pl.DataFrame(
+        {
+            "file_name": ["2024_Test.xlsx"] * n,
+            "index": [1, 2, 3],
+            "product_sheet_name": ["Jan24"] * n,
+            "product": ["Test Strips"] * n,
+            "product_balance": [100.0, None, source_closing],
+            "product_balance_status": status or ["start", "change", "end"],
+            "product_units_received": [0.0, 0.0, 0.0],
+            "product_units_released": released,
+            "product_units_returned": [0.0] * n,
+            "product_table_year": [2020] * n,
+        },
+        schema={
+            "file_name": pl.String,
+            "index": pl.Int64,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
+            "product_balance": pl.Float64,
+            "product_balance_status": pl.String,
+            "product_units_received": pl.Float64,
+            "product_units_released": pl.Float64,
+            "product_units_returned": pl.Float64,
+            "product_table_year": pl.Int32,
+        },
+    )
+
+
+def _reconciliation_errors(collector):
+    return [e for e in collector.errors if e.error_code == "balance_reconciliation"]
+
+
+def test_running_balance_logs_when_closing_disagrees_with_source():
+    """Ticket 36: the running balance is recomputed from the start balance plus
+    transactions, in Python's chronological row order rather than the source's
+    data-entry order, so intermediate balances legitimately differ from the
+    tracker's. The *closing* balance is order-independent, so a disagreement
+    there is a real source arithmetic or data-entry problem and must surface."""
+    # 100 - 8 - 4 = 88 computed, but the tracker recorded 90.
+    df = _balance_reconciliation_frame(source_closing=90.0, released=[0.0, 8.0, 4.0])
+    collector = ErrorCollector()
+
+    out = _compute_running_balance(df, collector)
+
+    assert out["product_balance"].to_list() == [100.0, 92.0, 88.0]
+    errors = _reconciliation_errors(collector)
+    assert len(errors) == 1
+    assert errors[0].column == "product_balance"
+    assert errors[0].function_name == "_compute_running_balance"
+    assert "90" in errors[0].error_message
+    assert "88" in errors[0].error_message
+
+
+def test_running_balance_silent_when_closing_matches_source():
+    """No warning when the recomputed ledger lands where the tracker says."""
+    df = _balance_reconciliation_frame(source_closing=88.0, released=[0.0, 8.0, 4.0])
+    collector = ErrorCollector()
+
+    _compute_running_balance(df, collector)
+
+    assert _reconciliation_errors(collector) == []
+
+
+def test_running_balance_silent_when_source_records_no_closing_balance():
+    """Most groups record only a start balance and leave the rest blank -- that
+    is not a disagreement, and warning on it would drown the real signal."""
+    df = _balance_reconciliation_frame(source_closing=None, released=[0.0, 8.0, 4.0])
+    collector = ErrorCollector()
+
+    _compute_running_balance(df, collector)
+
+    assert _reconciliation_errors(collector) == []
+
+
+def test_running_balance_reconciliation_is_optional():
+    """Callers without an ErrorCollector (existing tests, ad-hoc use) still work."""
+    df = _balance_reconciliation_frame(source_closing=90.0, released=[0.0, 8.0, 4.0])
+
+    out = _compute_running_balance(df)
+
+    assert out["product_balance"].to_list() == [100.0, 92.0, 88.0]
