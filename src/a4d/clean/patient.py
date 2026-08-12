@@ -748,16 +748,24 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
 
 
 def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
-    """Calculate t1d_diagnosis_age from dob and t1d_diagnosis_date.
+    """Fill t1d_diagnosis_age from dob and t1d_diagnosis_date, but only when
+    the tracker's own recorded value is missing or an Excel error sentinel.
 
-    If both dates are valid (not null, not error date), calculates age at diagnosis.
-    If either date is missing or is error date, result is null.
+    R's equivalent (script2_helper_patient_data_fix.R's fix_t1d_diagnosis_age)
+    is dead code -- never called from script2_process_patient_data.R (the
+    call site is commented out) -- so R always keeps the raw recorded age
+    untouched. A directly recorded diagnosis age is a real clinic-entered
+    value, not something to silently discard in favor of date arithmetic:
+    an earlier version of this function unconditionally overwrote it whenever
+    both dates parsed, which threw away a real recorded value whenever a date
+    didn't parse (falling to null) and silently overrode it by +/-1 whenever
+    it did parse but disagreed with the tracker's own figure.
 
     Args:
         df: DataFrame with dob, t1d_diagnosis_date, t1d_diagnosis_age columns
 
     Returns:
-        DataFrame with calculated t1d_diagnosis_age
+        DataFrame with t1d_diagnosis_age filled from dates where missing
     """
     required_cols = ["dob", "t1d_diagnosis_date", "t1d_diagnosis_age"]
     if not all(col in df.columns for col in required_cols):
@@ -770,18 +778,26 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
     valid_diagnosis = pl.col("t1d_diagnosis_date").is_not_null() & (
         pl.col("t1d_diagnosis_date") != error_date
     )
+    # Keep the raw recorded age unless it's missing or an Excel error sentinel
+    has_recorded_age = pl.col("t1d_diagnosis_age").is_not_null() & (
+        pl.col("t1d_diagnosis_age") != settings.error_val_numeric
+    )
 
     # Calculate age at diagnosis: year(diagnosis_date) - year(dob)
     # Adjust if birthday hasn't occurred yet in diagnosis year
+    calculated_age = (
+        pl.col("t1d_diagnosis_date").dt.year()
+        - pl.col("dob").dt.year()
+        - pl.when(pl.col("t1d_diagnosis_date").dt.month() < pl.col("dob").dt.month())
+        .then(1)
+        .otherwise(0)
+    )
+
     df = df.with_columns(
-        pl.when(valid_dob & valid_diagnosis)
-        .then(
-            pl.col("t1d_diagnosis_date").dt.year()
-            - pl.col("dob").dt.year()
-            - pl.when(pl.col("t1d_diagnosis_date").dt.month() < pl.col("dob").dt.month())
-            .then(1)
-            .otherwise(0)
-        )
+        pl.when(has_recorded_age)
+        .then(pl.col("t1d_diagnosis_age"))
+        .when(valid_dob & valid_diagnosis)
+        .then(calculated_age)
         .otherwise(None)
         .cast(pl.Int32)
         .alias("t1d_diagnosis_age")

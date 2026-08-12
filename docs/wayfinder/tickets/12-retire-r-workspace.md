@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 27, 28]
 assignee: null
 claimed_at: null
 resolution: null
@@ -48,6 +48,21 @@ that triage work is still investigative and might turn up a need to consult
 R's logic/behavior one more time before it's gone for good; safer to keep
 this ticket blocked until that work concludes.
 
+**Correction (2026-08-12c):** tickets 20-23 closing does not mean this
+ticket is actually unblocked — that was a premise error caught mid-session,
+before any commit landed. Tickets 20-23 spawned five further residual
+tickets (24, 25, 26, 27, 28) that carry forward the exact same "might need
+to consult R's source" risk this ticket already names as its reason for
+waiting: past triage repeatedly needed to read `r-archive/`'s actual R
+source to root-cause a mismatch (e.g. ticket 18 reading
+`read_product_data.R`'s `add_product_categories()` join logic directly),
+not just diff output. Ticket 28 in particular (patient cleaned-stage,
+120,639 mismatches across 61 columns) is entirely untouched and most likely
+to need the same. `blocked_by` corrected to `[20, 21, 22, 23, 24, 25, 26,
+27, 28]`. No files were deleted as part of this correction — `r-archive/`
+was briefly staged for removal outside this ticket's own execution and was
+restored before anything was committed.
+
 Not blocked on [ticket 11](11-cli-ux-observability.md): the user confirmed
 `tools/LogViewerA4D` (an R Shiny app another developer wrote for viewing R
 logs) needs no Python replacement — it can simply be deleted, independent of
@@ -69,8 +84,10 @@ assumed):
   it was removed immediately rather than waiting; its feature set was first
   captured in [ticket 11](11-cli-ux-observability.md) as prior art. This
   ticket stays open for the rest of the inventory.
-- `test_full_pipeline_debug.R` (git-tracked, repo root) — stray debug script
-  — **remaining**
+- ~~`test_full_pipeline_debug.R` (repo root) — stray debug script~~ —
+  **already gone**: verified via `git log --all -- test_full_pipeline_debug.R`
+  (2026-08-12c) it was removed by an earlier "remove deprecated files"
+  commit, before this ticket was even written. No action needed.
 - `docs/CLAUDE.md`'s note that `reference_data/` is "shared with the archived
   R pipeline" — needs re-wording once R is gone — **remaining**
 - `CLAUDE.md`'s own "R Archive" section and its "do not modify" instruction

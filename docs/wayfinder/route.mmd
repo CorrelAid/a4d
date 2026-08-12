@@ -57,6 +57,10 @@ flowchart TB
     direction LR
     U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
   end
+  subgraph S2026_08_12c["Session 2026-08-12c"]
+    direction LR
+    U28["<b>28</b><br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -67,7 +71,7 @@ flowchart TB
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
-    U28["<b>28</b><br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
+    U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -82,7 +86,8 @@ flowchart TB
   S2026_08_10 ~~~ S2026_08_11
   S2026_08_11 ~~~ S2026_08_12
   S2026_08_12 ~~~ S2026_08_12b
-  S2026_08_12b ~~~ Sopen
+  S2026_08_12b ~~~ S2026_08_12c
+  S2026_08_12c ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -114,6 +119,11 @@ flowchart TB
   U21 --->|blocked| U12
   U22 --->|blocked| U12
   U23 --->|blocked| U12
+  U24 --->|blocked| U12
+  U25 --->|blocked| U12
+  U26 --->|blocked| U12
+  U27 --->|blocked| U12
+  U28 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -130,12 +140,13 @@ flowchart TB
   U21 -.->|spawned| U25
   U23 -.->|spawned| U27
   U23 -.->|spawned| U28
+  U28 -.->|spawned| U29
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U12,U16,U24,U25,U26,U27,U28 tfrontier
+  class U16,U24,U25,U26,U27,U29 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9 tblocked
+  class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U28 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
