@@ -40,9 +40,9 @@ flowchart TD
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
-    T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
+    T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -50,7 +50,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 21"]
+  subgraph DECIDED["Decided · 22"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -72,6 +72,7 @@ flowchart TD
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
+    T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -111,17 +112,17 @@ flowchart TD
   T24 --> T12
   T25 --> T12
   T26 --> T12
-  T27 --> T12
   T28 --> T12
   T29 --> T12
   T30 --> T12
+  T31 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T25,T27,T29,T30 frontier
+  class T16,T25,T29,T30,T31 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T26,T28 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T26,T27,T28 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -853,6 +854,45 @@ divergence](tickets/30-triage-patient-raw-column-divergence.md) — six
 tickets, ticket 26 replaced by its spawned residual ticket 30. Ticket 12
 remains blocked, now on `[20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]`.**
 
+**Twenty-third ticket resolved.** [Triage the residual patient raw-stage
+column mismatches after date normalization](tickets/27-triage-patient-raw-residual.md)
+is done for its two original leads: patient's raw stage got the same
+`normalize_numeric_column` treatment ticket 22 gave product's (derived from
+the schema rather than hand-listed), plus `meter_received_date` hand-added
+to the date-normalize list (it has no cleaned-stage counterpart to derive
+from). Two new classifiers were added and verified against the real drive
+data — `r_formula_error` (bmi/t1d_diagnosis_age are formula-derived in the
+source trackers; a source formula error leaves R's raw extraction holding
+the literal Excel error string while Python correctly has no cached value)
+and `buddhist_era_typo` (a newly-found pattern: a clinician typed a Thai
+Buddhist-Era year straight into a Gregorian date cell — verified directly
+against the real source Excel for one patient, and confirmed **not** a
+pipeline bug, since the cleaned stage's existing future-date guard already
+replaces the same cell with R's own sentinel). Raw-stage patient mismatches
+dropped 46,788 -> 18,813 (59.8%). `complication_screening` (12,566, 84% of
+what remains, already carrying a probable multi-select-extraction lead)
+and roughly 50 smaller columns were left unchased rather than sprawling
+past this ticket's own scope — split into [ticket
+31](tickets/31-triage-patient-raw-residual-2.md), which now replaces
+ticket 27 as one of ticket 12's blockers. Full suite (599 passed, 1
+skipped), ruff, `ty check src/` all pass. Full detail: [ticket
+27](tickets/27-triage-patient-raw-residual.md).
+
+**The frontier is now [Build a drill-down log analyzer for admins to
+inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the residual product_units_received/product_units_released/product_received_from
+raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md),
+[Triage the product_units_released cleaned-stage column
+mismatches](tickets/25-triage-product-units-released-cleaned.md), [Triage
+the residual patient cleaned-stage column
+mismatches](tickets/29-triage-patient-cleaned-residual.md), [Triage the
+patient pipeline's raw-stage column-existence
+divergence](tickets/30-triage-patient-raw-column-divergence.md), and
+[Triage the residual patient raw-stage column mismatches (round
+2)](tickets/31-triage-patient-raw-residual-2.md) — six tickets, ticket 27
+replaced by its spawned residual ticket 31. Ticket 12 remains blocked, now
+on `[20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31]`.**
+
 **Twenty-two tickets resolved.** [Triage the residual
 product_units_received/product_units_released/product_received_from
 raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md)
@@ -1254,6 +1294,22 @@ feature.**
   12](tickets/12-retire-r-workspace.md)'s remaining blockers. Full detail:
   [ticket 24](tickets/24-triage-remaining-raw-column-residual.md).
 
+- [Triage the residual patient raw-stage column mismatches after date
+  normalization](tickets/27-triage-patient-raw-residual.md) — decided and
+  implemented: extended `normalize_numeric_column` (derived via
+  `get_numeric_columns()`) and `normalize_date_column` (hand-extended with
+  the schema-absent `meter_received_date`) to patient's raw stage, plus two
+  new classifiers — `r_formula_error` (R's raw extraction carries an Excel
+  formula-error string through where Python correctly has no cached value)
+  and `buddhist_era_typo` (a clinician-entered Thai Buddhist-Era year in a
+  Gregorian date cell, verified against the real source Excel and confirmed
+  harmless since the cleaned stage's existing future-date guard already
+  reconciles it). Raw-stage patient mismatches dropped from 46,788 to
+  18,813 (59.8%). `complication_screening` (12,566, 84% of what remains)
+  and ~50 smaller columns didn't converge — split into [ticket
+  31](tickets/31-triage-patient-raw-residual-2.md). Full detail: [ticket
+  27](tickets/27-triage-patient-raw-residual.md).
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1362,6 +1418,10 @@ flowchart TB
     direction LR
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
   end
+  subgraph S2026_08_12f["Session 2026-08-12f"]
+    direction LR
+    U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -1369,9 +1429,9 @@ flowchart TB
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
-    U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
+    U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1389,7 +1449,8 @@ flowchart TB
   S2026_08_12b ~~~ S2026_08_12c
   S2026_08_12c ~~~ S2026_08_12d
   S2026_08_12d ~~~ S2026_08_12e
-  S2026_08_12e ~~~ Sopen
+  S2026_08_12e ~~~ S2026_08_12f
+  S2026_08_12f ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1424,10 +1485,10 @@ flowchart TB
   U24 --->|blocked| U12
   U25 --->|blocked| U12
   U26 --->|blocked| U12
-  U27 --->|blocked| U12
   U28 --->|blocked| U12
   U29 --->|blocked| U12
   U30 --->|blocked| U12
+  U31 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -1446,13 +1507,14 @@ flowchart TB
   U23 -.->|spawned| U28
   U28 -.->|spawned| U29
   U26 -.->|spawned| U30
+  U27 -.->|spawned| U31
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U27,U29,U30 tfrontier
+  class U16,U25,U29,U30,U31 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U27,U28 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

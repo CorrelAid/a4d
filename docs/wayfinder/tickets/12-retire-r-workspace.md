@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31]
 assignee: null
 claimed_at: null
 resolution: null
@@ -67,6 +67,13 @@ Not blocked on [ticket 11](11-cli-ux-observability.md): the user confirmed
 `tools/LogViewerA4D` (an R Shiny app another developer wrote for viewing R
 logs) needs no Python replacement — it can simply be deleted, independent of
 whatever ticket 11 decides for the Python CLI's own observability.
+
+**Same precedent applied again (2026-08-12f):** [ticket
+27](27-triage-patient-raw-residual.md) closed for its two original leads
+(fixed) but explicitly left `complication_screening` (12,566 mismatches,
+84% of what remains) and roughly 50 smaller columns untouched, spawning
+[ticket 31](31-triage-patient-raw-residual-2.md) to carry that forward.
+`blocked_by` swaps `27` for `31`.
 
 **Conflict on record, not resolved here:** `CLAUDE.md` currently states
 `r-archive/` is "preserved for reference. Do not modify." — that instruction

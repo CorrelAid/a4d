@@ -537,6 +537,57 @@ STRAY_DATE_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+# Excel's own formula-error sentinels (ticket 27): a computed raw column
+# (e.g. bmi, t1d_diagnosis_age -- both formula-derived in the source
+# trackers) can hold a literal "#DIV/0!"/"#VALUE!"/etc. string wherever the
+# source formula errored (e.g. height is 0, a diagnosis date fails to
+# parse). R's raw extraction carries that error text through as-is; Python's
+# raw extraction (openpyxl, data_only) returns the cell's cached value,
+# which is null for an errored formula -- Python has no value to carry,
+# it isn't dropping one R has.
+EXCEL_ERROR_STRINGS = frozenset(
+    {"#DIV/0!", "#VALUE!", "#NUM!", "#N/A", "#REF!", "#NAME?", "#NULL!"}
+)
+
+
+def _is_r_formula_error(m: CellMismatch) -> bool:
+    return m.r_value in EXCEL_ERROR_STRINGS and m.py_value is None
+
+
+EXCEL_FORMULA_ERROR_CLASSIFIERS: dict[str, Classifier] = {
+    "r_formula_error": _is_r_formula_error,
+}
+
+
+# Buddhist-era source-data typo (ticket 27): a clinician typed a Thai
+# Buddhist-Era year (BE = CE + 543) directly into a Gregorian-calendar
+# date cell -- verified against the real source Excel (06 Nakornping
+# Hospital, patient TH_NK004, hba1c_updated_date: the cell is genuinely
+# date-typed and formatted `dd-mmm-yyyy` but holds year 2569). R's raw
+# extraction already rejects the implausible year and emits the sentinel;
+# Python's raw extraction is a faithful pass-through of the cell's literal
+# value, by design, so it carries the bad year through. Not a pipeline bug:
+# the cleaned stage's own future-date guard (`_validate_dates`,
+# `clean/patient.py`) independently replaces it with the same sentinel, so
+# the two pipelines already agree from the cleaned stage onward. Threshold
+# matches the product pipeline's own `BUDDHIST_ERA_THRESHOLD`
+# (`clean/product.py`) rather than a new one.
+PATIENT_BUDDHIST_ERA_THRESHOLD = 2400
+
+
+def _is_buddhist_era_typo(m: CellMismatch) -> bool:
+    return (
+        m.r_value == SENTINEL_DATE
+        and isinstance(m.py_value, datetime.date)
+        and m.py_value.year >= PATIENT_BUDDHIST_ERA_THRESHOLD
+    )
+
+
+PATIENT_BUDDHIST_ERA_CLASSIFIERS: dict[str, Classifier] = {
+    "buddhist_era_typo": _is_buddhist_era_typo,
+}
+
+
 def _is_wide_format_fragment_truncated(m: CellMismatch) -> bool:
     """R's value is a truncated prefix of Python's for a 2017-2019 Mandalay
     wide-format ``product_units_released`` cell.
