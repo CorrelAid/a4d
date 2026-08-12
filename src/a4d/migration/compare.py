@@ -539,23 +539,32 @@ STRAY_DATE_CLASSIFIERS: dict[str, Classifier] = {
 
 # Excel's own formula-error sentinels (ticket 27): a computed raw column
 # (e.g. bmi, t1d_diagnosis_age -- both formula-derived in the source
-# trackers) can hold a literal "#DIV/0!"/"#VALUE!"/etc. string wherever the
-# source formula errored (e.g. height is 0, a diagnosis date fails to
-# parse). R's raw extraction carries that error text through as-is; Python's
-# raw extraction (openpyxl, data_only) returns the cell's cached value,
-# which is null for an errored formula -- Python has no value to carry,
-# it isn't dropping one R has.
+# trackers) holds a literal "#DIV/0!"/"#VALUE!"/etc. string wherever the
+# source formula could not compute -- an input it depends on was never
+# recorded (height blank -> #DIV/0!; no diagnosis date -> #NUM!). Verified
+# against real source Excel: the cell's openpyxl data_type is 'e'.
+#
+# Python's raw extraction preserves that text uniformly (ticket 27's own
+# change -- the raw layer records what the source contained). R's does not:
+# readxl guesses a column's type from its majority values, so the same error
+# cell survives as a string in a column guessed character but becomes NA in
+# a column guessed numeric -- the same type-guessing mechanism
+# STRAY_DATE_CLASSIFIERS documents for a different symptom. So the mismatch
+# appears in BOTH directions depending on which way readxl guessed, and
+# neither direction is a Python defect: Python is the consistent side.
 EXCEL_ERROR_STRINGS = frozenset(
     {"#DIV/0!", "#VALUE!", "#NUM!", "#N/A", "#REF!", "#NAME?", "#NULL!"}
 )
 
 
-def _is_r_formula_error(m: CellMismatch) -> bool:
-    return m.r_value in EXCEL_ERROR_STRINGS and m.py_value is None
+def _is_excel_formula_error(m: CellMismatch) -> bool:
+    return (m.r_value in EXCEL_ERROR_STRINGS and m.py_value is None) or (
+        m.py_value in EXCEL_ERROR_STRINGS and m.r_value is None
+    )
 
 
 EXCEL_FORMULA_ERROR_CLASSIFIERS: dict[str, Classifier] = {
-    "r_formula_error": _is_r_formula_error,
+    "excel_formula_error": _is_excel_formula_error,
 }
 
 

@@ -9,7 +9,11 @@ from pathlib import Path
 
 import polars as pl
 
-from a4d.clean.converters import parse_date_column, safe_convert_column
+from a4d.clean.converters import (
+    normalize_excel_formula_errors,
+    parse_date_column,
+    safe_convert_column,
+)
 from a4d.clean.schema_product import apply_schema, get_product_data_schema, get_string_columns
 from a4d.config import settings
 from a4d.errors import ErrorCollector
@@ -97,6 +101,11 @@ def clean_product_data(
         # letting `apply_schema` synthesize a single all-null row from a
         # literal with nothing to broadcast against.
         return pl.DataFrame(schema=get_product_data_schema())
+
+    # Null out (and log) the source trackers' own formula-error strings,
+    # which extraction preserves verbatim (ticket 27). Runs before the R
+    # step sequence so no step sees a "#DIV/0!" where it expects a value.
+    df_raw = normalize_excel_formula_errors(df_raw, error_collector, patient_id_col="product")
 
     df = _normalize_empty_strings_to_null(df_raw)  # 2.0 (see helper docstring)
     df = _split_multi_product_cells(df)  # 2.1

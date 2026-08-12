@@ -1296,17 +1296,29 @@ feature.**
 
 - [Triage the residual patient raw-stage column mismatches after date
   normalization](tickets/27-triage-patient-raw-residual.md) — decided and
-  implemented: extended `normalize_numeric_column` (derived via
-  `get_numeric_columns()`) and `normalize_date_column` (hand-extended with
-  the schema-absent `meter_received_date`) to patient's raw stage, plus two
-  new classifiers — `r_formula_error` (R's raw extraction carries an Excel
-  formula-error string through where Python correctly has no cached value)
-  and `buddhist_era_typo` (a clinician-entered Thai Buddhist-Era year in a
-  Gregorian date cell, verified against the real source Excel and confirmed
-  harmless since the cleaned stage's existing future-date guard already
-  reconciles it). Raw-stage patient mismatches dropped from 46,788 to
-  18,813 (59.8%). `complication_screening` (12,566, 84% of what remains)
-  and ~50 smaller columns didn't converge — split into [ticket
+  implemented, including a **real pipeline change**: extended
+  `normalize_numeric_column` (derived via `get_numeric_columns()`) and
+  `normalize_date_column` (hand-extended with the schema-absent
+  `meter_received_date`) to patient's raw stage; added `buddhist_era_typo`
+  (a clinician-entered Thai Buddhist-Era year in a Gregorian date cell,
+  verified against real source Excel, harmless since the cleaned stage's
+  future-date guard already reconciles it). Then, after the user challenged
+  the first close: `clean_excel_errors` was removed from all four
+  extraction call sites in **both arms** — extraction had been silently
+  nulling the source trackers' own `#DIV/0!`/`#NUM!` strings, so the raw
+  layer misreported the source file — replaced by
+  `normalize_excel_formula_errors` at the cleaning stage, which nulls them
+  (deliberately `null`, not the `999999` "recorded but invalid" sentinel:
+  a calculation whose input was never entered is absent, not invalid) and
+  logs each under a new `source_formula_error` code. Verified by a full
+  both-arm re-run against the real 248-tracker dataset: **cleaned-stage
+  output byte-identical in both arms** (no production data moved), raw
+  stage now faithful, new log entries across 145 tracker files. Raw-stage
+  patient mismatches 46,788 -> 18,813 on the tool fixes, then 28,033 once
+  Python became more faithful than R (readxl inconsistently nulls error
+  cells depending on its column-type guess) — all classified, with
+  `unclassified` flat at 14,981. `complication_screening` (12,566) and ~50
+  smaller columns didn't converge — split into [ticket
   31](tickets/31-triage-patient-raw-residual-2.md). Full detail: [ticket
   27](tickets/27-triage-patient-raw-residual.md).
 

@@ -19,6 +19,7 @@ from loguru import logger
 from a4d.clean.converters import (
     correct_decimal_sign,
     cut_numeric_value,
+    normalize_excel_formula_errors,
     parse_date_column,
     safe_convert_column,
 )
@@ -61,6 +62,12 @@ def clean_patient_data(
     logger.info(
         f"Starting patient data cleaning: {len(df_raw)} rows, {len(df_raw.columns)} columns"
     )
+
+    # Step 0: Null out (and log) the source trackers' own formula-error
+    # strings, which extraction preserves verbatim (ticket 27). Must run
+    # before type conversion so these don't land in safe_convert_column's
+    # parse-failure branch and pick up the 999999 sentinel.
+    df_raw = normalize_excel_formula_errors(df_raw, error_collector)
 
     # Step 1: Legacy format fixes
     df = _apply_legacy_fixes(df_raw)

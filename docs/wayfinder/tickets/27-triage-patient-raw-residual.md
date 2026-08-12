@@ -59,10 +59,16 @@ established.
 
 ## Resolution
 
-**Decision:** Fixed two representation gaps and classified two genuine-cause
-patterns, cutting raw-stage patient mismatches from 46,788 to 18,813
-(59.8%); the remaining 67-minus-however-many columns didn't converge in this
-session and are split into [ticket
+**Decision:** Fixed two comparison-tool representation gaps, made one real
+pipeline change (extraction now preserves the source trackers' own Excel
+formula-error strings; cleaning nulls and logs them), and named two causes.
+Raw-stage patient mismatches went 46,788 -> 18,813 on the tool fixes alone,
+then to 28,033 after the pipeline change -- the rise is Python becoming
+*more* faithful than R, not a regression, and every one of those rows is
+classified rather than unexplained (`unclassified` is unchanged at 14,981
+throughout). **Cleaned-stage output is byte-for-byte unchanged in both arms**
+(patient 99,478; product 23,043; product raw 118), so no production data
+moved. The remaining ~50 columns didn't converge and are split into [ticket
 31](31-triage-patient-raw-residual-2.md).
 
 **Because:**
@@ -83,17 +89,34 @@ session and are split into [ticket
   (the one genuinely non-derivable list entry, since it has no cleaned-stage
   counterpart to derive from). Collapsed to 0.
 - `bmi` and `t1d_diagnosis_age` are formula-derived in the source trackers
-  (BMI from weight/height; age from birth/diagnosis dates). A source
-  formula error (height recorded as 0, an unparseable diagnosis date)
-  leaves R's raw extraction holding the literal Excel error string
-  (`"#DIV/0!"`, `"#VALUE!"`, `"#NUM!"`) while Python's raw extraction
-  (openpyxl, `data_only`) has no cached value for an errored formula and
-  returns `None` -- neither side is wrong, they're just representing
-  "no value" differently. New `EXCEL_FORMULA_ERROR_CLASSIFIERS`
-  (`r_formula_error`) in `src/a4d/migration/compare.py`, wired for `bmi`,
-  `t1d_diagnosis_age`, and `age`. `t1d_diagnosis_age` 2,505 -> 18 residual
-  (99.3% explained); `bmi` residual after numeric-normalize is 1,048, of
-  which 1,009 are this cause.
+  (BMI from weight/height; age at diagnosis from DOB and diagnosis date).
+  Where a required input was never recorded -- verified against real source
+  Excel: `height` blank -> `#DIV/0!`, no `Date of T1D Diagnosis` -> `#NUM!`,
+  the cell's openpyxl `data_type` genuinely `'e'` -- the tracker's own
+  formula writes a literal error string into the cell.
+
+  **This became a pipeline change, not just a classifier** (see Correction
+  below): extraction was silently nulling those strings, so the raw layer
+  misreported what the source file contained and the "source formula could
+  not compute this" signal was lost rather than recorded anywhere.
+  `clean_excel_errors` was removed from all four extraction call sites
+  (both arms) and replaced by `normalize_excel_formula_errors`
+  (`src/a4d/clean/converters.py`), which nulls them at the *cleaning* stage
+  and logs each under a new `source_formula_error` error code. `null` was
+  chosen deliberately over the `999999` numeric sentinel: the sentinel
+  means "a value was recorded but is invalid", whereas here no value could
+  be computed at all because a required input was never entered.
+
+  `EXCEL_FORMULA_ERROR_CLASSIFIERS` (`excel_formula_error`) documents the
+  resulting raw-stage divergence for `bmi`, `t1d_diagnosis_age`, and `age`.
+  It matches in **both** directions, because R is the inconsistent side:
+  readxl guesses a column's type from its majority values, so the same
+  error cell survives as a string where the column is guessed character but
+  becomes `NA` where it is guessed numeric -- the same readxl type-guessing
+  mechanism `STRAY_DATE_CLASSIFIERS` documents for a different symptom.
+  Verified in both directions against real source Excel: Penang General
+  Hospital `Jun_26` (R keeps `#NUM!`) and Baguio General Hospital `Jun_26`
+  sheet `May26` (R drops a `#DIV/0!` that Python keeps).
 - New systemic pattern, not in this ticket's original leads: several raw
   date columns (`hba1c_updated_date`, `bmi_date`, `blood_pressure_updated`,
   `fbg_updated_date`, `last_clinic_visit_date`, `hospitalisation_date`, and
@@ -128,11 +151,42 @@ representation gap fixable by a normalization or a mechanical classifier)
 and would have meant sprawling past the two leads this ticket was actually
 scoped to chase. Left for [ticket 31](31-triage-patient-raw-residual-2.md).
 
-**Evidence:** executed -- both normalizations and both classifiers were
-verified against the real 248-tracker drive comparison (before: 46,788
-mismatches; after: 18,813), and the Buddhist-era finding was additionally
-verified against the real source Excel cell and the real cleaned-stage
-parquet output, not reasoned about.
+**Evidence:** executed -- the pipeline change was validated by a full
+re-run of both arms (`a4d run patient|product --force`) against the real
+248-tracker drive dataset, followed by a fresh `compare_outputs` run;
+raw-stage output was confirmed to now carry `#NUM!`/`#DIV/0!` verbatim,
+cleaned-stage output confirmed unchanged, and the new `source_formula_error`
+log entries confirmed present across 145 tracker log files. Both formula-error
+directions and the Buddhist-era finding were verified against real source
+Excel cells (openpyxl `data_type`), not reasoned about.
+
+## Correction (same session, after the first close)
+
+This ticket was first closed treating the formula-error finding as a
+comparison-tool classifier only, on the claim that Python "has no cached
+value to carry" for an errored formula. **That was wrong on the mechanism
+and wrong on the scope**, caught when the user asked what actually happens
+downstream:
+
+- The mechanism is not openpyxl. `clean_excel_errors` (`extract/common.py`)
+  was deliberately nulling the error strings *during extraction*, by its own
+  design. openpyxl reads them faithfully.
+- Downstream, R's cleaned output carries `999999` for these cells where
+  Python carries `null` -- checked across all 2,073 affected
+  `t1d_diagnosis_age` rows: 0 agree, 2,073 disagree. The first close had
+  asserted this was harmless without checking.
+- Scoping the fix to `t1d_diagnosis_age` alone (on the grounds that `bmi`'s
+  cleaned value is recomputed from weight/height anyway, so nothing
+  downstream changes) was rejected by the user as optimizing the raw layer
+  for its current consumer: if extraction's job is to record what the source
+  cell contained, `#DIV/0!` in `bmi` is as real as `#NUM!` elsewhere. The
+  fix applies to every column in both arms.
+
+The user's design call: keep the error strings through extraction (raw layer
+tells the truth), null them in cleaning (a calculation that could not run is
+absent, not invalid -- so `null`, not the `999999` sentinel), and log them so
+"the source formula failed" stays distinguishable from "the field was blank"
+even though both end as `null`.
 
 **Tense:** current behaviour throughout -- every number above is from a
 real comparison run against the real drive data (`output/comparison/2026-08-12T200529Z/`),

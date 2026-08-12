@@ -13,7 +13,6 @@ from loguru import logger
 
 from a4d.errors import ErrorCollector
 from a4d.extract.common import (
-    clean_excel_errors,
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
@@ -421,7 +420,10 @@ def read_all_product_sheets(
         )
         return pl.DataFrame()
 
-    return clean_excel_errors(pl.concat(per_sheet, how="diagonal_relaxed"))
+    # Excel formula-error strings are deliberately preserved here (ticket 27):
+    # the raw layer records what the source cell actually contained.
+    # a4d.clean.converters.normalize_excel_formula_errors nulls and logs them.
+    return pl.concat(per_sheet, how="diagonal_relaxed")
 
 
 def export_product_raw(

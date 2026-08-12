@@ -660,23 +660,29 @@ class TestClassify:
 
         assert classify(mismatch, WIDE_FORMAT_FRAGMENT_CLASSIFIERS) == "unclassified"
 
-    def test_r_formula_error_when_r_holds_an_excel_error_string_and_python_is_null(self):
+    def test_excel_formula_error_when_r_holds_the_error_string_and_python_is_null(self):
         mismatch = _mismatch(r_value="#DIV/0!", py_value=None, column="bmi")
 
-        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "r_formula_error"
+        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "excel_formula_error"
 
-    def test_r_formula_error_matches_every_seeded_excel_error_string(self):
+    def test_excel_formula_error_when_python_holds_the_error_string_and_r_is_null(self):
+        """readxl nulls an error cell in a numerically-guessed column; Python keeps it."""
+        mismatch = _mismatch(r_value=None, py_value="#DIV/0!", column="bmi")
+
+        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "excel_formula_error"
+
+    def test_excel_formula_error_matches_every_seeded_excel_error_string(self):
         for error_string in ("#DIV/0!", "#VALUE!", "#NUM!", "#N/A", "#REF!", "#NAME?", "#NULL!"):
             mismatch = _mismatch(r_value=error_string, py_value=None, column="bmi")
 
-            assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "r_formula_error"
+            assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "excel_formula_error"
 
-    def test_r_formula_error_unclassified_when_python_also_has_a_value(self):
+    def test_excel_formula_error_unclassified_when_both_sides_have_a_value(self):
         mismatch = _mismatch(r_value="#DIV/0!", py_value=0.0, column="bmi")
 
         assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "unclassified"
 
-    def test_r_formula_error_unclassified_when_r_value_is_not_an_error_string(self):
+    def test_excel_formula_error_unclassified_when_neither_side_is_an_error_string(self):
         mismatch = _mismatch(r_value="9.3", py_value=None, column="bmi")
 
         assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "unclassified"

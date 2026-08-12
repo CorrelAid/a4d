@@ -14,7 +14,6 @@ from openpyxl import load_workbook
 
 from a4d.errors import ErrorCollector
 from a4d.extract.common import (
-    clean_excel_errors,
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
@@ -22,7 +21,6 @@ from a4d.extract.common import (
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
 __all__ = [
-    "clean_excel_errors",
     "extract_tracker_month",
     "find_month_sheets",
     "get_tracker_year",
@@ -621,7 +619,9 @@ def read_all_patient_sheets(
     if filtered_rows > 0:
         logger.info(f"Filtered out {filtered_rows} invalid rows total")
 
-    df_combined = clean_excel_errors(df_combined)
+    # Excel formula-error strings are deliberately NOT stripped here (ticket
+    # 27): the raw layer records what the source cell actually contained.
+    # a4d.clean.converters.normalize_excel_formula_errors nulls and logs them.
 
     # Use already-loaded workbook for sheet checking
     all_sheets = wb.sheetnames
@@ -634,7 +634,6 @@ def read_all_patient_sheets(
                 tracker_file, "Patient List", year, mapper=mapper, workbook=wb
             )
             if not patient_list.is_empty():
-                patient_list = clean_excel_errors(patient_list)
                 patient_list = harmonize_patient_data_columns(
                     patient_list, mapper=mapper, strict=False
                 )
@@ -689,7 +688,6 @@ def read_all_patient_sheets(
                 tracker_file, "Annual", year, mapper=mapper, workbook=wb
             )
             if not annual_data.is_empty():
-                annual_data = clean_excel_errors(annual_data)
                 annual_data = harmonize_patient_data_columns(
                     annual_data, mapper=mapper, strict=False
                 )

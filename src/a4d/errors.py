@@ -24,6 +24,8 @@ ErrorCode = Literal[
     "function_call",  # Generic function execution error
     "critical_abort",  # Fatal error, tracker cannot be processed
     "typo_rescued",  # Known source-data typo substituted before parsing (informational)
+    "source_formula_error",  # Source tracker's own formula errored (#NUM!, #DIV/0!) -- an
+    # input it depended on was never recorded, so no value could be computed (informational)
 ]
 
 
