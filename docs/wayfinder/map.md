@@ -36,12 +36,13 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 4"]
+  subgraph FRONTIER["Frontier · 5"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
+    T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -105,7 +106,7 @@ flowchart TD
   T23 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T23,T24,T25 frontier
+  class T16,T23,T24,T25,T26 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -662,18 +663,34 @@ tests), ruff, `ty check src/` all pass; verified end-to-end against the real
 248-tracker drive data. Full detail: [ticket
 21](tickets/21-triage-remaining-product-columns.md).
 
+**Gap found, not a session's answer: `compare_columns` (the CLI's `Column
+divergence` count — column existence + dtype, one of the comparison tool's
+four structural layers since ticket 15) was never triaged by any ticket.**
+Every triage ticket since worked exclusively off the `cell_mismatches`
+sheet; this structural layer sat unaddressed in the CLI output the whole
+time. Spawned [ticket 26](tickets/26-triage-product-column-divergence.md)
+with concrete current-data findings (product cleaned stage: 4
+divergences in every one of 229 files —
+`orig_product_released_to` only-in-Python, `product_table_month`/
+`product_table_year`/`product_unit_capacity` Float64-vs-Int32 — plus a 5th,
+`product_remarks` Boolean-vs-String, in 103/229 files; raw stage has a
+different, smaller set, also unlooked-at; patient not yet checked at all).
+
 **The frontier is now [Build a drill-down log analyzer for admins to
 inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
 [Triage every flagged R/Python difference for the patient
 arm](tickets/23-triage-patient-arm.md), [Triage the residual
 product_units_received/product_units_released/product_received_from
 raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md),
-and [Triage the product_units_released cleaned-stage column
-mismatches](tickets/25-triage-product-units-released-cleaned.md).**
+[Triage the product_units_released cleaned-stage column
+mismatches](tickets/25-triage-product-units-released-cleaned.md), and
+[Triage the product pipeline's column-existence and dtype
+divergence](tickets/26-triage-product-column-divergence.md).**
 Ticket 12 is `blocked_by: [20, 21, 22, 23]` — ticket 21's closure leaves only
-23 remaining (ticket 24 and the newly-spawned ticket 25 aren't wired as
-blockers of ticket 12, since neither is a prerequisite the destination
-named — both are residuals of already-closed ticket scope).
+23 remaining (tickets 24, 25, and 26 aren't wired as blockers of ticket 12:
+24 and 25 are residuals of already-closed ticket scope, and 26 is a newly
+surfaced gap the destination doesn't yet name as a promotion blocker —
+worth revisiting once its findings land).
 
 ## Decisions so far
 
@@ -1051,6 +1068,7 @@ flowchart TB
     U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
+    U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1112,7 +1130,7 @@ flowchart TB
   U21 -.->|spawned| U25
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U23,U24,U25 tfrontier
+  class U16,U23,U24,U25,U26 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
