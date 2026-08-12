@@ -55,14 +55,26 @@ from a4d.migration.compare import (
     normalize_numeric_column,
     normalize_whitespace_column,
     snapshot_from_summary,
+    summarize_directory,
 )
 
 # normalize_date_column (via a4d.clean.date_parser.parse_date_flexible) logs
 # at DEBUG per parsed value; loguru's default sink has no level filter, so
 # without this every date cell would spam the console. This tool never calls
 # a4d.logging.setup_logging() (no pipeline run, no output_root to log into).
+#
+# a4d.clean.* is silenced entirely, not just below WARNING: the date parser
+# also warns once per value it cannot parse, which in the *pipeline* is a
+# real data-quality signal but here is pure noise -- this tool feeds it raw
+# free-text columns precisely to normalize the parseable ones, so
+# unparseable cells are expected, not actionable, and at 18 date columns x
+# ~245 files they drown the report the tool exists to print.
 logger.remove()
-logger.add(sys.stderr, level="WARNING")
+logger.add(
+    sys.stderr,
+    level="WARNING",
+    filter=lambda record: not record["name"].startswith("a4d.clean"),
+)
 
 console = Console()
 app = typer.Typer()
@@ -473,6 +485,8 @@ def _print_summary(arm: str, comparison: DirectoryComparison, only_mismatches: b
             )
         console.print(table)
 
+    _render_arm_totals(arm, comparison)
+
     if comparison.only_in_r:
         console.print(
             f"[yellow]Only in R ({len(comparison.only_in_r)}):[/yellow] "
@@ -482,6 +496,43 @@ def _print_summary(arm: str, comparison: DirectoryComparison, only_mismatches: b
         console.print(
             f"[yellow]Only in Python ({len(comparison.only_in_py)}):[/yellow] "
             f"{', '.join(comparison.only_in_py)}"
+        )
+
+
+def _render_arm_totals(arm: str, comparison: DirectoryComparison) -> None:
+    """Whole-arm rollup, printed after the per-year tables.
+
+    The per-year tables say *where* a divergence is; without this you can
+    only get *how much* there is by scrolling and adding up every year.
+    """
+    summary = summarize_directory(comparison)
+
+    table = Table(title=f"{arm} — totals across all {summary.files_compared} files compared")
+    table.add_column("Measure")
+    table.add_column("Files affected", justify="right")
+    table.add_column("Total", justify="right")
+
+    def add(measure: str, value: tuple[int, int]) -> None:
+        files_affected, total = value
+        style = "" if total == 0 else "yellow"
+        table.add_row(measure, str(files_affected), str(total), style=style)
+
+    shape_style = "" if summary.shape_mismatch_files == 0 else "yellow"
+    table.add_row("Shape mismatch", str(summary.shape_mismatch_files), "—", style=shape_style)
+    add("ID divergence", summary.id_divergence)
+    add("Column divergence", summary.column_divergence)
+    add("Categorical divergence", summary.categorical_divergence)
+    add("Totals divergence", summary.totals_divergence)
+    add("Row-key divergence", summary.row_key_divergence)
+    add("Cell divergence", summary.cell_divergence)
+
+    console.print(table)
+
+    if summary.only_in_r or summary.only_in_py:
+        console.print(
+            f"[yellow]Files on only one side:[/yellow] "
+            f"{summary.only_in_r} R-only, {summary.only_in_py} Python-only "
+            f"(not included in the counts above — nothing to compare them against)"
         )
 
 
