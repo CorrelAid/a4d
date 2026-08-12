@@ -68,7 +68,7 @@ def normalize_numeric_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
             return None
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return value
 
     parsed = [_try_float(v) for v in df[column]]
@@ -473,6 +473,92 @@ def _is_r_validator_rejects_multivalue(m: CellMismatch) -> bool:
 
 PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
     "r_validator_rejects_multivalue": _is_r_validator_rejects_multivalue,
+}
+
+
+def _excel_serial_to_datetime(serial: float) -> datetime.date | datetime.time | datetime.datetime:
+    """Convert an Excel serial to the exact value openpyxl would read for it.
+
+    Delegates to openpyxl's own ``from_excel`` rather than hand-rolling the
+    epoch math, for two reasons verified against real flagged rows (ticket
+    24): Excel (and Lotus 1-2-3 before it) treats 1900 as a leap year that
+    never existed, so serials 59 and 60 both resolve to 1900-02-28 -- a
+    plain ``EXCEL_EPOCH + timedelta`` (this module's own
+    ``parse_date_flexible`` convention) lands one day off for any serial in
+    that range; and a serial with no whole-day component (e.g. 0) comes back
+    as a bare ``datetime.time``, matching what openpyxl itself returns for a
+    cell formatted as time-of-day only.
+    """
+    from openpyxl.utils.datetime import from_excel
+
+    return from_excel(serial)
+
+
+def _is_openpyxl_date_typed_stray_cell(m: CellMismatch) -> bool:
+    """A numeric-typed column (raw ``product_units_received``/``product_received_from``)
+    holds a lone Excel date/time-formatted cell.
+
+    R's readxl infers a whole column's type from its majority values, so a
+    stray date/time-formatted cell in an otherwise-numeric column still gets
+    coerced to that column's numeric type -- the raw Excel serial. Python's
+    openpyxl reads each cell individually and honors its own format instead,
+    returning a ``datetime``/``time`` object. Verified against the real
+    source Excel (ticket 24): the underlying cell genuinely carries a
+    date/time number format (e.g. Penang General Hospital 2019 Apr19!E36,
+    "Units Received" column, formatted ``d/m/yy``) -- Python's value is the
+    faithful one, R's is a column-wide coercion artifact.
+    """
+    try:
+        r_serial = float(m.r_value)
+    except TypeError, ValueError:
+        return False
+    expected = _excel_serial_to_datetime(r_serial)
+    if isinstance(expected, datetime.datetime):
+        expected_date, expected_time = expected.date(), expected.time()
+    elif isinstance(expected, datetime.date):
+        expected_date, expected_time = expected, datetime.time(0, 0)
+    else:
+        expected_date, expected_time = None, expected
+    py_str = str(m.py_value).strip()
+    try:
+        parsed = datetime.datetime.strptime(py_str, "%Y-%m-%d %H:%M:%S")
+        return parsed.date() == expected_date and parsed.time() == expected_time
+    except ValueError:
+        pass
+    try:
+        parsed_time = datetime.datetime.strptime(py_str, "%H:%M:%S").time()
+        return parsed_time == expected_time
+    except ValueError:
+        return False
+
+
+STRAY_DATE_CLASSIFIERS: dict[str, Classifier] = {
+    "openpyxl_date_typed_stray_cell": _is_openpyxl_date_typed_stray_cell,
+}
+
+
+def _is_wide_format_fragment_truncated(m: CellMismatch) -> bool:
+    """R's value is a truncated prefix of Python's for a 2017-2019 Mandalay
+    wide-format ``product_units_released`` cell.
+
+    ``handle_wide_format_cells`` (extract/wide_format.py) splits a
+    comma-separated "Released To" cell on commas, then each fragment on its
+    first ``-`` into (name, qty). Verified against the real source Excel
+    (ticket 24, e.g. 2019_Mandalay Children's Hospital Feb19!K49:
+    "MM_QA019-2(Error-1),..."): the source cell's free-text notes contain
+    embedded parentheses and extra hyphens the split logic doesn't fully
+    anticipate. Python's qty fragment keeps the full remainder after the
+    first ``-``; R's equivalent step drops content after a second hyphen,
+    so R's value is consistently a strict prefix of Python's for the same
+    cell -- a genuine R parsing gap on inherently messy source notes, not a
+    Python bug, and not something to "fix" toward R's more-truncated answer.
+    """
+    r_str, py_str = str(m.r_value), str(m.py_value)
+    return r_str != py_str and py_str.startswith(r_str)
+
+
+WIDE_FORMAT_FRAGMENT_CLASSIFIERS: dict[str, Classifier] = {
+    "wide_format_fragment_truncated": _is_wide_format_fragment_truncated,
 }
 
 
