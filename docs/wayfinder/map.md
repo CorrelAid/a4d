@@ -36,10 +36,9 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 6"]
+  subgraph FRONTIER["Frontier · 5"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
@@ -51,7 +50,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 20"]
+  subgraph DECIDED["Decided · 21"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -71,6 +70,7 @@ flowchart TD
     T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+    T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
@@ -117,11 +117,11 @@ flowchart TD
   T30 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T24,T25,T27,T29,T30 frontier
+  class T16,T25,T27,T29,T30 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T26,T28 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T26,T28 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -853,6 +853,54 @@ divergence](tickets/30-triage-patient-raw-column-divergence.md) — six
 tickets, ticket 26 replaced by its spawned residual ticket 30. Ticket 12
 remains blocked, now on `[20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]`.**
 
+**Twenty-two tickets resolved.** [Triage the residual
+product_units_received/product_units_released/product_received_from
+raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md)
+is done: all 105 residual mismatches are now fully explained, none
+requiring a pipeline code change. `product_units_received` (75) and 5 of
+`product_received_from`'s 6 are a newly-identified pattern — R's readxl
+infers a column's type from its majority values, so a lone Excel
+date/time-formatted cell in an otherwise-numeric column (a genuine source
+data-entry anomaly, verified against the real source Excel, e.g. Penang
+General Hospital 2019 Apr19!E36) gets coerced to the column's numeric
+type on R's side while Python's openpyxl honors the individual cell's own
+format — a new `STRAY_DATE_CLASSIFIERS` classifier in
+`src/a4d/migration/compare.py`, using openpyxl's own `from_excel` (not
+hand-rolled epoch math) to also replicate the Excel 1900-leap-year serial
+bug. 20 rows (`product_units_released` 19, `product_received_from` 1) were
+plain float-precision representation differences, fixed by extending the
+existing `normalize_numeric_column` wiring (ticket 22's precedent) to all
+three columns. The remaining 5 `product_units_released` rows (2017-2019
+Mandalay files) are a wide-format comma/hyphen-split ambiguity on messy
+human-entered source notes — verified R's value is a strict text prefix of
+Python's in every case, i.e. Python is the more faithful extraction, not a
+bug to fix toward R's more-truncated answer; a new
+`WIDE_FORMAT_FRAGMENT_CLASSIFIERS` classifier documents it. The
+date/time-coercion pattern is flagged as possibly systemic per the
+ticket's own instruction — rather than spawning a new ticket, the lead and
+the reusable classifier were noted as an addendum on the still-open
+[ticket 27](tickets/27-triage-patient-raw-residual.md), which already
+covers patient raw-stage residual triage. Full suite (592 passed, 1
+skipped), ruff, `ruff format --check`, `ty check src/` all pass; verified
+end-to-end against the real 248-tracker drive data (`Product (cleaned)`,
+`Patient (raw)`, and `Patient (cleaned)` reports confirmed unchanged by
+this session's fix). Full detail: [ticket
+24](tickets/24-triage-remaining-raw-column-residual.md).
+
+**The frontier is now [Build a drill-down log analyzer for admins to
+inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the product_units_released cleaned-stage column
+mismatches](tickets/25-triage-product-units-released-cleaned.md), [Triage
+the residual patient raw-stage column mismatches after date
+normalization](tickets/27-triage-patient-raw-residual.md), [Triage the
+residual patient cleaned-stage column mismatches](tickets/29-triage-patient-cleaned-residual.md),
+and [Triage the patient pipeline's raw-stage column-existence
+divergence](tickets/30-triage-patient-raw-column-divergence.md) — five
+tickets. Ticket 12 remains blocked, now on `[20, 21, 22, 23, 24, 25, 26,
+27, 28, 29, 30]` with 24 closed — 25, 27, 29, and 30 are the direct
+remaining blockers; ticket 16 stays a separate, independently-takeable
+feature.**
+
 ## Decisions so far
 
 - [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
@@ -1181,6 +1229,31 @@ remains blocked, now on `[20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]`.**
   30](tickets/30-triage-patient-raw-column-divergence.md). Full detail:
   [ticket 26](tickets/26-triage-product-column-divergence.md).
 
+- [Triage the residual product_units_received/product_units_released/
+  product_received_from raw-stage
+  mismatches](tickets/24-triage-remaining-raw-column-residual.md) —
+  decided and implemented: all 105 residual mismatches fully explained,
+  none requiring a pipeline fix. 80 rows (product_units_received,
+  product_received_from) are a newly-identified, possibly-systemic
+  pattern — R's readxl coerces a lone Excel date/time-formatted cell in an
+  otherwise-numeric column to that column's numeric type, while Python's
+  openpyxl honors the individual cell's own format, verified against real
+  source Excel; a new `STRAY_DATE_CLASSIFIERS` classifier handles it,
+  using openpyxl's own `from_excel` to replicate the Excel 1900-leap-year
+  serial bug. 20 rows were float-precision representation differences,
+  fixed by extending `normalize_numeric_column` (ticket 22's precedent) to
+  all three columns. The remaining 5 rows (product_units_released,
+  2017-2019 Mandalay files) are a wide-format comma/hyphen-split ambiguity
+  on messy source notes where Python's value is verified more faithful
+  than R's (a strict prefix relation) — a new
+  `WIDE_FORMAT_FRAGMENT_CLASSIFIERS` classifier documents it rather than
+  chasing R's more-truncated answer. The date/time-coercion pattern's
+  possible patient-arm implications were noted as a lead on the
+  already-open [ticket 27](tickets/27-triage-patient-raw-residual.md)
+  rather than spawning a new ticket. This unblocks one of [ticket
+  12](tickets/12-retire-r-workspace.md)'s remaining blockers. Full detail:
+  [ticket 24](tickets/24-triage-remaining-raw-column-residual.md).
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1285,13 +1358,16 @@ flowchart TB
     direction LR
     U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
   end
+  subgraph S2026_08_12e["Session 2026-08-12e"]
+    direction LR
+    U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
@@ -1312,7 +1388,8 @@ flowchart TB
   S2026_08_12 ~~~ S2026_08_12b
   S2026_08_12b ~~~ S2026_08_12c
   S2026_08_12c ~~~ S2026_08_12d
-  S2026_08_12d ~~~ Sopen
+  S2026_08_12d ~~~ S2026_08_12e
+  S2026_08_12e ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1371,11 +1448,11 @@ flowchart TB
   U26 -.->|spawned| U30
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U24,U25,U27,U29,U30 tfrontier
+  class U16,U25,U27,U29,U30 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U26,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U28 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

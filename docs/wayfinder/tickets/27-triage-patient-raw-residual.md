@@ -56,3 +56,20 @@ for patient). Two leads already surfaced, not yet chased to a cause:
 This ticket is large (67 columns) — if it doesn't converge in one session,
 split further rather than leaving it open-ended, per the pattern ticket 18
 established.
+
+## Addendum (ticket 24, closed same day)
+
+[Ticket 24](24-triage-remaining-raw-column-residual.md) confirmed a
+possibly-systemic raw-extraction pattern it had flagged as a theory: R's
+readxl infers a column's type from its majority values, so a lone Excel
+date/time-formatted cell in an otherwise-numeric raw column gets coerced to
+that column's type (the raw serial), while Python's openpyxl honors the
+individual cell's own format and returns a `datetime`/`time` object —
+verified against real source Excel cells (Penang General Hospital 2019
+Apr19!E36, a "Units Received" cell literally formatted `d/m/yy`). A reusable
+classifier (`STRAY_DATE_CLASSIFIERS` / `_is_openpyxl_date_typed_stray_cell`,
+`src/a4d/migration/compare.py`) now exists for this pattern — not yet
+applied to any patient column. Worth checking whether any of this ticket's
+67 residual columns show the same r_value-is-a-plausible-Excel-serial /
+py_value-is-a-datetime-or-time-string shape before assuming a different
+cause.

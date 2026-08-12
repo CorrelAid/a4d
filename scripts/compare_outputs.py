@@ -39,6 +39,8 @@ from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    STRAY_DATE_CLASSIFIERS,
+    WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
     Delta,
     DirectoryComparison,
     FileComparison,
@@ -108,6 +110,17 @@ PRODUCT_ORDINAL_GROUP_COLS = ["clinic_id", "product_sheet_name"]
 PRODUCT_ID_COL = "product"
 PRODUCT_CATEGORICAL_COLS = ["product_category", "product_balance_status"]
 
+# Raw-stage-only (ticket 24, extending ticket 22's product_balance precedent):
+# R's own float-to-string conversion rounds a raw numeric column's trailing
+# digits differently -- same representation gap product_balance already had,
+# just not yet wired for these three quantity columns.
+PRODUCT_RAW_NUMERIC_NORMALIZE_COLS = [
+    "product_balance",
+    "product_units_received",
+    "product_units_released",
+    "product_received_from",
+]
+
 # Raw-stage-only (ticket 22): readxl's trim_ws=TRUE default strips whitespace
 # R-side that openpyxl-based Python extraction preserves as-is. Every raw
 # string column except product_entry_date (date-normalized instead) and
@@ -148,11 +161,22 @@ CLASSIFIERS_BY_COLUMN = {
     # within-(clinic, sheet) sort-order divergence, not genuine content
     # differences -- see PRODUCT_ROW_ORDER_CLASSIFIERS's docstring.
     "product_balance": PRODUCT_ROW_ORDER_CLASSIFIERS,
-    "product_received_from": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 24: also carries the raw-stage stray-date-typed-cell cause --
+    # merged since CLASSIFIERS_BY_COLUMN holds one registry per column across
+    # every stage. Stray-date checked first: row_order_candidate is a loose
+    # "this value appears elsewhere in the group" heuristic that false-fires
+    # on common small values like "0", so it must not shadow the more
+    # specific, source-verified stray-date match.
+    "product_received_from": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product_released_to": PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product_remarks": PRODUCT_ROW_ORDER_CLASSIFIERS,
-    "product_units_received": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_units_received": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 24: raw-stage-only wide-format comma/hyphen split ambiguity
+    # (2017-2019 Mandalay files) -- no cleaned-stage entry, since cleaning's
+    # own type coercion (units_released must parse as numeric) already
+    # resolves these rows independently of this raw-extraction cause.
+    "product_units_released": WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity
@@ -204,7 +228,7 @@ STAGES = [
         PRODUCT_CATEGORICAL_COLS,
         PRODUCT_ORDINAL_GROUP_COLS,
         ["product_entry_date"],
-        ["product_balance"],
+        PRODUCT_RAW_NUMERIC_NORMALIZE_COLS,
         PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS,
     ),
     (
@@ -249,14 +273,19 @@ def _compare_arm(
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_date_column(df, column)
-    for column in numeric_normalize_cols or []:
-        for frames in (r_frames, py_frames):
-            for name, df in frames.items():
-                frames[name] = normalize_numeric_column(df, column)
+    # Whitespace before numeric (ticket 24): normalize_numeric_column widens a
+    # column to `pl.Object` (mixed float/str) the moment any value parses,
+    # which breaks normalize_whitespace_column's `.str.*` expressions on the
+    # non-numeric residual if applied after -- stripping first keeps the
+    # column `pl.String` for numeric normalization to then act on.
     for column in whitespace_normalize_cols or []:
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_whitespace_column(df, column)
+    for column in numeric_normalize_cols or []:
+        for frames in (r_frames, py_frames):
+            for name, df in frames.items():
+                frames[name] = normalize_numeric_column(df, column)
     order_group_cols = None
     if ordinal_group_cols is not None:
         resolved_key_cols = None

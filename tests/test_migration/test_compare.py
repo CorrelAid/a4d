@@ -11,6 +11,8 @@ from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
     SENTINEL_DATE,
+    STRAY_DATE_CLASSIFIERS,
+    WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
     CategoricalOverlap,
     CellMismatch,
     ColumnsResult,
@@ -600,6 +602,61 @@ class TestClassify:
         )
 
         assert classify(mismatch, PATIENT_INSULIN_SUBTYPE_CLASSIFIERS) == "unclassified"
+
+    def test_stray_date_typed_cell_when_r_serial_matches_python_full_datetime(self):
+        mismatch = _mismatch(
+            r_value="43566", py_value="2019-04-11 00:00:00", column="product_units_received"
+        )
+
+        assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "openpyxl_date_typed_stray_cell"
+
+    def test_stray_date_typed_cell_when_r_serial_hits_the_1900_leap_year_bug(self):
+        # Excel (and openpyxl, matching it) treats 1900 as a leap year that
+        # never existed -- serial 59 resolves to 1900-02-28, not 1900-02-27
+        # (ticket 24, a real flagged row).
+        mismatch = _mismatch(
+            r_value="59", py_value="1900-02-28 00:00:00", column="product_units_received"
+        )
+
+        assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "openpyxl_date_typed_stray_cell"
+
+    def test_stray_date_typed_cell_when_r_serial_matches_python_bare_time(self):
+        mismatch = _mismatch(r_value="0", py_value="00:00:00", column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "openpyxl_date_typed_stray_cell"
+
+    def test_stray_date_typed_cell_unclassified_when_values_are_genuinely_different(self):
+        mismatch = _mismatch(r_value="5", py_value="7", column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_stray_date_typed_cell_unclassified_when_r_value_is_not_numeric(self):
+        mismatch = _mismatch(
+            r_value="START BALANCE", py_value="2019-04-11 00:00:00", column="product_units_received"
+        )
+
+        assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_wide_format_fragment_truncated_when_python_value_extends_r_value(self):
+        mismatch = _mismatch(
+            r_value="2(Error", py_value="2(Error-1)", column="product_units_released"
+        )
+
+        assert (
+            classify(mismatch, WIDE_FORMAT_FRAGMENT_CLASSIFIERS) == "wide_format_fragment_truncated"
+        )
+
+    def test_wide_format_fragment_truncated_unclassified_when_values_are_equal(self):
+        mismatch = _mismatch(r_value="7", py_value="7", column="product_units_released")
+
+        assert classify(mismatch, WIDE_FORMAT_FRAGMENT_CLASSIFIERS) == "unclassified"
+
+    def test_wide_format_fragment_truncated_unclassified_when_not_a_prefix_relation(self):
+        mismatch = _mismatch(
+            r_value="2 MM_MD023", py_value="3 MM_MD099", column="product_units_released"
+        )
+
+        assert classify(mismatch, WIDE_FORMAT_FRAGMENT_CLASSIFIERS) == "unclassified"
 
 
 class TestCompareDirectory:
