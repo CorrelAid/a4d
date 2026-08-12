@@ -1127,3 +1127,64 @@ class TestSummarizeDirectory:
         assert summary.shape_mismatch_files == 0
         assert summary.cell_divergence == (0, 0)
         assert summary.row_key_divergence == (0, 0)
+
+
+class TestClassifiersByColumnWiring:
+    """Ticket 25: the script's column -> registry map is the single place a
+    column can be silently under-classified.
+
+    `product_units_released` carried only WIDE_FORMAT_FRAGMENT_CLASSIFIERS (a
+    raw-stage-only cause, ticket 24) while every sibling column compared
+    through the same positional row-alignment key also carried
+    PRODUCT_ROW_ORDER_CLASSIFIERS -- leaving 2,144 cleaned-stage mismatches
+    reported as `unclassified` even though the cause was already understood.
+    """
+
+    @staticmethod
+    def _classifiers_by_column():
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[2] / "scripts" / "compare_outputs.py"
+        spec = importlib.util.spec_from_file_location("_compare_outputs_under_test", path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.CLASSIFIERS_BY_COLUMN
+
+    def test_every_positional_key_product_column_carries_row_order_classifier(self):
+        """Product columns are aligned by ordinal position, so any within-group
+        sort-order divergence surfaces on all of them -- none may omit it."""
+        registries = self._classifiers_by_column()
+        positional_columns = [
+            "product_balance",
+            "product_received_from",
+            "product_released_to",
+            "product_remarks",
+            "product_units_received",
+            "product_units_released",
+            "product",
+        ]
+
+        missing = [
+            column
+            for column in positional_columns
+            if not PRODUCT_ROW_ORDER_CLASSIFIERS.keys() <= registries.get(column, {}).keys()
+        ]
+
+        assert missing == []
+
+    def test_units_released_row_order_mismatch_is_classified(self):
+        registries = self._classifiers_by_column()
+        mismatch = CellMismatch(
+            key={"clinic_id": "MHS"},
+            column="product_units_released",
+            r_value=8.0,
+            py_value=4.0,
+            row_order_candidate=True,
+        )
+
+        assert classify(mismatch, registries["product_units_released"]) == "row_order_divergence"

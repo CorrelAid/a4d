@@ -222,11 +222,15 @@ CLASSIFIERS_BY_COLUMN = {
     "product_remarks": PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product_units_received": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product": PRODUCT_ROW_ORDER_CLASSIFIERS,
-    # ticket 24: raw-stage-only wide-format comma/hyphen split ambiguity
-    # (2017-2019 Mandalay files) -- no cleaned-stage entry, since cleaning's
-    # own type coercion (units_released must parse as numeric) already
-    # resolves these rows independently of this raw-extraction cause.
-    "product_units_released": WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
+    # ticket 24: raw-stage wide-format comma/hyphen split ambiguity (2017-2019
+    # Mandalay files). ticket 25 adds the row-order cause for the cleaned
+    # stage, which this column shares with every sibling above -- it was
+    # omitted when ticket 21 named six columns and not this one, leaving
+    # 2,144 cleaned-stage mismatches reported as unclassified. Wide-format
+    # first (it is source-verified and stage-specific); measured against the
+    # real drive data, it matches nothing at the cleaned stage, so the order
+    # only guards the raw stage's existing classification.
+    "product_units_released": WIDE_FORMAT_FRAGMENT_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity

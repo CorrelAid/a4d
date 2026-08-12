@@ -80,3 +80,36 @@ checked), `excel_formula_error` (ticket 27, both directions verified).
 
 If this doesn't converge in one session, split by registry rather than
 leaving it open-ended.
+
+## Addendum (session-2026-08-12h, from [ticket 25](25-triage-product-units-released-cleaned.md))
+
+`row_order_divergence`'s "is Python correct" half is now substantially
+stronger than the 98.3% end-balance spot check this ticket was written
+against — don't re-derive it, extend it. Ticket 25 established, against the
+real 248-tracker drive pair:
+
+- Per-column multiset equality for `product_units_released` across **all**
+  2,283 `(clinic_id, product_sheet_name)` groups (0 differing) — the
+  divergence provably adds, loses and alters nothing.
+- Row-identity preservation: the multiset of
+  `(product_units_released, product_released_to)` pairs is identical across
+  all 11,649 `(clinic_id, product_sheet_name, product)` groups.
+- Direct source-Excel confirmation that R's fallback trigger is real: in the
+  worst-affected group, R has `product_entry_date` null on every row while
+  the source file's "Entry Date" column is fully populated with genuine
+  datetimes.
+
+Two caveats this ticket should still carry:
+
+1. The `row_order_candidate` flag itself remains a **loose** membership test
+   ("R's value appears somewhere in Python's group"), which false-fires on
+   repeated small numeric values. It is adequate as a *record* of a cause
+   established by other means, but it is not evidence on its own — ticket 25
+   deliberately did not close on it.
+2. `product_balance`'s under-detection is now **explained**, not just
+   observed: balance is *derived* (`_compute_running_balance`, step 2.15,
+   `balance[i-1] - released[i] + received[i]`, mirrored in R), so it cannot
+   travel with a row under a re-sort and value-membership cannot detect it in
+   principle. That residual now has its own home in [ticket
+   36](36-triage-product-cleaned-unclassified-residual.md); this ticket's
+   `row_order_divergence` entry can point there instead of holding it open.
