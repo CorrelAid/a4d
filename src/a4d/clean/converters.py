@@ -17,6 +17,71 @@ from loguru import logger
 from a4d.clean.date_parser import parse_date_flexible, rescue_date_typos
 from a4d.config import settings
 from a4d.errors import ErrorCollector
+from a4d.extract.common import EXCEL_ERROR_STRINGS
+
+
+def normalize_excel_formula_errors(
+    df: pl.DataFrame,
+    error_collector: ErrorCollector,
+    file_name_col: str = "file_name",
+    patient_id_col: str = "patient_id",
+) -> pl.DataFrame:
+    """Null out Excel formula-error strings, logging each one (ticket 27).
+
+    A tracker's own spreadsheet formula writes a literal error string
+    (``#NUM!``, ``#DIV/0!``, ...) into a cell whenever an input it depends on
+    is missing -- e.g. age-at-diagnosis when no diagnosis date was recorded,
+    or BMI when height is blank. Extraction deliberately preserves that text
+    so the raw layer stays a faithful capture of the source file; this is
+    where it becomes ``null``.
+
+    ``null``, not ``settings.error_val_numeric`` (999999): the sentinel means
+    "a value was recorded but is invalid" (a garbled reading that failed to
+    parse). Here no value could be computed at all, because a required input
+    was never entered -- semantically absent, not invalid. Running before
+    type conversion keeps these out of ``safe_convert_column``'s
+    parse-failure branch, which would otherwise assign that wrong sentinel.
+
+    Each nulled cell is logged under ``source_formula_error`` so the
+    distinction between "source formula could not compute this" and "field
+    was simply blank" survives into the error log, even though both end up
+    ``null`` in the data.
+    """
+    data_cols = [col for col in df.columns if df.schema[col] == pl.String]
+    if not data_cols:
+        return df
+
+    error_mask = pl.any_horizontal([pl.col(col).is_in(EXCEL_ERROR_STRINGS) for col in data_cols])
+    if not df.select(error_mask.any()).item():
+        return df
+
+    for col in data_cols:
+        offenders = df.filter(pl.col(col).is_in(EXCEL_ERROR_STRINGS))
+        if offenders.is_empty():
+            continue
+        for row in offenders.iter_rows(named=True):
+            error_collector.add_error(
+                file_name=row.get(file_name_col) or "unknown",
+                patient_id=row.get(patient_id_col) or "unknown",
+                column=col,
+                original_value=row[col],
+                error_message=(
+                    f"Source tracker formula error '{row[col]}' in {col}: "
+                    "a required input was not recorded, so no value could be computed"
+                ),
+                error_code="source_formula_error",
+                function_name="normalize_excel_formula_errors",
+            )
+
+    return df.with_columns(
+        [
+            pl.when(pl.col(col).is_in(EXCEL_ERROR_STRINGS))
+            .then(None)
+            .otherwise(pl.col(col))
+            .alias(col)
+            for col in data_cols
+        ]
+    )
 
 
 def safe_convert_column(

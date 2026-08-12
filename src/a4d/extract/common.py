@@ -1,18 +1,31 @@
 """Shared tracker-level extraction plumbing used by patient and product arms.
 
 Holds helpers that are not patient-specific or product-specific: detecting
-month sheets in a workbook, parsing the tracker year, normalising Excel
-error strings, and parsing the sheet-name month suffix.
+month sheets in a workbook, parsing the tracker year, and parsing the
+sheet-name month suffix.
 """
 
 import calendar
 import re
 from pathlib import Path
 
-import polars as pl
 from loguru import logger
 
 from a4d.config import settings
+
+# Excel's own formula-error sentinels. Extraction deliberately preserves these
+# in the raw output so the raw layer stays a faithful capture of the source
+# file (ticket 27); a4d.clean.converters.normalize_excel_formula_errors is
+# where they become null, with each one logged.
+EXCEL_ERROR_STRINGS: tuple[str, ...] = (
+    "#DIV/0!",
+    "#VALUE!",
+    "#REF!",
+    "#NAME?",
+    "#NUM!",
+    "#N/A",
+    "#NULL!",
+)
 
 
 def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
@@ -108,58 +121,6 @@ def find_month_sheets(workbook) -> list[str]:
 
     logger.info(f"Found {len(month_sheets)} month sheets (sorted by month): {month_sheets}")
     return month_sheets
-
-
-def clean_excel_errors(df: pl.DataFrame) -> pl.DataFrame:
-    """Convert Excel error strings to NULL values.
-
-    Excel error codes like #DIV/0!, #VALUE!, etc. are not usable values
-    and should be treated as missing data.
-
-    Args:
-        df: DataFrame with potential Excel error strings
-
-    Returns:
-        DataFrame with Excel errors converted to NULL
-
-    Example:
-        >>> df = pl.DataFrame({"bmi": ["17.5", "#DIV/0!", "18.2"]})
-        >>> clean_df = clean_excel_errors(df)
-        >>> clean_df["bmi"].to_list()
-        ['17.5', None, '18.2']
-    """
-    excel_errors = [
-        "#DIV/0!",
-        "#VALUE!",
-        "#REF!",
-        "#NAME?",
-        "#NUM!",
-        "#N/A",
-        "#NULL!",
-    ]
-
-    # Excel error strings only appear in String columns; filtering by dtype
-    # lets both patient and product callers share this helper regardless of
-    # which metadata columns (e.g. product_table_year:Float64) are present.
-    data_cols = [col for col in df.columns if df.schema[col] == pl.String]
-
-    if not data_cols:
-        return df
-
-    for error in excel_errors:
-        for col in data_cols:
-            count = (df[col] == error).sum()
-            if count > 0:
-                logger.debug(f"Converted {count} '{error}' values to NULL in column '{col}'")
-
-    df = df.with_columns(
-        [
-            pl.when(pl.col(col).is_in(excel_errors)).then(None).otherwise(pl.col(col)).alias(col)
-            for col in data_cols
-        ]
-    )
-
-    return df
 
 
 def extract_tracker_month(sheet_name: str) -> int:

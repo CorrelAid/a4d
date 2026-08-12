@@ -7,6 +7,7 @@ import polars as pl
 from a4d.clean.converters import (
     correct_decimal_sign,
     cut_numeric_value,
+    normalize_excel_formula_errors,
     parse_date_column,
     safe_convert_column,
     safe_convert_multiple_columns,
@@ -96,6 +97,82 @@ def test_safe_convert_column_preserves_nulls():
 
     assert result["age"].to_list() == [25, None, 30]
     assert len(collector) == 0  # Nulls are not errors
+
+
+def test_normalize_excel_formula_errors_nulls_and_logs():
+    """Excel formula-error strings become null and are logged (ticket 27).
+
+    Extraction preserves the source cell's literal error text; cleaning is
+    where it becomes null, so the raw layer stays a faithful capture.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
+            "t1d_diagnosis_age": ["9", "#NUM!", "#DIV/0!"],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = normalize_excel_formula_errors(df, collector)
+
+    assert result["t1d_diagnosis_age"].to_list() == ["9", None, None]
+    assert len(collector) == 2
+    codes = {e.error_code for e in collector.errors}
+    assert codes == {"source_formula_error"}
+    originals = {e.original_value for e in collector.errors}
+    assert originals == {"#NUM!", "#DIV/0!"}
+
+
+def test_normalize_excel_formula_errors_leaves_clean_data_untouched():
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "patient_id": ["XX_QA001", "XX_QA002"],
+            "bmi": ["17.5", None],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = normalize_excel_formula_errors(df, collector)
+
+    assert result["bmi"].to_list() == ["17.5", None]
+    assert len(collector) == 0
+
+
+def test_normalize_excel_formula_errors_skips_non_string_columns():
+    df = pl.DataFrame(
+        {"product_table_year": [2024.0, 2024.0]},
+        schema={"product_table_year": pl.Float64},
+    )
+
+    collector = ErrorCollector()
+
+    result = normalize_excel_formula_errors(df, collector)
+
+    assert result.equals(df)
+    assert len(collector) == 0
+
+
+def test_normalize_excel_formula_errors_uses_custom_id_column():
+    """The product arm identifies rows by `product`, not `patient_id`."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"],
+            "product": ["Insulin"],
+            "product_balance": ["#REF!"],
+        }
+    )
+
+    collector = ErrorCollector()
+
+    result = normalize_excel_formula_errors(df, collector, patient_id_col="product")
+
+    assert result["product_balance"].to_list() == [None]
+    assert len(collector) == 1
+    assert collector.errors[0].patient_id == "Insulin"
 
 
 def test_correct_decimal_sign():
