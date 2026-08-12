@@ -5,6 +5,8 @@ import datetime
 import polars as pl
 
 from a4d.migration.compare import (
+    EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -657,6 +659,54 @@ class TestClassify:
         )
 
         assert classify(mismatch, WIDE_FORMAT_FRAGMENT_CLASSIFIERS) == "unclassified"
+
+    def test_r_formula_error_when_r_holds_an_excel_error_string_and_python_is_null(self):
+        mismatch = _mismatch(r_value="#DIV/0!", py_value=None, column="bmi")
+
+        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "r_formula_error"
+
+    def test_r_formula_error_matches_every_seeded_excel_error_string(self):
+        for error_string in ("#DIV/0!", "#VALUE!", "#NUM!", "#N/A", "#REF!", "#NAME?", "#NULL!"):
+            mismatch = _mismatch(r_value=error_string, py_value=None, column="bmi")
+
+            assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "r_formula_error"
+
+    def test_r_formula_error_unclassified_when_python_also_has_a_value(self):
+        mismatch = _mismatch(r_value="#DIV/0!", py_value=0.0, column="bmi")
+
+        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "unclassified"
+
+    def test_r_formula_error_unclassified_when_r_value_is_not_an_error_string(self):
+        mismatch = _mismatch(r_value="9.3", py_value=None, column="bmi")
+
+        assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "unclassified"
+
+    def test_buddhist_era_typo_when_r_is_sentinel_and_python_has_an_implausible_be_year(self):
+        mismatch = _mismatch(
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2569, 6, 17),
+            column="hba1c_updated_date",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "buddhist_era_typo"
+
+    def test_buddhist_era_typo_unclassified_when_python_year_is_a_plausible_gregorian_year(self):
+        mismatch = _mismatch(
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2026, 6, 17),
+            column="hba1c_updated_date",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_buddhist_era_typo_unclassified_when_r_is_not_the_sentinel(self):
+        mismatch = _mismatch(
+            r_value=datetime.date(2026, 6, 17),
+            py_value=datetime.date(2569, 6, 17),
+            column="hba1c_updated_date",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
 
 
 class TestCompareDirectory:

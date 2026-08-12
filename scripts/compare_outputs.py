@@ -32,8 +32,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from a4d.clean.schema import get_date_columns
+from a4d.clean.schema import get_date_columns, get_numeric_columns
 from a4d.migration.compare import (
+    EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -99,7 +101,20 @@ PATIENT_CATEGORICAL_COLS = [
 # unparsed source text (an Excel serial for date-formatted cells) while
 # Python's raw extraction already ISO-formats parsed dates. Cleaned stage
 # never needs this since both sides are already parsed dates there.
-PATIENT_RAW_DATE_NORMALIZE_COLS = get_date_columns()
+# meter_received_date (ticket 27) is appended by hand: it's a raw-only
+# column absent from the cleaned schema entirely (no cleaned-stage
+# equivalent), so get_date_columns() can't see it, but it carries the same
+# raw-serial-vs-parsed representation gap -- verified against real drive
+# data (1,761 mismatches collapsed to the same shape as the derived columns).
+PATIENT_RAW_DATE_NORMALIZE_COLS = [*get_date_columns(), "meter_received_date"]
+
+# Raw-stage-only (ticket 27, extending ticket 22's product_balance
+# precedent to patient): R's own float-to-string conversion rounds a raw
+# numeric column's trailing digits differently than Python's -- a
+# representation difference cleaning's own type-casting already resolves.
+# Derived from the cleaned schema's numeric columns rather than hand-listed,
+# mirroring PATIENT_RAW_DATE_NORMALIZE_COLS's own precedent.
+PATIENT_RAW_NUMERIC_NORMALIZE_COLS = get_numeric_columns()
 
 # Ordinal position within (clinic_id, product_sheet_name) -- see
 # add_row_ordinal's docstring. Replaces the old equi-join key (clinic_id,
@@ -155,6 +170,29 @@ CLASSIFIERS_BY_COLUMN = {
     # already documented as a deliberate Python correction in
     # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
     "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    # ticket 27: bmi and t1d_diagnosis_age are formula-derived in the source
+    # trackers -- a source formula error (height 0, an unparseable date)
+    # leaves R's raw extraction holding the literal Excel error string,
+    # while Python's raw extraction (openpyxl, data_only) has no cached
+    # value to carry and returns null. age shares the same shape on a
+    # handful of rows. Verified against the real drive data.
+    "bmi": EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    "t1d_diagnosis_age": EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    "age": EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    # ticket 27: source-data typos where a clinician entered a Thai
+    # Buddhist-Era year into a Gregorian date cell -- see
+    # PATIENT_BUDDHIST_ERA_CLASSIFIERS's docstring. Every raw-stage date
+    # column found carrying this pattern against the real drive data.
+    "bmi_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "hba1c_updated_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "blood_pressure_updated": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "fbg_updated_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "last_clinic_visit_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "hospitalisation_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "complication_screening_kidney_test_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "complication_screening_lipid_profile_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "complication_screening_thyroid_test_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    "complication_screening_eye_exam_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
     "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
     # ticket 21: cleaned-stage columns whose mismatches are dominated by a
@@ -206,7 +244,7 @@ STAGES = [
         PATIENT_CATEGORICAL_COLS,
         None,
         PATIENT_RAW_DATE_NORMALIZE_COLS,
-        None,
+        PATIENT_RAW_NUMERIC_NORMALIZE_COLS,
         None,
     ),
     (
