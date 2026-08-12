@@ -33,6 +33,7 @@ from rich.table import Table
 from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
+    PRODUCT_ROW_ORDER_CLASSIFIERS,
     Delta,
     DirectoryComparison,
     FileComparison,
@@ -102,9 +103,27 @@ PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS = [
     "product_returned_by",
 ]
 
+# ticket 21: unlike the other raw-stage-only normalizations, an embedded
+# \r\n-vs-\n line break survives cleaning (step 2.16's str.strip_chars only
+# trims ends) and still shows up on `product` at the cleaned stage --
+# verified directly against the real R/Python cleaned output pair (e.g.
+# "FastClix \r\nLancets" vs "FastClix \nLancets"). Scoped to `product` alone:
+# it's the only cleaned-stage column found carrying multi-line values: rest
+# were already fully explained by PRODUCT_ROW_ORDER_CLASSIFIERS.
+PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS = ["product"]
+
 CLASSIFIERS_BY_COLUMN = {
     "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
     "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
+    # ticket 21: cleaned-stage columns whose mismatches are dominated by a
+    # within-(clinic, sheet) sort-order divergence, not genuine content
+    # differences -- see PRODUCT_ROW_ORDER_CLASSIFIERS's docstring.
+    "product_balance": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_received_from": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_released_to": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_remarks": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_units_received": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product": PRODUCT_ROW_ORDER_CLASSIFIERS,
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity
@@ -118,11 +137,13 @@ CLASSIFIERS_BY_COLUMN = {
 # cells) while Python's raw extraction already ISO-formats parsed dates --
 # a representation difference, not a real divergence, that the cleaned
 # stage never has since both sides are already parsed dates there.
-# numeric_normalize_cols and whitespace_normalize_cols are raw-stage-only
-# too, for the same reason (ticket 22): R's own float-to-string conversion
-# rounds a raw numeric column's trailing digits differently, and readxl's
-# trim_ws=TRUE default strips whitespace R-side that Python's raw extraction
-# preserves as-is -- both representation differences, not real divergences.
+# numeric_normalize_cols is raw-stage-only (ticket 22): R's own
+# float-to-string conversion rounds a raw numeric column's trailing digits
+# differently, a representation difference cleaning's own type-casting (step
+# 2.16) already resolves. whitespace_normalize_cols mostly is too (readxl's
+# trim_ws=TRUE trims R-side what Python's raw extraction preserves), but an
+# embedded \r\n-vs-\n line break isn't touched by cleaning's end-trim-only
+# str.strip_chars and survives into `product` at the cleaned stage (ticket 21).
 STAGES = [
     (
         "Patient (raw)",
@@ -166,7 +187,7 @@ STAGES = [
         PRODUCT_ORDINAL_GROUP_COLS,
         None,
         None,
-        None,
+        PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS,
     ),
 ]
 
@@ -207,12 +228,17 @@ def _compare_arm(
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_whitespace_column(df, column)
+    order_group_cols = None
     if ordinal_group_cols is not None:
         resolved_key_cols = None
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name], resolved_key_cols = add_row_ordinal(df, ordinal_group_cols)
         key_cols = resolved_key_cols
+        # Everything add_row_ordinal returned except the trailing ordinal
+        # itself -- the group a within-group sort-order divergence (ticket
+        # 21) is scoped to.
+        order_group_cols = resolved_key_cols[:-1]
     assert key_cols is not None
     # __-prefixed helper columns from add_row_ordinal are join-key-only synthetic
     # data (an ordinal counter, normalized group values) -- summing/diffing them
@@ -228,6 +254,7 @@ def _compare_arm(
         numeric_cols=numeric_cols,
         id_col=id_col,
         categorical_cols=categorical_cols,
+        order_group_cols=order_group_cols,
     )
 
 

@@ -39,9 +39,9 @@ flowchart TD
   subgraph FRONTIER["Frontier · 4"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
+    T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -49,7 +49,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 16"]
+  subgraph DECIDED["Decided · 17"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -66,6 +66,7 @@ flowchart TD
     T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
     T19["<b>19</b> · task<br/>Persist comparison run<br/>history and show run-over-<br/>run deltas"]
     T20["<b>20</b> · task<br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -104,11 +105,11 @@ flowchart TD
   T23 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T21,T23,T24 frontier
+  class T16,T23,T24,T25 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T22 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -624,18 +625,55 @@ more distinct patterns found, one possibly systemic) -- split into [ticket
 src/` all pass. Full detail: [ticket
 22](tickets/22-triage-product-raw-columns.md).
 
+**Eighteen tickets resolved.** [Triage the remaining product cleaned-stage
+column mismatches](tickets/21-triage-remaining-product-columns.md) is done:
+five of its six columns (`product_balance`, `product_received_from`,
+`product_released_to`, `product_remarks`, `product_units_received`) turned
+out to share one root cause, already half-diagnosed by ticket 18 —
+R's per-(clinic, sheet, product) row sort falls back to raw input-row order
+whenever `product_entry_date` fails to parse, which is *near-universal*
+(confirmed 100% of "change"-status rows null for several major clinics,
+e.g. 2024/2023/2022 Mahosot) rather than occasional, while Python correctly
+parses the same cells and sorts chronologically instead — both sides
+implement the identical documented rank algorithm, so this is R's
+already-known date-extraction gap resurfacing as a *sort-order* divergence,
+not a Python bug. Since the row-alignment key (`add_row_ordinal`) is purely
+positional, that legitimate order difference cascades into value-level
+mismatches on every column compared through it, even though the underlying
+data (e.g. end-of-group balance, confirmed matching in 98.3% of affected
+groups) is unaffected. Added a `row_order_divergence` classifier
+(`PRODUCT_ROW_ORDER_CLASSIFIERS` in `src/a4d/migration/compare.py`, backed
+by a new opt-in `order_group_cols` parameter on `compare_cells`): fully or
+almost fully explains four of the five columns (100%, 100%, 100%, 97.4%);
+`product_balance`'s cumulative running total under-detects via simple
+value-membership (27.9% caught directly) despite sharing the same root
+cause, left as future work. The sixth column, `product` (652 mismatches),
+had a different, single cause — an embedded `\r\n`-vs-`\n` line break that
+ticket 22 already normalizes for the raw stage but that survives cleaning;
+extending `normalize_whitespace_column` to the cleaned stage (scoped to
+`product` alone) resolved it fully (652 -> 0). `product_units_received`'s
+residual 8 mismatches are the same Excel-date-serial-leak pattern [ticket
+24](tickets/24-triage-remaining-raw-column-residual.md) already flagged for
+the raw stage, now confirmed to reach the cleaned stage too — left for
+ticket 24. Discovered `product_units_released` (2,144 cleaned-stage
+mismatches) was never assigned to any ticket — spawned [ticket
+25](tickets/25-triage-product-units-released-cleaned.md). Full suite (577
+tests), ruff, `ty check src/` all pass; verified end-to-end against the real
+248-tracker drive data. Full detail: [ticket
+21](tickets/21-triage-remaining-product-columns.md).
+
 **The frontier is now [Build a drill-down log analyzer for admins to
 inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
-[Triage the remaining product cleaned-stage column
-mismatches](tickets/21-triage-remaining-product-columns.md), [Triage every
-flagged R/Python difference for the patient
-arm](tickets/23-triage-patient-arm.md), and [Triage the residual
+[Triage every flagged R/Python difference for the patient
+arm](tickets/23-triage-patient-arm.md), [Triage the residual
 product_units_received/product_units_released/product_received_from
-raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md).**
-Ticket 12 is `blocked_by: [20, 21, 22, 23]` — ticket 22's closure doesn't
-unblock it yet since 21 and 23 remain (ticket 24 isn't wired as a blocker
-of ticket 12, since it's a residual of 22's already-closed scope, not a
-prerequisite the destination named).
+raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md),
+and [Triage the product_units_released cleaned-stage column
+mismatches](tickets/25-triage-product-units-released-cleaned.md).**
+Ticket 12 is `blocked_by: [20, 21, 22, 23]` — ticket 21's closure leaves only
+23 remaining (ticket 24 and the newly-spawned ticket 25 aren't wired as
+blockers of ticket 12, since neither is a prerequisite the destination
+named — both are residuals of already-closed ticket scope).
 
 ## Decisions so far
 
@@ -874,6 +912,30 @@ prerequisite the destination named).
   [ticket 24](tickets/24-triage-remaining-raw-column-residual.md). Full
   detail: [ticket 22](tickets/22-triage-product-raw-columns.md).
 
+- [Triage the remaining product cleaned-stage column
+  mismatches](tickets/21-triage-remaining-product-columns.md) — decided and
+  implemented: five of six columns (`product_balance`,
+  `product_received_from`, `product_released_to`, `product_remarks`,
+  `product_units_received`) share one root cause — R's per-(clinic, sheet,
+  product) row sort falls back to raw input-row order whenever
+  `product_entry_date` fails to parse, near-universally so for several
+  major clinics; Python correctly sorts chronologically instead, using the
+  identical documented rank algorithm. Since the row-alignment key is
+  purely positional, this legitimate order difference cascades into
+  value-level mismatches on every column compared through it (verified: the
+  underlying data is unaffected — 98.3% of affected groups still land on
+  the same end-of-group balance). A new `row_order_divergence` classifier
+  explains 4 of these 5 columns fully or almost fully (100%, 100%, 100%,
+  97.4%); `product_balance` shares the cause but under-detects via simple
+  value-membership (27.9% caught), left as future work. `product` (the
+  sixth column) had a different, single cause — an embedded `\r\n`-vs-`\n`
+  line break surviving cleaning unnoticed — resolved fully (652 -> 0) by
+  extending ticket 22's whitespace normalization to the cleaned stage.
+  Discovered `product_units_released`'s cleaned-stage mismatches (2,144)
+  were never assigned to any ticket; spawned [ticket
+  25](tickets/25-triage-product-units-released-cleaned.md). Full detail:
+  [ticket 21](tickets/21-triage-remaining-product-columns.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -977,6 +1039,7 @@ flowchart TB
   subgraph S2026_08_12["Session 2026-08-12"]
     direction LR
     U20["<b>20</b><br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
   subgraph Sopen["Not yet worked"]
@@ -985,9 +1048,9 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
+    U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1046,13 +1109,14 @@ flowchart TB
   U18 -.->|spawned| U22
   U18 -.->|spawned| U23
   U22 -.->|spawned| U24
+  U21 -.->|spawned| U25
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U21,U23,U24 tfrontier
+  class U16,U23,U24,U25 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U22 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
