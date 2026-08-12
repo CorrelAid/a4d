@@ -41,9 +41,9 @@ flowchart TD
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
-    T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
+    T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -51,7 +51,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 19"]
+  subgraph DECIDED["Decided · 20"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -71,6 +71,7 @@ flowchart TD
     T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
     T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+    T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -112,13 +113,15 @@ flowchart TD
   T26 --> T12
   T27 --> T12
   T28 --> T12
+  T29 --> T12
+  T30 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T24,T25,T26,T27,T29 frontier
+  class T16,T24,T25,T27,T29,T30 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T28 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T26,T28 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -806,6 +809,50 @@ correction above) — every remaining frontier ticket is an independent
 triage residual or a separate feature (ticket 16), takeable in any order,
 and all of them now sit between the map and re-unblocking ticket 12.**
 
+**Twenty-one tickets resolved.** [Triage the product pipeline's
+column-existence and dtype divergence](tickets/26-triage-product-column-divergence.md)
+is done: added a `column_divergence` sheet to every stage's Excel report
+(`build_mismatch_rows()`, `src/a4d/migration/compare.py`), closing the
+"CLI-only, no report sheet" gap the ticket opened with, and root-caused
+every divergence named in its premise plus patient's (previously
+unchecked), verified against the real 248-tracker drive data and, for the
+raw-stage gap, real source Excel. `product_table_month`/`product_table_year`/
+`product_unit_capacity` (R `Float64` vs Python `Int32`, all 229 cleaned
+files) and `product_remarks` (R `Boolean` vs Python `String`, 103/229) are
+confirmed harmless representation artifacts (0 non-integer values checked;
+an all-null-column parquet-writer inference quirk, respectively) —
+`compare_columns()` itself was deliberately left unfiltered (an existing
+test pins "flag every dtype difference" as policy), so these are documented
+rather than normalized away. `orig_product_released_to` is confirmed an
+expected Python-only helper column. `product_returned_by` (51 files) /
+`product_units_returned` (25 files), only-in-Python at the raw stage, is a
+**genuine R extraction gap** — spot-checked directly against
+`2017_Mahosot Hospital A4D Tracker.xlsx`'s `INV` sheet, whose header row
+literally reads "Units Returned"; Python's raw extraction holds 11 real
+non-null values for it that R's raw output drops entirely for that file.
+Patient's cleaned stage is essentially clean (one single-file dtype
+mismatch). Patient's raw stage did not converge — 18,783 `column_divergence`
+rows across 245 files, dominated by hundreds of uniquely-numbered
+only-in-R junk columns (`na`, `na1`, ... `na10064`) and a large
+only-in-Python set of unmapped literal source header text — split into
+[ticket 30](tickets/30-triage-patient-raw-column-divergence.md). Full suite
+(584 passed, 1 skipped, incl. 1 new test), ruff, `ty check src/` all pass.
+Full detail: [ticket 26](tickets/26-triage-product-column-divergence.md).
+
+**The frontier is now [Build a drill-down log analyzer for admins to
+inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the residual product_units_received/product_units_released/product_received_from
+raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md),
+[Triage the product_units_released cleaned-stage column
+mismatches](tickets/25-triage-product-units-released-cleaned.md), [Triage
+the residual patient raw-stage column mismatches after date
+normalization](tickets/27-triage-patient-raw-residual.md), [Triage the
+residual patient cleaned-stage column mismatches](tickets/29-triage-patient-cleaned-residual.md),
+and [Triage the patient pipeline's raw-stage column-existence
+divergence](tickets/30-triage-patient-raw-column-divergence.md) — six
+tickets, ticket 26 replaced by its spawned residual ticket 30. Ticket 12
+remains blocked, now on `[20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]`.**
+
 ## Decisions so far
 
 - [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
@@ -1113,6 +1160,27 @@ and all of them now sit between the map and re-unblocking ticket 12.**
   29](tickets/29-triage-patient-cleaned-residual.md). Full detail: [ticket
   28](tickets/28-triage-patient-cleaned.md).
 
+- [Triage the product pipeline's column-existence and dtype
+  divergence](tickets/26-triage-product-column-divergence.md) — decided and
+  implemented: added a `column_divergence` report sheet (per-file
+  only-in-R/only-in-Python/dtype-mismatch rows) closing the "CLI-only, never
+  written to a report" gap; root-caused every named divergence against the
+  real 248-tracker drive data plus real source Excel for the raw-stage gap.
+  `product_table_month`/`product_table_year`/`product_unit_capacity`
+  (Float64-vs-Int32) and `product_remarks` (Boolean-vs-String, all-null
+  columns) are confirmed harmless representation artifacts, left
+  undisturbed in `compare_columns()` per an existing test's "flag every
+  dtype difference" policy — documented, not normalized.
+  `orig_product_released_to` confirmed an expected Python-only helper
+  column. `product_returned_by`/`product_units_returned` (raw stage,
+  only-in-Python) confirmed a genuine R extraction gap — R's raw output
+  drops a column literally present in the source Excel header
+  ("Units Returned") that Python correctly extracts. Patient's cleaned
+  stage is essentially clean; patient's raw stage (18,783 divergence rows,
+  two large unexplained patterns) didn't converge — split into [ticket
+  30](tickets/30-triage-patient-raw-column-divergence.md). Full detail:
+  [ticket 26](tickets/26-triage-product-column-divergence.md).
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1213,6 +1281,10 @@ flowchart TB
     direction LR
     U28["<b>28</b><br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
+  subgraph S2026_08_12d["Session 2026-08-12d"]
+    direction LR
+    U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -1221,9 +1293,9 @@ flowchart TB
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
-    U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
+    U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1239,7 +1311,8 @@ flowchart TB
   S2026_08_11 ~~~ S2026_08_12
   S2026_08_12 ~~~ S2026_08_12b
   S2026_08_12b ~~~ S2026_08_12c
-  S2026_08_12c ~~~ Sopen
+  S2026_08_12c ~~~ S2026_08_12d
+  S2026_08_12d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1276,6 +1349,8 @@ flowchart TB
   U26 --->|blocked| U12
   U27 --->|blocked| U12
   U28 --->|blocked| U12
+  U29 --->|blocked| U12
+  U30 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -1293,13 +1368,14 @@ flowchart TB
   U23 -.->|spawned| U27
   U23 -.->|spawned| U28
   U28 -.->|spawned| U29
+  U26 -.->|spawned| U30
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U24,U25,U26,U27,U29 tfrontier
+  class U16,U24,U25,U27,U29,U30 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U26,U28 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

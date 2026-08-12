@@ -61,6 +61,10 @@ flowchart TB
     direction LR
     U28["<b>28</b><br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
   end
+  subgraph S2026_08_12d["Session 2026-08-12d"]
+    direction LR
+    U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -69,9 +73,9 @@ flowchart TB
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
     U25["<b>25</b><br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
-    U26["<b>26</b><br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
+    U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -87,7 +91,8 @@ flowchart TB
   S2026_08_11 ~~~ S2026_08_12
   S2026_08_12 ~~~ S2026_08_12b
   S2026_08_12b ~~~ S2026_08_12c
-  S2026_08_12c ~~~ Sopen
+  S2026_08_12c ~~~ S2026_08_12d
+  S2026_08_12d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -124,6 +129,8 @@ flowchart TB
   U26 --->|blocked| U12
   U27 --->|blocked| U12
   U28 --->|blocked| U12
+  U29 --->|blocked| U12
+  U30 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -141,12 +148,13 @@ flowchart TB
   U23 -.->|spawned| U27
   U23 -.->|spawned| U28
   U28 -.->|spawned| U29
+  U26 -.->|spawned| U30
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U24,U25,U26,U27,U29 tfrontier
+  class U16,U24,U25,U27,U29,U30 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U26,U28 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
