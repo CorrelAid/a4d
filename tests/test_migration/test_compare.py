@@ -911,3 +911,51 @@ class TestBuildMismatchRows:
         rows = build_mismatch_rows(self._comparison())
 
         assert rows["cell_mismatches"][0]["cause"] == "unclassified"
+
+    def test_column_divergence_rows_cover_existence_and_dtype(self):
+        comparison = DirectoryComparison(
+            files=[
+                FileComparison(
+                    file_name="a.parquet",
+                    shape=ShapeResult(r_rows=1, py_rows=1, match=True),
+                    totals=[],
+                    columns=ColumnsResult(
+                        only_in_r=["r_only"],
+                        only_in_py=["py_only"],
+                        dtype_mismatches=[("shared", pl.Int64, pl.Float64)],
+                    ),
+                    id_overlap=None,
+                    categorical_overlap=[],
+                    row_key_overlap=RowKeyOverlap(matched=1, r_unmatched=0, py_unmatched=0),
+                    cell_mismatches=[],
+                )
+            ],
+            only_in_r=[],
+            only_in_py=[],
+        )
+
+        rows = build_mismatch_rows(comparison)
+
+        assert rows["column_divergence"] == [
+            {
+                "file": "a.parquet",
+                "column": "r_only",
+                "kind": "only in R",
+                "r_dtype": "",
+                "py_dtype": "",
+            },
+            {
+                "file": "a.parquet",
+                "column": "py_only",
+                "kind": "only in Python",
+                "r_dtype": "",
+                "py_dtype": "",
+            },
+            {
+                "file": "a.parquet",
+                "column": "shared",
+                "kind": "dtype mismatch",
+                "r_dtype": "Int64",
+                "py_dtype": "Float64",
+            },
+        ]

@@ -543,9 +543,35 @@ def build_mismatch_rows(
     row_key_overlap_rows = []
     totals_rows = []
     cell_mismatch_rows = []
+    column_divergence_rows = []
 
     for file_comparison in comparison.files:
         name = file_comparison.file_name
+
+        for column in file_comparison.columns.only_in_r:
+            column_divergence_rows.append(
+                {"file": name, "column": column, "kind": "only in R", "r_dtype": "", "py_dtype": ""}
+            )
+        for column in file_comparison.columns.only_in_py:
+            column_divergence_rows.append(
+                {
+                    "file": name,
+                    "column": column,
+                    "kind": "only in Python",
+                    "r_dtype": "",
+                    "py_dtype": "",
+                }
+            )
+        for column, r_dtype, py_dtype in file_comparison.columns.dtype_mismatches:
+            column_divergence_rows.append(
+                {
+                    "file": name,
+                    "column": column,
+                    "kind": "dtype mismatch",
+                    "r_dtype": str(r_dtype),
+                    "py_dtype": str(py_dtype),
+                }
+            )
 
         row_key_overlap_rows.append(
             {
@@ -602,6 +628,7 @@ def build_mismatch_rows(
             )
 
     return {
+        "column_divergence": column_divergence_rows,
         "id_overlap": id_overlap_rows,
         "categorical_overlap": categorical_overlap_rows,
         "row_key_overlap": row_key_overlap_rows,
