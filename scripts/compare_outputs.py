@@ -19,12 +19,14 @@ Usage:
 
 import json
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 import polars as pl
 import typer
+from loguru import logger
 from openpyxl import Workbook
 from rich.console import Console
 from rich.panel import Panel
@@ -47,6 +49,13 @@ from a4d.migration.compare import (
     normalize_whitespace_column,
     snapshot_from_summary,
 )
+
+# normalize_date_column (via a4d.clean.date_parser.parse_date_flexible) logs
+# at DEBUG per parsed value; loguru's default sink has no level filter, so
+# without this every date cell would spam the console. This tool never calls
+# a4d.logging.setup_logging() (no pipeline run, no output_root to log into).
+logger.remove()
+logger.add(sys.stderr, level="WARNING")
 
 console = Console()
 app = typer.Typer()
