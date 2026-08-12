@@ -77,3 +77,4 @@ secrets/
 CLAUDE.local.md
 .Rhistory
 r-archive/config.yml
+coverage.xml
