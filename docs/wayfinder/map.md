@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 6"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
@@ -44,6 +44,7 @@ flowchart TD
     T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
+    T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -117,9 +118,10 @@ flowchart TD
   T29 --> T12
   T30 --> T12
   T31 --> T12
+  T33 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T25,T29,T30,T31,T32 frontier
+  class T16,T25,T29,T30,T31,T32,T33 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -1356,6 +1358,19 @@ feature.**
   generalized from a single verified instance, knowingly lumping two distinct
   causes) are the clearest failures.
 
+- **CI has been red on `migration` since 2026-08-09** — found 2026-08-12g
+  when the user asked to fix CI before more pipeline work. Not a regression
+  of [ticket 4](tickets/04-fix-migration-ci.md)'s fix: the sole cause is
+  `ruff format --check` wanting to reformat Python snippets inside
+  `docs/migration/MIGRATION_GUIDE.md`, so the step fails in ~15s and the
+  test suite never runs at all. Every triage ticket closed since was
+  verified against a green *local* suite while CI itself was red — local
+  and CI check sets had silently diverged. Ticketed as [ticket
+  33](tickets/33-fix-red-ci-ruff-format-markdown.md) (diagnosis complete,
+  fix deferred to its own session at the user's direction) and wired as a
+  blocker of [ticket 6](tickets/06-promote-migration-to-dev.md), since the
+  destination requires CI green before promotion.
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1479,6 +1494,7 @@ flowchart TB
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
+    U33["<b>33</b><br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1517,6 +1533,7 @@ flowchart TB
   U21 --->|blocked| U6
   U22 --->|blocked| U6
   U23 --->|blocked| U6
+  U33 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -1558,7 +1575,7 @@ flowchart TB
   U27 -.->|spawned| U32
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31,U32 tfrontier
+  class U16,U25,U29,U30,U31,U32,U33 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
