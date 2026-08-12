@@ -3,7 +3,7 @@ id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
-blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23, 33]
+blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23]
 assignee: null
 claimed_at: null
 resolution: null

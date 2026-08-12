@@ -73,6 +73,10 @@ flowchart TB
     direction LR
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
   end
+  subgraph S2026_08_12g["Session 2026-08-12g"]
+    direction LR
+    U33["<b>33</b><br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -84,7 +88,7 @@ flowchart TB
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
-    U33["<b>33</b><br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+    U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -103,7 +107,8 @@ flowchart TB
   S2026_08_12c ~~~ S2026_08_12d
   S2026_08_12d ~~~ S2026_08_12e
   S2026_08_12e ~~~ S2026_08_12f
-  S2026_08_12f ~~~ Sopen
+  S2026_08_12f ~~~ S2026_08_12g
+  S2026_08_12g ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -123,7 +128,6 @@ flowchart TB
   U21 --->|blocked| U6
   U22 --->|blocked| U6
   U23 --->|blocked| U6
-  U33 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -163,12 +167,13 @@ flowchart TB
   U26 -.->|spawned| U30
   U27 -.->|spawned| U31
   U27 -.->|spawned| U32
+  U33 -.->|spawned| U34
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31,U32,U33 tfrontier
+  class U16,U25,U29,U30,U31,U32,U34 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U27,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U27,U28,U33 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

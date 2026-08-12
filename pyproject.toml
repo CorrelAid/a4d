@@ -47,7 +47,15 @@ line-length = 100
 target-version = "py314"
 # r-archive/ is the archived R pipeline, preserved for reference -- not
 # maintained code, never linted or reformatted (see CLAUDE.md).
-extend-exclude = ["r-archive"]
+#
+# docs/migration/ holds working spec/history documents (MIGRATION_GUIDE.md,
+# PYTHON_IMPROVEMENTS.md). Their fenced Python blocks are illustrative prose
+# -- never imported, never executed -- so there is nothing for ruff to
+# validate, and reformatting them only rewraps examples chosen for
+# readability (ticket 33: this silently broke CI for four days, because
+# `ruff format` rewrites them without asking and the diff reads as
+# unrelated noise).
+extend-exclude = ["r-archive", "docs/migration"]
 lint.select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings

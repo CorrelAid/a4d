@@ -2,12 +2,12 @@
 id: 33
 title: Fix red CI — ruff format --check fails on Python snippets inside markdown docs
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-12g
+claimed_at: 2026-08-12
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: null
 ---
@@ -82,3 +82,47 @@ set CI runs.
 Verify by pushing and confirming a green run on `migration`, not by a local
 `ruff format --check` alone — the point of this ticket is that local and CI
 checks had diverged.
+
+## Resolution
+
+**Decision:** Option 2 — `docs/migration` added to ruff's `extend-exclude`
+in `pyproject.toml`, alongside the existing `r-archive` entry. The user
+overrode this ticket's recommendation of option 1, and was right to:
+`MIGRATION_GUIDE.md` is a **working spec document**, and there is nothing in
+it for ruff to validate. Its fenced Python is illustrative prose — never
+imported, never executed — so formatting it enforces code rules on something
+that is not code, and only rewraps examples whose line breaks were chosen for
+readability.
+
+**Because:** scoped to the whole `docs/migration/` directory rather than
+just the one failing file. Both markdown files in the repo containing
+`” ```python ”` fences live there (`MIGRATION_GUIDE.md`,
+`PYTHON_IMPROVEMENTS.md`, confirmed by grep across `docs/` and root); the
+second is incidentally well-formatted today and would have re-broken CI on
+any future edit. Excluding the directory fixes the cause rather than the
+instance.
+
+**Rejected:** option 1 (accept the reformatting and commit it), this
+ticket's own recommendation, on the reasoning that docs should mirror real
+code style. That confuses "code shown in a document" with "code" — the
+snippets are explanatory and are allowed to prioritize clarity over
+formatter rules. Also rejected: excluding all markdown repo-wide, which
+would silently cover future docs that might genuinely want formatting;
+`docs/migration/` is the meaningful boundary.
+
+**Evidence:** executed — every CI step reproduced locally and passing:
+`ruff check .` (all checks passed), `ruff format --check .` (144 files, was
+"1 file would be reformatted"), `ty check src/`, `pytest -m "not slow and
+not integration"` (555 passed, 1 skipped), and the product coverage gate
+(88%, floor 85). `git status docs/migration/` confirms the markdown itself
+is untouched. Final confirmation is a green run on `migration` after push —
+the whole point of this ticket being that local and CI check sets had
+diverged, so a local pass alone is not the proof.
+
+**Tense:** current behaviour; all numbers from this session's actual runs.
+
+**Guard, not yet done:** this ticket asked for a mechanism so the failure
+cannot silently recur. The exclusion removes *this* trigger, but local and
+CI check sets can still drift — nothing local runs the full CI set
+automatically. Spawned as [ticket 34](34-local-ci-parity-guard.md) rather
+than left as an untracked intention.

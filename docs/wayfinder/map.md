@@ -44,7 +44,7 @@ flowchart TD
     T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
-    T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+    T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -52,7 +52,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 22"]
+  subgraph DECIDED["Decided · 23"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -76,6 +76,7 @@ flowchart TD
     T26["<b>26</b> · task<br/>Triage the product<br/>pipeline's column-<br/>existence and dtype<br/>divergence (Column<br/>divergence)"]
     T27["<b>27</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
     T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
+    T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -118,14 +119,13 @@ flowchart TD
   T29 --> T12
   T30 --> T12
   T31 --> T12
-  T33 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T25,T29,T30,T31,T32,T33 frontier
+  class T16,T25,T29,T30,T31,T32,T34 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T26,T27,T28 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T26,T27,T28,T33 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1358,18 +1358,34 @@ feature.**
   generalized from a single verified instance, knowingly lumping two distinct
   causes) are the clearest failures.
 
-- **CI has been red on `migration` since 2026-08-09** — found 2026-08-12g
+- [Fix red CI — ruff format --check fails on Python snippets inside markdown
+  docs](tickets/33-fix-red-ci-ruff-format-markdown.md) — decided and
+  implemented: `docs/migration` added to ruff's `extend-exclude` in
+  `pyproject.toml`, next to the existing `r-archive` entry. The user
+  overrode this ticket's own recommendation (which had been to accept the
+  reformatting) on the grounds that `MIGRATION_GUIDE.md` is a working spec
+  document with nothing in it for ruff to validate — its fenced Python is
+  illustrative prose, never imported or executed. Scoped to the whole
+  directory rather than the one failing file, since both markdown files in
+  the repo carrying Python fences live there and the second would have
+  re-broken CI on any future edit. Every CI step reproduced locally and
+  passing. The guard the ticket asked for — so local and CI check sets
+  cannot drift again — was **not** built here and is spawned as [ticket
+  34](tickets/34-local-ci-parity-guard.md): `just ci` already exists but
+  still doesn't match CI (no coverage gate, different pytest markers) and
+  nothing makes anyone run it. Full detail: [ticket
+  33](tickets/33-fix-red-ci-ruff-format-markdown.md).
+
+- **CI had been red on `migration` since 2026-08-09** — found 2026-08-12g
   when the user asked to fix CI before more pipeline work. Not a regression
   of [ticket 4](tickets/04-fix-migration-ci.md)'s fix: the sole cause is
   `ruff format --check` wanting to reformat Python snippets inside
   `docs/migration/MIGRATION_GUIDE.md`, so the step fails in ~15s and the
   test suite never runs at all. Every triage ticket closed since was
   verified against a green *local* suite while CI itself was red — local
-  and CI check sets had silently diverged. Ticketed as [ticket
-  33](tickets/33-fix-red-ci-ruff-format-markdown.md) (diagnosis complete,
-  fix deferred to its own session at the user's direction) and wired as a
-  blocker of [ticket 6](tickets/06-promote-migration-to-dev.md), since the
-  destination requires CI green before promotion.
+  and CI check sets had silently diverged. Fixed the same session — see the ticket-33 entry above; ticket 33's
+  blocker on [ticket 6](tickets/06-promote-migration-to-dev.md) is
+  released, now that CI green is restored.
 
 ## Assumptions in force
 
@@ -1483,6 +1499,10 @@ flowchart TB
     direction LR
     U27["<b>27</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches after date<br/>normalization"]
   end
+  subgraph S2026_08_12g["Session 2026-08-12g"]
+    direction LR
+    U33["<b>33</b><br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -1494,7 +1514,7 @@ flowchart TB
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
-    U33["<b>33</b><br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+    U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1513,7 +1533,8 @@ flowchart TB
   S2026_08_12c ~~~ S2026_08_12d
   S2026_08_12d ~~~ S2026_08_12e
   S2026_08_12e ~~~ S2026_08_12f
-  S2026_08_12f ~~~ Sopen
+  S2026_08_12f ~~~ S2026_08_12g
+  S2026_08_12g ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1533,7 +1554,6 @@ flowchart TB
   U21 --->|blocked| U6
   U22 --->|blocked| U6
   U23 --->|blocked| U6
-  U33 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -1573,13 +1593,14 @@ flowchart TB
   U26 -.->|spawned| U30
   U27 -.->|spawned| U31
   U27 -.->|spawned| U32
+  U33 -.->|spawned| U34
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31,U32,U33 tfrontier
+  class U16,U25,U29,U30,U31,U32,U34 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U27,U28 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U26,U27,U28,U33 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
