@@ -88,3 +88,80 @@ Python turns out to be wrong or to be losing information the source file
 carried, fix the pipeline rather than labelling the symptom. A cause
 genuinely undecidable on the available evidence is recorded as an open
 question, not closed with a label.
+
+## Addendum (session-2026-08-12h): the balance mechanism, measured
+
+Follow-up investigation after ticket 25 closed, prompted by the user asking
+whether `_compute_running_balance` is itself wrong. Findings are verified,
+the decision is **not** made — that is still this ticket's job.
+
+**There is no defect in `_compute_running_balance`.** It mirrors R exactly.
+R's `compute_balance` (`r-archive/R/helper_product_data.R:437-481`) loops
+over rows and, for every `"change"`/`"end"` row, *overwrites*
+`product_balance` with `previous_balance - released + received`; Python's
+step 2.15 does the same via a per-group cumsum seeded from the group's first
+(`"start"`) row. **Both pipelines discard the source spreadsheet's recorded
+balance on non-start rows by design** — this is the original R design, not a
+migration artifact.
+
+**What actually differs is the order the ledger accumulates in**, which is
+downstream of step 2.7's sort, not of the balance step. Measured on
+`2024_Mahosot Hospital`, sheet `Jul24`, `Accu-Chek Performa Test Strips
+(50s/ bottle)` (43 rows), against the real source Excel:
+
+- The source's own Balance column is internally consistent **in data-entry
+  order** (322, 314, 310, 306, 302, 300, 293, 290, ... — each equals the
+  previous minus that row's Units Released).
+- R, accumulating in entry order, reproduces the source's balances **exactly**
+  (multiset equal, row for row).
+- Python, accumulating in chronological order, emits 322, 314, 306, 302,
+  298, 294, ... — a self-consistent ledger whose intermediate values appear
+  **nowhere in the source file** (source has 172/182/186/202...; Python has
+  176/178/183/187...).
+- **Both end at 139.0**, matching the source's closing balance.
+
+Note the source's entry order here is *not* chronological (the clinician
+entered 2024-07-23 before 2024-07-19), so the source's own Balance column is
+a ledger in data-entry order, not a stock history over time.
+
+**Breadth, across all 11,649 `(clinic, sheet, product)` groups:**
+
+| Measure | Groups | Share |
+|---|---|---|
+| Balance multiset identical R vs Python (no divergence at all) | 11,117 | 95.4% |
+| Closing (end-of-group) balance identical | 11,491 | 98.6% |
+| Closing balance differs | 158 | 1.4% |
+
+Of those 158, **153 are float-accumulation noise where Python is the cleaner
+side** (R `-1.5999999999999999` vs Python `-1.6`; Python's cumsum applies
+`.round(10)`, R's loop rounds nothing). The other **5 are R being corrupted
+by an Excel date serial leaking into the arithmetic** — e.g. 2019 Penang
+General Hospital, `Accu-Chek Performa Glucometer Set`: R's closing balance is
+**43,572** where Python has **6.0** (43,572 is a 2019 date serial); same
+shape for four Sultanah Bahiyah groups. This is the stray-date-typed-cell
+pattern [ticket 24](24-triage-remaining-raw-column-residual.md) already
+root-caused, now shown to corrupt R's *balance totals*, not just individual
+cells. **Python's closing stock is correct in every group.**
+
+**The open question this ticket must decide** is therefore not "is Python
+buggy" but **what `product_balance` is supposed to mean on a non-closing
+row**, given it is written per-row to BigQuery's `product_data` table and has
+no consumer inside the Python codebase (verified by grep — only
+`clean/product.py` and the schema reference it):
+
+1. *Keep current behaviour* — balance accumulates in chronological order, so
+   it is coherent as a stock-over-time series and the closing figure is
+   right, but an individual row will not match the tracker cell a human
+   opens next to it.
+2. *Carry the source's recorded balance*, computing only where absent —
+   maximally faithful per row, but propagates the source's own arithmetic
+   mistakes and abandons R's design.
+3. *Accumulate in entry order, output in chronological order* — each row
+   keeps the balance the tracker recorded while rows still display
+   chronologically; the balance column then reads non-monotonically down the
+   output.
+
+Whichever is chosen, consider logging a data-quality error when the
+recomputed balance disagrees with the source's recorded balance: nothing
+currently surfaces that, and it is the signal that would have exposed the R
+date-serial corruption above from the tracker side.
