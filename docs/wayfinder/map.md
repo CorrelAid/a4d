@@ -40,8 +40,8 @@ flowchart TD
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T21["<b>21</b> · task<br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
-    T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
     T23["<b>23</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+    T24["<b>24</b> · task<br/>Triage the residual produc<br/>t_units_received/product_u<br/>nits_released/product_rece<br/>ived_from raw-stage<br/>mismatches"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -49,7 +49,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 15"]
+  subgraph DECIDED["Decided · 16"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -66,6 +66,7 @@ flowchart TD
     T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
     T19["<b>19</b> · task<br/>Persist comparison run<br/>history and show run-over-<br/>run deltas"]
     T20["<b>20</b> · task<br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    T22["<b>22</b> · task<br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -103,11 +104,11 @@ flowchart TD
   T23 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T21,T22,T23 frontier
+  class T16,T21,T23,T24 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T22 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -594,6 +595,48 @@ untracked in this closed ticket, per the destination's "every difference
 explicitly decided" bar. Full detail: [ticket
 20](tickets/20-fix-raw-entry-date-representation.md).
 
+**Seventeen tickets resolved.** [Triage the remaining product raw-stage
+column mismatches](tickets/22-triage-product-raw-columns.md) is done: found
+and fixed a real Python bug (`remove_header_rows` in
+`src/a4d/extract/product.py` missed rows where every cell was blank except
+one stray empty string from a formula-emptied Excel cell -- R's `is.na()`
+check drops these, Python's `is_null()` check didn't), which turned out to
+be the root cause of the "single-row insertion/shift pattern" ticket 20 had
+flagged but not chased (confirmed: the Sarawak `"\n"`-dated row is gone
+too, 191/191 rows). Added two more comparison-tool normalizations
+mirroring ticket 20's `normalize_date_column` precedent:
+`normalize_numeric_column()` (R's and Python's own float-to-string
+conversions round a raw float's trailing digits differently -- parse both
+back to `float` so the existing tolerance applies) and
+`normalize_whitespace_column()` (readxl's `trim_ws=TRUE` default strips
+whitespace R-side that openpyxl preserves, and readxl represents an
+embedded line break as `\r\n` where openpyxl normalizes to `\n`). Verified
+end-to-end against the real drive data (248-tracker set): raw-stage product
+mismatches across all 9 columns dropped from 2,007 to 105 (95%), fully
+resolving `product`, `product_balance`, `product_entry_date` (now 0
+`unclassified`), `product_remarks`, `product_released_to`, and
+`product_units_returned`. The 105-row residual across
+`product_units_received`, `product_units_released`, and
+`product_received_from` didn't converge to a single cause (at least two
+more distinct patterns found, one possibly systemic) -- split into [ticket
+24](tickets/24-triage-remaining-raw-column-residual.md) per the map's
+"split rather than sprawl" rule. Full suite (571 passed), ruff, `ty check
+src/` all pass. Full detail: [ticket
+22](tickets/22-triage-product-raw-columns.md).
+
+**The frontier is now [Build a drill-down log analyzer for admins to
+inspect a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the remaining product cleaned-stage column
+mismatches](tickets/21-triage-remaining-product-columns.md), [Triage every
+flagged R/Python difference for the patient
+arm](tickets/23-triage-patient-arm.md), and [Triage the residual
+product_units_received/product_units_released/product_received_from
+raw-stage mismatches](tickets/24-triage-remaining-raw-column-residual.md).**
+Ticket 12 is `blocked_by: [20, 21, 22, 23]` — ticket 22's closure doesn't
+unblock it yet since 21 and 23 remain (ticket 24 isn't wired as a blocker
+of ticket 12, since it's a residual of 22's already-closed scope, not a
+prerequisite the destination named).
+
 ## Decisions so far
 
 - [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
@@ -818,6 +861,19 @@ explicitly decided" bar. Full detail: [ticket
   decided. Full detail: [ticket
   20](tickets/20-fix-raw-entry-date-representation.md).
 
+- [Triage the remaining product raw-stage column
+  mismatches](tickets/22-triage-product-raw-columns.md) — decided and
+  implemented: a real Python bug (`remove_header_rows` missing blank rows
+  where one cell held `""` instead of `None`) and two comparison-tool
+  normalizations (`normalize_numeric_column` for float-string formatting,
+  `normalize_whitespace_column` for readxl's whitespace-trim and
+  `\r\n`-vs-`\n` defaults) together cut raw-stage product mismatches from
+  2,007 to 105 (95%), verified against the real drive data. Fully resolved
+  `product`, `product_balance`, `product_entry_date`, `product_remarks`,
+  `product_released_to`, `product_units_returned`. Residual split into
+  [ticket 24](tickets/24-triage-remaining-raw-column-residual.md). Full
+  detail: [ticket 22](tickets/22-triage-product-raw-columns.md).
+
 - **Destination redrawn**: performance re-profiling, CLI/UX + observability,
   retiring R from the workspace, and a dependency/library version audit are
   all in this map's scope, not a separate effort — the user confirmed each
@@ -921,6 +977,7 @@ flowchart TB
   subgraph S2026_08_12["Session 2026-08-12"]
     direction LR
     U20["<b>20</b><br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -929,8 +986,8 @@ flowchart TB
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
-    U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
     U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+    U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -988,13 +1045,14 @@ flowchart TB
   U18 -.->|spawned| U21
   U18 -.->|spawned| U22
   U18 -.->|spawned| U23
+  U22 -.->|spawned| U24
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U21,U22,U23 tfrontier
+  class U16,U21,U23,U24 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U22 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

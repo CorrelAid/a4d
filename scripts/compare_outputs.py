@@ -42,6 +42,8 @@ from a4d.migration.compare import (
     compare_directory,
     compute_deltas,
     normalize_date_column,
+    normalize_numeric_column,
+    normalize_whitespace_column,
     snapshot_from_summary,
 )
 
@@ -85,21 +87,42 @@ PRODUCT_ORDINAL_GROUP_COLS = ["clinic_id", "product_sheet_name"]
 PRODUCT_ID_COL = "product"
 PRODUCT_CATEGORICAL_COLS = ["product_category", "product_balance_status"]
 
+# Raw-stage-only (ticket 22): readxl's trim_ws=TRUE default strips whitespace
+# R-side that openpyxl-based Python extraction preserves as-is. Every raw
+# string column except product_entry_date (date-normalized instead) and
+# product_balance (numeric-normalized instead).
+PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS = [
+    "product",
+    "product_received_from",
+    "product_released_to",
+    "product_remarks",
+    "product_units_received",
+    "product_units_released",
+    "product_units_returned",
+    "product_returned_by",
+]
+
 CLASSIFIERS_BY_COLUMN = {
     "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
     "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity
-# column, categorical columns, ordinal_group_cols, date_normalize_cols). Raw
-# and cleaned are compared separately so a divergence can be localized to
-# extraction vs. cleaning; categorical columns listed here that don't exist
-# yet at the raw stage are silently skipped by compare_categorical_overlap.
+# column, categorical columns, ordinal_group_cols, date_normalize_cols,
+# numeric_normalize_cols, whitespace_normalize_cols). Raw and cleaned are
+# compared separately so a divergence can be localized to extraction vs.
+# cleaning; categorical columns listed here that don't exist yet at the raw
+# stage are silently skipped by compare_categorical_overlap.
 # date_normalize_cols is raw-stage-only (ticket 20): R's raw extraction
 # stores unparsed source date text (an Excel serial for date-formatted
 # cells) while Python's raw extraction already ISO-formats parsed dates --
 # a representation difference, not a real divergence, that the cleaned
 # stage never has since both sides are already parsed dates there.
+# numeric_normalize_cols and whitespace_normalize_cols are raw-stage-only
+# too, for the same reason (ticket 22): R's own float-to-string conversion
+# rounds a raw numeric column's trailing digits differently, and readxl's
+# trim_ws=TRUE default strips whitespace R-side that Python's raw extraction
+# preserves as-is -- both representation differences, not real divergences.
 STAGES = [
     (
         "Patient (raw)",
@@ -107,6 +130,8 @@ STAGES = [
         PATIENT_KEY_COLS,
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
+        None,
+        None,
         None,
         None,
     ),
@@ -118,6 +143,8 @@ STAGES = [
         PATIENT_CATEGORICAL_COLS,
         None,
         None,
+        None,
+        None,
     ),
     (
         "Product (raw)",
@@ -127,6 +154,8 @@ STAGES = [
         PRODUCT_CATEGORICAL_COLS,
         PRODUCT_ORDINAL_GROUP_COLS,
         ["product_entry_date"],
+        ["product_balance"],
+        PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS,
     ),
     (
         "Product (cleaned)",
@@ -135,6 +164,8 @@ STAGES = [
         PRODUCT_ID_COL,
         PRODUCT_CATEGORICAL_COLS,
         PRODUCT_ORDINAL_GROUP_COLS,
+        None,
+        None,
         None,
     ),
 ]
@@ -159,6 +190,8 @@ def _compare_arm(
     categorical_cols: list[str],
     ordinal_group_cols: list[str] | None = None,
     date_normalize_cols: list[str] | None = None,
+    numeric_normalize_cols: list[str] | None = None,
+    whitespace_normalize_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
@@ -166,6 +199,14 @@ def _compare_arm(
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_date_column(df, column)
+    for column in numeric_normalize_cols or []:
+        for frames in (r_frames, py_frames):
+            for name, df in frames.items():
+                frames[name] = normalize_numeric_column(df, column)
+    for column in whitespace_normalize_cols or []:
+        for frames in (r_frames, py_frames):
+            for name, df in frames.items():
+                frames[name] = normalize_whitespace_column(df, column)
     if ordinal_group_cols is not None:
         resolved_key_cols = None
         for frames in (r_frames, py_frames):
@@ -428,6 +469,8 @@ def compare(
         categorical_cols,
         ordinal_group_cols,
         date_normalize_cols,
+        numeric_normalize_cols,
+        whitespace_normalize_cols,
     ) in STAGES:
         comparison = _compare_arm(
             r_dir / subdir,
@@ -437,6 +480,8 @@ def compare(
             categorical_cols,
             ordinal_group_cols,
             date_normalize_cols,
+            numeric_normalize_cols,
+            whitespace_normalize_cols,
         )
         _print_summary(label, comparison, only_mismatches)
 

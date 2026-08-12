@@ -50,6 +50,7 @@ flowchart TB
   subgraph S2026_08_12["Session 2026-08-12"]
     direction LR
     U20["<b>20</b><br/>Normalize the raw-stage<br/>product_entry_date<br/>comparison so it stops<br/>flagging near-universal<br/>false mismatches"]
+    U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -58,8 +59,8 @@ flowchart TB
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U21["<b>21</b><br/>Triage the remaining<br/>product cleaned-stage<br/>column mismatches<br/>(balance, received_from,<br/>released_to, remarks,<br/>units_received, product)"]
-    U22["<b>22</b><br/>Triage the remaining<br/>product raw-stage column<br/>mismatches"]
     U23["<b>23</b><br/>Triage every flagged<br/>R/Python difference for<br/>the patient arm (raw and<br/>cleaned)"]
+    U24["<b>24</b><br/>Triage the residual prod<br/>uct_units_received/produ<br/>ct_units_released/produc<br/>t_received_from raw-<br/>stage mismatches"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -117,12 +118,13 @@ flowchart TB
   U18 -.->|spawned| U21
   U18 -.->|spawned| U22
   U18 -.->|spawned| U23
+  U22 -.->|spawned| U24
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U21,U22,U23 tfrontier
+  class U16,U21,U23,U24 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U22 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
