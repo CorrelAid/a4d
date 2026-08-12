@@ -165,3 +165,50 @@ Whichever is chosen, consider logging a data-quality error when the
 recomputed balance disagrees with the source's recorded balance: nothing
 currently surfaces that, and it is the signal that would have exposed the R
 date-serial corruption above from the tracker side.
+
+### Decision on the balance question (user, 2026-08-12h) — implemented
+
+**Option 1 chosen: keep the current recompute-after-chronological-sort
+behaviour, and add a clear log warning.** The source's balance column
+accumulates in data-entry order, which is not a meaningful stock history when
+entries are out of order, so reverting to it would trade a coherent series
+for a faithful-looking but less useful one. Python's closing stock is already
+correct in every group. What was missing was any signal when the ledger and
+the tracker's own total disagree.
+
+**Implemented.** `_compute_running_balance` (`src/a4d/clean/product.py` step
+2.15) now takes an optional `ErrorCollector` and, via
+`_report_balance_reconciliation`, reports **per (sheet, product) group** when
+the computed closing balance contradicts the balance the tracker itself
+recorded. New error code `balance_reconciliation` in `src/a4d/errors.py`; it
+flows into the errors/logs tables and BigQuery unchanged, since nothing
+filters by code.
+
+**Granularity was chosen by measurement, not by taste** — this is the part a
+later session should not re-litigate:
+
+| Candidate signal | Fires on real 248-tracker data | Verdict |
+|---|---|---|
+| Every row where computed != recorded | 15,301 rows (31.4% of recorded rows) | Noise — this is the re-sort working as designed |
+| Per-group closing balance, incl. start-only groups | 781 groups (7.0%) | Still mostly false: a group whose only recorded balance is its start has no closing figure to reconcile |
+| **Per-group closing balance, groups that recorded a non-start balance** | **113 groups (1.1%), 21 files** | **Chosen** — order-independent, so a disagreement is a real source problem |
+
+Verified end-to-end: all 248 cleaned outputs re-run and confirmed
+**byte-identical** to the previous run (no pipeline behaviour changed, only
+reporting), and the live run produces exactly the 113 warnings predicted.
+Example message:
+
+> Closing balance mismatch for product 'NovoRapid FlexPen 3ml (singles/ 5s)'
+> in sheet 'Mar26': tracker recorded 34.0, but the recorded transactions add
+> up to 68.0 (difference 34.0). The stock movements and the tracker's own
+> total do not agree.
+
+Warnings concentrate rather than scatter — 54 of the 113 are in
+`2021_Mahosot Hospital`, 12 in `2021_Mandalay Children's Hospital` — so they
+point at specific trackers worth investigating.
+
+**Still open for this ticket:** the five columns' classification (including
+`product_balance`'s 1,976 `unclassified` rows) is untouched by the above; the
+new warning is an operability improvement, not a triage verdict. Whether the
+113 flagged groups are source data-entry errors or something the pipeline
+mishandles has **not** been investigated.

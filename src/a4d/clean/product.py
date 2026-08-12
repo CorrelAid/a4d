@@ -123,7 +123,7 @@ def clean_product_data(
     df = _recode_na_units_to_zero(df)  # 2.12
     df = _remove_empty_data_rows(df)  # 2.13
     df = _compute_balance_status(df)  # 2.14
-    df = _compute_running_balance(df)  # 2.15
+    df = _compute_running_balance(df, error_collector)  # 2.15
 
     # 2.16 — type cast numeric/date columns via ErrorCollector; strip strings
     # so trailing whitespace from openpyxl matches R's readxl trim-on-read.
@@ -853,7 +853,9 @@ def _compute_balance_status(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
+def _compute_running_balance(
+    df: pl.DataFrame, error_collector: ErrorCollector | None = None
+) -> pl.DataFrame:
     """Step 2.15 — compute the running stock balance per product.
 
     Formula: ``balance[i] = balance[i-1] - released[i] + received[i]``.
@@ -872,6 +874,17 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
     positional row in each (sheet, product) group must be labeled
     ``"start"`` because the cumsum below seeds from
     ``product_balance.first().over(group)``.
+
+    Recomputing overwrites whatever balance the tracker recorded on
+    ``change``/``end`` rows -- R does the same (``compute_balance``,
+    helper_product_data.R). Because step 2.7 sorts chronologically while the
+    source's own balance column accumulates in data-entry order, the
+    *intermediate* balances legitimately differ from the tracker's (31% of
+    recorded rows on the real 248-tracker set) and are not worth reporting.
+    The *closing* balance is order-independent, though, so a disagreement
+    there means the transactions and the tracker's own recorded total do not
+    add up -- a real source problem, and the only thing this step reports
+    (ticket 36; 1.1% of groups on the same data).
     """
     group = ["product_sheet_name", "product"] if "product_sheet_name" in df.columns else ["product"]
 
@@ -936,12 +949,89 @@ def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
         .then(pl.lit(0.0))
         .otherwise(pl.col("product_units_received") - pl.col("product_units_released"))
     )
+    source_balance = df.select(
+        pl.col("product_balance").alias("_source_balance"),
+        *[pl.col(c) for c in group],
+        pl.col("product_balance_status"),
+        *([pl.col("index")] if "index" in df.columns else []),
+        *([pl.col("file_name")] if "file_name" in df.columns else []),
+    )
+
     df = df.with_columns(
         (pl.col("product_balance").first().over(group) + delta.cum_sum().over(group))
         .round(10)
         .alias("product_balance")
     )
+
+    if error_collector is not None:
+        _report_balance_reconciliation(df, source_balance, group, error_collector)
     return df
+
+
+BALANCE_RECONCILIATION_ABS_TOL = 1e-6
+BALANCE_RECONCILIATION_REL_TOL = 1e-9
+
+
+def _report_balance_reconciliation(
+    df: pl.DataFrame,
+    source_balance: pl.DataFrame,
+    group: list[str],
+    error_collector: ErrorCollector,
+) -> None:
+    """Flag groups whose recomputed closing stock contradicts the tracker's own.
+
+    Compares the last balance the source recorded on a ``change``/``end`` row
+    (in the file's original input order, so the chronological re-sort cannot
+    change which value counts as "the tracker's closing figure") against the
+    computed closing balance. Groups where the source left every non-start
+    balance blank -- the common case -- have nothing to reconcile and are
+    skipped, since warning on them would bury the real signal.
+    """
+    recorded = source_balance.filter(
+        (pl.col("product_balance_status") != "start") & pl.col("_source_balance").is_not_null()
+    )
+    if recorded.height == 0:
+        return
+    if "index" in recorded.columns:
+        recorded = recorded.sort("index")
+    source_closing = recorded.group_by(group).agg(
+        pl.col("_source_balance").last().alias("_source_closing")
+    )
+
+    computed_closing = df.group_by(group).agg(
+        pl.col("product_balance").last().alias("_computed_closing"),
+        *([pl.col("file_name").last().alias("_file_name")] if "file_name" in df.columns else []),
+    )
+
+    joined = source_closing.join(computed_closing, on=group, how="inner")
+    for row in joined.iter_rows(named=True):
+        source_value = row["_source_closing"]
+        computed = row["_computed_closing"]
+        if computed is None:
+            continue
+        tolerance = max(
+            BALANCE_RECONCILIATION_ABS_TOL,
+            BALANCE_RECONCILIATION_REL_TOL * max(abs(source_value), abs(computed)),
+        )
+        if abs(source_value - computed) <= tolerance:
+            continue
+        product = row.get("product") or "unknown"
+        sheet_name = row.get("product_sheet_name") or "unknown"
+        error_collector.add_error(
+            file_name=row.get("_file_name") or "unknown",
+            patient_id="unknown",
+            column="product_balance",
+            original_value=source_value,
+            error_message=(
+                f"Closing balance mismatch for product '{product}' in sheet "
+                f"'{sheet_name}': tracker recorded {source_value}, but the "
+                f"recorded transactions add up to {computed} "
+                f"(difference {round(computed - source_value, 10)}). "
+                "The stock movements and the tracker's own total do not agree."
+            ),
+            error_code="balance_reconciliation",
+            function_name="_compute_running_balance",
+        )
 
 
 def _validate_negative_balances(

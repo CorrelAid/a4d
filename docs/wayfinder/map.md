@@ -1003,6 +1003,26 @@ residual**: 29, 30, 31 and 36 are ticket 12's direct blockers
 those four closed). Tickets 16, 32, 34 and 35 are independently takeable and
 not wired as blockers.**
 
+**A pipeline change landed outside a ticket closure** (same session, after
+ticket 25 closed, at the user's direction): the user asked whether
+`_compute_running_balance` is itself wrong. It is not — it mirrors R's
+`compute_balance` exactly, and both pipelines discard the tracker's recorded
+per-row balance by design. What differs is only the order the ledger
+accumulates in, downstream of step 2.7's chronological sort. Measured across
+all 11,649 product groups: balances are wholly identical in 95.4%, closing
+stock identical in 98.6%, and of the 158 differing endpoints 153 are float
+noise where **Python is the cleaner side** (it rounds, R does not) and 5 are
+**R corrupted by an Excel date serial** (2019 Penang General Hospital closes
+at 43,572 in R vs 6.0 in Python). Python's closing stock is correct in every
+group. The user decided to keep the current behaviour and add the missing
+signal: `_compute_running_balance` now reports, per (sheet, product) group,
+when the computed closing balance contradicts the tracker's own recorded
+total — a new `balance_reconciliation` error code, firing on 113 groups
+across 21 files (1.1%), with all 248 cleaned outputs verified byte-identical
+so no production data moved. The granularity was picked by measurement (a
+per-row check would have fired 15,301 times). Full detail: [ticket 36's
+addendum](tickets/36-triage-product-cleaned-unclassified-residual.md#addendum-session-2026-08-12h-the-balance-mechanism-measured).
+
 ## Decisions so far
 
 - [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
