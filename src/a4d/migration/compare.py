@@ -441,6 +441,41 @@ PRODUCT_ROW_ORDER_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_extraction_gap(m: CellMismatch) -> bool:
+    """R produced null where Python has a real value.
+
+    Verified against the real source Excel (ticket 28): R's static
+    "Patient List" recruitment-date extraction fails to populate
+    recruitment_date for the large majority of patients even where the
+    tracker plainly records one (e.g. Quirino Memorial Medical Center,
+    patient PH_QD001, "Date of Recruitment" = 2025-12-01 in the source file --
+    Python extracts it correctly, R leaves it null). A genuine R limitation,
+    not a Python defect.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PATIENT_RECRUITMENT_DATE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_extraction_gap": _is_r_extraction_gap,
+}
+
+
+def _is_r_validator_rejects_multivalue(m: CellMismatch) -> bool:
+    """R's own allowed-values validator rejects the multi-insulin CSV output
+    R's own derivation logic produces for 2024+ trackers, replacing it with
+    the "Undefined" sentinel -- confirmed in code (src/a4d/clean/patient.py's
+    _derive_insulin_fields docstring, ticket 28): Python's derivation is a
+    deliberate, documented correction of an R typo and validator bug, not a
+    parity gap to close.
+    """
+    return m.r_value == "Undefined" and m.py_value is not None
+
+
+PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_validator_rejects_multivalue": _is_r_validator_rejects_multivalue,
+}
+
+
 @dataclass(frozen=True)
 class FileComparison:
     file_name: str

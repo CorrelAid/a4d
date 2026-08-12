@@ -34,6 +34,8 @@ from rich.table import Table
 
 from a4d.clean.schema import get_date_columns
 from a4d.migration.compare import (
+    PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
@@ -131,6 +133,15 @@ PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS = [
 PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS = ["product"]
 
 CLASSIFIERS_BY_COLUMN = {
+    # ticket 28: R's static "Patient List" recruitment-date extraction fails
+    # to populate recruitment_date for most patients even where the tracker
+    # plainly records one -- verified against the real source Excel.
+    "recruitment_date": PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    # ticket 28: R's own allowed-values validator rejects the multi-insulin
+    # CSV output R's own derivation logic produces for 2024+ trackers --
+    # already documented as a deliberate Python correction in
+    # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
+    "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
     "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
     # ticket 21: cleaned-stage columns whose mismatches are dominated by a

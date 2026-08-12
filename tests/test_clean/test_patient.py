@@ -416,3 +416,38 @@ class TestFixT1dDiagnosisAge:
 
         # Should be calculated as 14
         assert result["t1d_diagnosis_age"][0] == 14
+
+    def test_keeps_recorded_age_when_dates_missing(self):
+        """A real recorded diagnosis age must survive even if the dates
+        needed to recompute it don't parse -- R never recomputes this field
+        at all, so a directly recorded value should never be discarded to
+        null just because the calculation can't run."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": pl.Series([None], dtype=pl.Date),
+                "t1d_diagnosis_date": pl.Series([None], dtype=pl.Date),
+                "t1d_diagnosis_age": [12],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] == 12
+
+    def test_keeps_recorded_age_over_disagreeing_calculation(self):
+        """A real recorded diagnosis age is trusted over date arithmetic even
+        when both dates parse and disagree with it -- the recorded value is
+        the clinic's own entry, not something to silently override."""
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2005, 8, 20)],
+                "t1d_diagnosis_date": [date(2020, 3, 15)],  # would calculate to 14
+                "t1d_diagnosis_age": [15],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] == 15

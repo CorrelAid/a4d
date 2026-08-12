@@ -5,6 +5,8 @@ import datetime
 import polars as pl
 
 from a4d.migration.compare import (
+    PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
@@ -569,6 +571,35 @@ class TestClassify:
         )
 
         assert classify(mismatch, PRODUCT_ROW_ORDER_CLASSIFIERS) == "unclassified"
+
+    def test_r_extraction_gap_when_r_is_null_and_python_has_a_date(self):
+        mismatch = _mismatch(
+            r_value=None, py_value=datetime.date(2025, 12, 1), column="recruitment_date"
+        )
+
+        assert classify(mismatch, PATIENT_RECRUITMENT_DATE_CLASSIFIERS) == "r_extraction_gap"
+
+    def test_recruitment_date_unclassified_when_both_sides_null(self):
+        mismatch = _mismatch(r_value=None, py_value=None, column="recruitment_date")
+
+        assert classify(mismatch, PATIENT_RECRUITMENT_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_r_validator_rejects_multivalue_when_r_is_undefined(self):
+        mismatch = _mismatch(
+            r_value="Undefined", py_value="Rapid-acting,Long-acting", column="insulin_subtype"
+        )
+
+        assert (
+            classify(mismatch, PATIENT_INSULIN_SUBTYPE_CLASSIFIERS)
+            == "r_validator_rejects_multivalue"
+        )
+
+    def test_insulin_subtype_unclassified_when_r_is_not_the_undefined_sentinel(self):
+        mismatch = _mismatch(
+            r_value="Long-acting", py_value="Rapid-acting", column="insulin_subtype"
+        )
+
+        assert classify(mismatch, PATIENT_INSULIN_SUBTYPE_CLASSIFIERS) == "unclassified"
 
 
 class TestCompareDirectory:
