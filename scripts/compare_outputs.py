@@ -32,6 +32,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from a4d.clean.schema import get_date_columns
 from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -87,6 +88,14 @@ PATIENT_CATEGORICAL_COLS = [
     "status",
     "support_level",
 ]
+
+# Raw-stage-only, derived from the cleaned schema's own pl.Date columns
+# (ticket 23): the same representation gap ticket 20 found and fixed for
+# product's raw product_entry_date -- R's raw extraction stores the
+# unparsed source text (an Excel serial for date-formatted cells) while
+# Python's raw extraction already ISO-formats parsed dates. Cleaned stage
+# never needs this since both sides are already parsed dates there.
+PATIENT_RAW_DATE_NORMALIZE_COLS = get_date_columns()
 
 # Ordinal position within (clinic_id, product_sheet_name) -- see
 # add_row_ordinal's docstring. Replaces the old equi-join key (clinic_id,
@@ -161,7 +170,7 @@ STAGES = [
         PATIENT_ID_COL,
         PATIENT_CATEGORICAL_COLS,
         None,
-        None,
+        PATIENT_RAW_DATE_NORMALIZE_COLS,
         None,
         None,
     ),
