@@ -71,3 +71,18 @@ largest first:
 
 This ticket is large -- if it doesn't converge in one session, split further
 rather than leaving it open-ended, per the pattern ticket 18/27 established.
+
+
+## Standing bar (added 2026-08-12g, applies to this ticket)
+
+Per the map's **triage means deciding, not labelling** preference: it is not
+enough to explain a difference and name a cause. Each one must also carry an
+explicit verdict on **whether Python is doing the right thing**, with the
+evidence that establishes it (source Excel, or R's/Python's own code). Noting
+"Python has A where R has B" and adding a classifier is not a decision in
+favour of A. Where Python turns out to be wrong or to be losing information
+the source file carried, fix the pipeline rather than labelling the symptom
+— see [ticket 27](27-triage-patient-raw-residual.md), where exactly that
+turned a labelling job into a real extraction fix. A cause genuinely
+undecidable on available evidence is recorded as an open question, not
+closed with a label.

@@ -42,6 +42,7 @@ from a4d.migration.compare import (
     normalize_numeric_column,
     normalize_whitespace_column,
     snapshot_from_summary,
+    summarize_directory,
 )
 
 
@@ -1072,3 +1073,57 @@ class TestBuildMismatchRows:
                 "py_dtype": "Float64",
             },
         ]
+
+
+class TestSummarizeDirectory:
+    def _comparison(self):
+        clean = FileComparison(
+            file_name="clean.parquet",
+            shape=ShapeResult(r_rows=2, py_rows=2, match=True),
+            columns=ColumnsResult(only_in_r=[], only_in_py=[], dtype_mismatches=[]),
+            totals=[],
+            cell_mismatches=[],
+            id_overlap=IdOverlapResult(only_in_r=[], only_in_py=[], common_count=2),
+            categorical_overlap=[],
+            row_key_overlap=RowKeyOverlap(matched=2, r_unmatched=0, py_unmatched=0),
+        )
+        dirty = FileComparison(
+            file_name="dirty.parquet",
+            shape=ShapeResult(r_rows=3, py_rows=2, match=False),
+            columns=ColumnsResult(
+                only_in_r=["a"], only_in_py=["b"], dtype_mismatches=[("c", "Int32", "Float64")]
+            ),
+            totals=[TotalsMismatch(column="c", r_total=1.0, py_total=2.0)],
+            cell_mismatches=[CellMismatch(key={"id": 1}, column="c", r_value=1, py_value=2)],
+            id_overlap=IdOverlapResult(only_in_r=["X"], only_in_py=["Y", "Z"], common_count=1),
+            categorical_overlap=[
+                CategoricalOverlap(column="s", only_in_r=["p"], only_in_py=[]),
+            ],
+            row_key_overlap=RowKeyOverlap(matched=1, r_unmatched=2, py_unmatched=1),
+        )
+        return DirectoryComparison(files=[clean, dirty], only_in_r=["gone.parquet"], only_in_py=[])
+
+    def test_counts_files_affected_and_totals_per_measure(self):
+        summary = summarize_directory(self._comparison())
+
+        assert summary.files_compared == 2
+        assert summary.shape_mismatch_files == 1
+        assert summary.id_divergence == (1, 3)
+        assert summary.column_divergence == (1, 3)
+        assert summary.categorical_divergence == (1, 1)
+        assert summary.totals_divergence == (1, 1)
+        assert summary.row_key_divergence == (1, 3)
+        assert summary.cell_divergence == (1, 1)
+        assert summary.only_in_r == 1
+        assert summary.only_in_py == 0
+
+    def test_all_clean_directory_reports_zero_everywhere(self):
+        comparison = self._comparison()
+        clean_only = DirectoryComparison(files=[comparison.files[0]], only_in_r=[], only_in_py=[])
+
+        summary = summarize_directory(clean_only)
+
+        assert summary.files_compared == 1
+        assert summary.shape_mismatch_files == 0
+        assert summary.cell_divergence == (0, 0)
+        assert summary.row_key_divergence == (0, 0)

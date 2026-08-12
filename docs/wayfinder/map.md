@@ -36,13 +36,14 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 5"]
+  subgraph FRONTIER["Frontier · 6"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T25["<b>25</b> · task<br/>Triage the<br/>product_units_released<br/>cleaned-stage column<br/>mismatches"]
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
+    T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -118,7 +119,7 @@ flowchart TD
   T31 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T25,T29,T30,T31 frontier
+  class T16,T25,T29,T30,T31,T32 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -185,6 +186,25 @@ flowchart TD
   green tests + a clean review sufficient grounds to merge without it
   (corrected mid-session on 2026-08-08, after ticket 2 had originally been
   wired as a merge blocker).
+- **Standing preference — triage means deciding, not labelling** (set by the
+  user 2026-08-12g, after [ticket 27](tickets/27-triage-patient-raw-residual.md)
+  had to be reopened for exactly this). Every flagged R/Python difference
+  has to clear two bars, not one:
+  1. **Explain the diff** — the actual mechanism, traced to source Excel or
+     to R's/Python's own code, not a shape-matching heuristic.
+  2. **Decide whether Python is doing the right thing** — and say so
+     explicitly, with what was checked.
+
+  Observing "Python has A where R has B" and adding a named classifier is
+  **not** a decision in favour of A. A classifier records that a difference
+  is understood; it says nothing about whether Python is correct, and
+  writing one is not permission to stop. Where Python turns out to be
+  wrong, or to be losing information the source file carried, the pipeline
+  gets fixed — ticket 27's precedent: what looked like a labelling job was
+  really extraction silently discarding data, and the classifier would have
+  cemented the bug as "explained". A cause that is genuinely undecidable
+  from the evidence available is recorded as an open question, not closed
+  with a label.
 - Redraw command: `~/.claude/skills/wayfinder/scripts/render-map.sh docs/wayfinder`
 
 ## Where this map stands
@@ -1322,6 +1342,20 @@ feature.**
   31](tickets/31-triage-patient-raw-residual-2.md). Full detail: [ticket
   27](tickets/27-triage-patient-raw-residual.md).
 
+- **Standing bar set: triage means deciding, not labelling** (user, 2026-08-12g,
+  after [ticket 27](tickets/27-triage-patient-raw-residual.md) had to be
+  reopened for exactly this failure). Explaining a difference and naming a
+  cause is only half the job; every flagged difference must also carry an
+  explicit verdict on whether Python is doing the right thing. "Python has A
+  where R has B" plus a classifier is not a decision in favour of A. Recorded
+  in the map's Notes, propagated into every open triage ticket's body, and
+  spawned [ticket 32](tickets/32-audit-classifiers-against-decision-bar.md)
+  to re-audit all nine existing classifier registries against it —
+  `off_by_one_day` (labels a one-day date gap without ever deciding which
+  side is right) and `r_value_missing` (11,468 cleaned product rows,
+  generalized from a single verified instance, knowingly lumping two distinct
+  causes) are the clearest failures.
+
 ## Assumptions in force
 
 (none currently — the one assumption this map carried, patient's completeness
@@ -1444,6 +1478,7 @@ flowchart TB
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
+    U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1520,9 +1555,10 @@ flowchart TB
   U28 -.->|spawned| U29
   U26 -.->|spawned| U30
   U27 -.->|spawned| U31
+  U27 -.->|spawned| U32
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31 tfrontier
+  class U16,U25,U29,U30,U31,U32 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff

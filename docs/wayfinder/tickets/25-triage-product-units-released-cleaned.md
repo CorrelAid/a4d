@@ -53,3 +53,18 @@ explanation. If it's the same cause, wiring the existing classifier may be
 enough; if not, fall back to the real source Excel trackers
 (`a4dphase2_upload`) as the arbiter per the destination's standing
 verification bar.
+
+
+## Standing bar (added 2026-08-12g, applies to this ticket)
+
+Per the map's **triage means deciding, not labelling** preference: it is not
+enough to explain a difference and name a cause. Each one must also carry an
+explicit verdict on **whether Python is doing the right thing**, with the
+evidence that establishes it (source Excel, or R's/Python's own code). Noting
+"Python has A where R has B" and adding a classifier is not a decision in
+favour of A. Where Python turns out to be wrong or to be losing information
+the source file carried, fix the pipeline rather than labelling the symptom
+— see [ticket 27](27-triage-patient-raw-residual.md), where exactly that
+turned a labelling job into a real extraction fix. A cause genuinely
+undecidable on available evidence is recorded as an open question, not
+closed with a label.

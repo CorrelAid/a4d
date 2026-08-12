@@ -83,6 +83,7 @@ flowchart TB
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
+    U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -159,9 +160,10 @@ flowchart TB
   U28 -.->|spawned| U29
   U26 -.->|spawned| U30
   U27 -.->|spawned| U31
+  U27 -.->|spawned| U32
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U25,U29,U30,U31 tfrontier
+  class U16,U25,U29,U30,U31,U32 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff

@@ -641,6 +641,64 @@ class DirectoryComparison:
     only_in_py: list[str]
 
 
+@dataclass(frozen=True)
+class DirectorySummary:
+    """Whole-arm rollup of a DirectoryComparison.
+
+    Each measure is ``(files_affected, total)`` -- the per-file table shows
+    where a divergence is, this shows how much of it there is overall, which
+    is otherwise only obtainable by scrolling every year's table.
+    """
+
+    files_compared: int
+    shape_mismatch_files: int
+    id_divergence: tuple[int, int]
+    column_divergence: tuple[int, int]
+    categorical_divergence: tuple[int, int]
+    totals_divergence: tuple[int, int]
+    row_key_divergence: tuple[int, int]
+    cell_divergence: tuple[int, int]
+    only_in_r: int
+    only_in_py: int
+
+
+def summarize_directory(comparison: DirectoryComparison) -> DirectorySummary:
+    """Roll a DirectoryComparison up into per-measure (files affected, total)."""
+
+    def rollup(per_file: list[int]) -> tuple[int, int]:
+        return sum(1 for n in per_file if n), sum(per_file)
+
+    files = comparison.files
+    return DirectorySummary(
+        files_compared=len(files),
+        shape_mismatch_files=sum(1 for f in files if not f.shape.match),
+        id_divergence=rollup(
+            [
+                0
+                if f.id_overlap is None
+                else len(f.id_overlap.only_in_r) + len(f.id_overlap.only_in_py)
+                for f in files
+            ]
+        ),
+        column_divergence=rollup(
+            [
+                len(f.columns.only_in_r)
+                + len(f.columns.only_in_py)
+                + len(f.columns.dtype_mismatches)
+                for f in files
+            ]
+        ),
+        categorical_divergence=rollup([len(f.categorical_overlap) for f in files]),
+        totals_divergence=rollup([len(f.totals) for f in files]),
+        row_key_divergence=rollup(
+            [f.row_key_overlap.r_unmatched + f.row_key_overlap.py_unmatched for f in files]
+        ),
+        cell_divergence=rollup([len(f.cell_mismatches) for f in files]),
+        only_in_r=len(comparison.only_in_r),
+        only_in_py=len(comparison.only_in_py),
+    )
+
+
 def compare_directory(
     r_frames: dict[str, pl.DataFrame],
     py_frames: dict[str, pl.DataFrame],
