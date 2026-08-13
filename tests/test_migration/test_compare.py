@@ -4,16 +4,22 @@ import datetime
 
 import polars as pl
 
+from a4d.clean.schema_product import get_product_data_schema
 from a4d.migration.compare import (
+    DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    GROUP_INVARIANT_PRODUCT_COLUMNS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    ROW_ORDINAL_COL,
     SENTINEL_DATE,
     STRAY_DATE_CLASSIFIERS,
+    STRAY_DATE_ZEROED_CLASSIFIERS,
     WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
     CategoricalOverlap,
     CellMismatch,
@@ -480,6 +486,44 @@ class TestCompareCells:
         assert by_id[0].row_order_candidate is True
         assert by_id[1].row_order_candidate is False
 
+    def test_group_endpoint_matches_when_last_positional_row_agrees(self):
+        """Ticket 36: a derived running total diverges on every intermediate
+        row under a re-sort but still lands on the same closing value."""
+        r_df = pl.DataFrame(
+            {"grp": ["a"] * 3, ROW_ORDINAL_COL: [0, 1, 2], "balance": [10.0, 8.0, 5.0]}
+        )
+        py_df = pl.DataFrame(
+            {"grp": ["a"] * 3, ROW_ORDINAL_COL: [0, 1, 2], "balance": [10.0, 7.0, 5.0]}
+        )
+
+        result = compare_cells(
+            r_df, py_df, key_cols=["grp", ROW_ORDINAL_COL], order_group_cols=["grp"]
+        )
+
+        assert [m.group_endpoint_matches for m in result] == [True]
+
+    def test_group_endpoint_matches_false_when_last_positional_row_differs(self):
+        r_df = pl.DataFrame(
+            {"grp": ["a"] * 3, ROW_ORDINAL_COL: [0, 1, 2], "balance": [10.0, 8.0, 43572.0]}
+        )
+        py_df = pl.DataFrame(
+            {"grp": ["a"] * 3, ROW_ORDINAL_COL: [0, 1, 2], "balance": [10.0, 7.0, 5.0]}
+        )
+
+        result = compare_cells(
+            r_df, py_df, key_cols=["grp", ROW_ORDINAL_COL], order_group_cols=["grp"]
+        )
+
+        assert all(m.group_endpoint_matches is False for m in result)
+
+    def test_group_endpoint_matches_false_without_a_positional_ordinal(self):
+        r_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [10.0]})
+        py_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [999.0]})
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        assert all(m.group_endpoint_matches is False for m in result)
+
     def test_row_order_candidate_false_when_value_genuinely_absent_from_group(self):
         r_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [10.0]})
         py_df = pl.DataFrame({"grp": ["a"], "id": [0], "balance": [999.0]})
@@ -639,6 +683,80 @@ class TestClassify:
         )
 
         assert classify(mismatch, STRAY_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_derived_running_total_row_order_when_group_endpoint_matches(self):
+        """Ticket 36: product_balance is recomputed as a running total, so it
+        cannot travel with its row under a re-sort -- the order-independent
+        evidence is the group's closing balance, not value membership."""
+        mismatch = CellMismatch(
+            key={"clinic_id": "MHS"},
+            column="product_balance",
+            r_value=310.0,
+            py_value=306.0,
+            group_endpoint_matches=True,
+        )
+
+        assert (
+            classify(mismatch, DERIVED_RUNNING_TOTAL_CLASSIFIERS)
+            == "derived_running_total_row_order"
+        )
+
+    def test_derived_running_total_unclassified_when_group_endpoint_differs(self):
+        """A group whose closing balance disagrees is a real divergence, not a
+        re-sort -- it must not be swept up by the same label."""
+        mismatch = CellMismatch(
+            key={"clinic_id": "SBY"},
+            column="product_balance",
+            r_value=43572.0,
+            py_value=6.0,
+            group_endpoint_matches=False,
+        )
+
+        assert classify(mismatch, DERIVED_RUNNING_TOTAL_CLASSIFIERS) == "unclassified"
+
+    def test_python_future_date_sentinel_when_python_holds_the_error_sentinel(self):
+        mismatch = _mismatch(r_value=datetime.date(2029, 8, 29), py_value=SENTINEL_DATE)
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "python_future_date_sentinel"
+
+    def test_python_future_date_sentinel_unclassified_when_python_holds_a_real_date(self):
+        mismatch = _mismatch(
+            r_value=datetime.date(2029, 8, 29), py_value=datetime.date(2023, 8, 29)
+        )
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) != "python_future_date_sentinel"
+
+    def test_summary_residue_nulled_when_r_holds_a_tiny_serial_and_python_is_null(self):
+        mismatch = _mismatch(r_value=datetime.date(1900, 1, 30), py_value=None)
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "summary_residue_nulled"
+
+    def test_summary_residue_nulled_unclassified_when_r_holds_a_real_date(self):
+        mismatch = _mismatch(r_value=datetime.date(2023, 8, 29), py_value=None)
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "unclassified"
+
+    def test_stray_date_zeroed_when_r_holds_a_serial_and_python_cleaned_it_to_zero(self):
+        """Ticket 36: the cleaned-stage face of STRAY_DATE_CLASSIFIERS' cause."""
+        mismatch = _mismatch(r_value=43708.0, py_value=0.0, column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_ZEROED_CLASSIFIERS) == "stray_date_zeroed"
+
+    def test_stray_date_zeroed_unclassified_when_python_is_a_real_quantity(self):
+        mismatch = _mismatch(r_value=43708.0, py_value=12.0, column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_ZEROED_CLASSIFIERS) == "unclassified"
+
+    def test_stray_date_zeroed_unclassified_when_r_value_is_a_plausible_quantity(self):
+        """A real unit count must never be mistaken for a date serial."""
+        mismatch = _mismatch(r_value=120.0, py_value=0.0, column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_ZEROED_CLASSIFIERS) == "unclassified"
+
+    def test_stray_date_zeroed_unclassified_when_r_value_is_not_numeric(self):
+        mismatch = _mismatch(r_value="START BALANCE", py_value=0.0, column="product_units_received")
+
+        assert classify(mismatch, STRAY_DATE_ZEROED_CLASSIFIERS) == "unclassified"
 
     def test_wide_format_fragment_truncated_when_python_value_extends_r_value(self):
         mismatch = _mismatch(
@@ -1157,16 +1275,19 @@ class TestClassifiersByColumnWiring:
 
     def test_every_positional_key_product_column_carries_row_order_classifier(self):
         """Product columns are aligned by ordinal position, so any within-group
-        sort-order divergence surfaces on all of them -- none may omit it."""
+        sort-order divergence surfaces on all of them -- none may omit it.
+
+        Ticket 36: the column list is derived from the product schema rather
+        than written out. The hand-written version this replaces named seven
+        columns and omitted `product_entry_date`, which then reported 169
+        cleaned-stage mismatches as `unclassified` for exactly the reason this
+        test exists to prevent.
+        """
         registries = self._classifiers_by_column()
         positional_columns = [
-            "product_balance",
-            "product_received_from",
-            "product_released_to",
-            "product_remarks",
-            "product_units_received",
-            "product_units_released",
-            "product",
+            column
+            for column in get_product_data_schema()
+            if column not in GROUP_INVARIANT_PRODUCT_COLUMNS
         ]
 
         missing = [
@@ -1188,3 +1309,47 @@ class TestClassifiersByColumnWiring:
         )
 
         assert classify(mismatch, registries["product_units_released"]) == "row_order_divergence"
+
+    def test_entry_date_row_order_mismatch_is_classified(self):
+        """Both sides hold a real date, so `r_value_missing` cannot fire: R's
+        readxl nulled the *text*-formatted date cells in a mixed-type column,
+        which drops R back to input-order sorting (ticket 36)."""
+        registries = self._classifiers_by_column()
+        mismatch = CellMismatch(
+            key={"clinic_id": "VNC"},
+            column="product_entry_date",
+            r_value=datetime.date(2022, 7, 4),
+            py_value=datetime.date(2022, 4, 20),
+            row_order_candidate=True,
+        )
+
+        assert classify(mismatch, registries["product_entry_date"]) == "row_order_divergence"
+
+    def test_units_received_stray_date_zeroed_is_classified(self):
+        registries = self._classifiers_by_column()
+        mismatch = CellMismatch(
+            key={"clinic_id": "SBY"},
+            column="product_units_received",
+            r_value=43708.0,
+            py_value=0.0,
+            row_order_candidate=True,
+        )
+
+        assert classify(mismatch, registries["product_units_received"]) == "stray_date_zeroed"
+
+
+class TestUntrimmedValidationClassifier:
+    """Ticket 36: R sentinels a value for whitespace alone; Python recovers it."""
+
+    def test_classified_when_r_holds_the_character_sentinel(self):
+        mismatch = CellMismatch(key={"id": 1}, column="sex", r_value="Undefined", py_value="F")
+
+        assert (
+            classify(mismatch, PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS)
+            == "r_validator_rejects_untrimmed"
+        )
+
+    def test_unclassified_when_both_sides_hold_real_but_different_values(self):
+        mismatch = CellMismatch(key={"id": 1}, column="sex", r_value="M", py_value="F")
+
+        assert classify(mismatch, PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS) == "unclassified"

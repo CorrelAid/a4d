@@ -8,6 +8,7 @@ from a4d.clean.patient import (
     _apply_preprocessing,
     _fix_age_from_dob,
     _fix_t1d_diagnosis_age,
+    clean_patient_data,
 )
 from a4d.config import settings
 from a4d.errors import ErrorCollector
@@ -451,3 +452,36 @@ class TestFixT1dDiagnosisAge:
         result = _fix_t1d_diagnosis_age(df)
 
         assert result["t1d_diagnosis_age"][0] == 15
+
+
+class TestStripStringWhitespace:
+    """Ticket 36: whitespace at the ends of a string never carries meaning.
+
+    Product's cleaning already stripped every string column (step 2.16) while
+    patient's did not, so the same tracker's `file_name` and `sheet_name`
+    disagreed between `patient_data_cleaned` and `product_data_cleaned` --
+    silently dropping rows from any join between the two arms. Stripping runs
+    before validation, matching readxl's `trim_ws = TRUE` default on R's side,
+    so a value is not rejected for whitespace alone.
+    """
+
+    def test_strips_identifier_columns(self):
+        df_raw = pl.DataFrame(
+            {
+                "file_name": ["2024_Some Hospital A4D Tracker - final "],
+                "sheet_name": ["Dec24 "],
+                "patient_id": ["MY_AB001"],
+            }
+        )
+
+        result = clean_patient_data(df_raw, ErrorCollector())
+
+        assert result["file_name"].to_list() == ["2024_Some Hospital A4D Tracker - final"]
+        assert result["sheet_name"].to_list() == ["Dec24"]
+
+    def test_whitespace_does_not_defeat_allowed_value_validation(self):
+        df_raw = pl.DataFrame({"patient_id": ["MY_AB001"], "sheet_name": ["Jan24"], "sex": ["F "]})
+
+        result = clean_patient_data(df_raw, ErrorCollector())
+
+        assert result["sex"].to_list() == ["F"]

@@ -78,13 +78,18 @@ def create_table_tracker_metadata(
     now = datetime.now(tz=UTC).replace(tzinfo=None)
     rows: list[dict] = []
     for tracker_path in tracker_files:
-        file_name = tracker_path.stem
+        # Stripped (ticket 36) so this table's file_name joins the cleaned
+        # outputs' own file_name, which both arms now trim. One real tracker
+        # is named "... - final .xlsx", trailing space included.
+        file_name = tracker_path.stem.strip()
         row = {
             "file_name": file_name,
             "clinic_code": tracker_path.parent.name,
             "md5": md5_file(tracker_path),
         }
         for subdir in _SUBDIRS:
+            # Output parquet names still carry the untrimmed stem, so the
+            # trimmed name remains a prefix of them.
             row[subdir] = any(name.startswith(file_name) for name in subdir_names[subdir])
         row["complete"] = all(row[s] for s in _SUBDIRS)
         row["timestamp"] = now

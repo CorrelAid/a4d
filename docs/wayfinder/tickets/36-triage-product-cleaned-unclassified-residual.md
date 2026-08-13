@@ -2,12 +2,12 @@
 id: 36
 title: Triage the product cleaned-stage mismatches no ticket owns (product_balance, sheet_name, entry_date, units_received, file_name)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-13
+claimed_at: 2026-08-13
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 25
 ---
@@ -212,3 +212,186 @@ point at specific trackers worth investigating.
 new warning is an operability improvement, not a triage verdict. Whether the
 113 flagged groups are source data-entry errors or something the pipeline
 mishandles has **not** been investigated.
+
+## Progress (session-2026-08-13)
+
+Worked small-columns-first at the user's direction. Three of the five columns
+are decided and implemented; the whitespace pair awaits a user decision.
+
+Counts are against the real 248-tracker drive pair,
+`output/comparison/2026-08-13T212807Z/`, `Product (cleaned)` stage.
+
+### `product_units_received` — 8 -> 0 `unclassified`. Python correct.
+
+Source Excel `2019_Sultanah Bahiyah Hospital A4D Tracker_DC.xlsx`, sheet
+`Aug19`: the header row reads `D=Date, E=Units Received`, and on rows 10-12
+the clinician typed the entry date into **E** with **D** left empty. R's
+readxl coerces the column to numeric and carries the raw serial (`43708`)
+into its output — the same serials that corrupt R's closing balance in the
+five groups this ticket's addendum measured. Python's `_clean_units_received`
+(step 2.11) fails the float cast, emits one `type_conversion` error per row,
+and zeroes the cell.
+
+**Verdict: Python is right**, and observably so — the error is logged, not
+swallowed. New `stray_date_zeroed` classifier
+(`STRAY_DATE_ZEROED_CLASSIFIERS`): the cleaned-stage face of ticket 24's
+`openpyxl_date_typed_stray_cell`, which could not see these because it
+expects Python's side to still hold a datetime.
+
+### `product_entry_date` — 169 -> 9 `unclassified`. Python correct.
+
+Root cause found in source Excel `2022_Vietnam National Children_s Hospital`,
+sheet `Apr22`: the "Entry Date" column holds **mixed types** — some cells are
+real `datetime`, others are text (`'20/04/2022'`, `'14/04/2022'`, ...).
+readxl guesses the column as date and nulls every *text* cell; Python's
+`parse_date_flexible` reads both. In that one sheet-group R loses 25 real
+dates, which drops it back to input-order sorting, so positional alignment
+pairs R's July date against Python's April date — both non-null, so
+`r_value_missing` never fires.
+
+Three sub-causes, all decided:
+
+| Sub-cause | Rows | Verdict |
+|---|---|---|
+| `row_order_divergence` (113) | 113 | R's readxl-nulled text dates drop it to input order; Python sorts on dates that really are in the file |
+| `python_future_date_sentinel` (34) | 34 | Python substitutes R's own `9999-09-09` sentinel for an out-of-tracker-year date (`_validate_entry_dates`); R propagates the typo |
+| `summary_residue_nulled` (13) | 13 | Python nulls end-of-block residue (`30` -> 1900-01-30); R keeps the junk date |
+
+The future-date verdict is source-verified: for Preah Kossamak's 2023
+tracker, sheet `Aug23`, **both** pipelines independently read `2029-08-29`
+out of a sheet whose every other row is August 2023 — so the source really
+does carry the typo. Python flags it; R passes it through.
+
+The 9 remaining rows (8 real-vs-real dates, 1 R-date-vs-Python-null in
+`2023_Taunggyi`, `Nov'23`) are positional-alignment residue where the
+membership heuristic misses. Checked directly for the Taunggyi row: Python's
+raw extraction holds `2023-11-30` for that group's last row, i.e. R's row
+pairs against a Python row that is null — an alignment artefact, not a
+content divergence. Deliberately left `unclassified` rather than given a
+label that would decide nothing.
+
+Also wired `PRODUCT_ROW_ORDER_CLASSIFIERS` onto every remaining positionally
+aligned product column (`product_units_notes`, `product_units_returned`,
+`product_returned_by`, `product_balance_status`, `orig_product_released_to`,
+`product_unit_capacity`, `product_category`), and **replaced ticket 25's
+hand-written `positional_columns` test list with one derived from
+`get_product_data_schema()`** minus a new
+`GROUP_INVARIANT_PRODUCT_COLUMNS` exclusion set. The hand-written list is
+precisely what let `product_entry_date` sit unwired: the test written to
+prevent this class of omission had itself omitted the column.
+
+### `product_balance` — 1,976 -> 11 `unclassified`. Python correct.
+
+The addendum above established the mechanism but not the detection. The
+missing piece is that a derived running total needs *order-independent*
+evidence, and the group's **closing** balance is exactly that.
+
+New `group_endpoint_matches` diagnostic on `CellMismatch`, computed by
+`compare_cells` (only for `add_row_ordinal`'s positional key), plus a
+`derived_running_total_row_order` classifier keyed off it. Measured
+independently of the comparison tool, straight off the parquet pair, and
+then reproduced by the tool exactly:
+
+| | Cells | Groups |
+|---|---|---|
+| Balance mismatches in groups whose closing balance **agrees** | 2,729 | 2,281 |
+| Balance mismatches in groups whose closing balance **differs** | 11 | 2 |
+
+Both differing groups are `2019_Sultanah Bahiyah ... DC`, sheets `Jun19` and
+`Aug19` — the same stray-date-serial groups above, where R's ledger is
+corrupted by `43644`/`43708` leaking out of "Units Received". **Python's
+closing stock is correct in both.**
+
+Those 11 are left `unclassified` **on purpose**: `unclassified` on
+`product_balance` now means "the two ledgers disagree on closing stock",
+which is a real signal worth surfacing. Absorbing them into the same label
+would have been labelling, not deciding.
+
+### `product_sheet_name` (275) + `file_name` (60) — 335 -> 0. Pipeline fixed.
+
+All 335 are R keeping trailing whitespace Python strips: `trim(r_value) ==
+py_value` for 275/275 of the sheet-name rows. The source really carries it —
+the Excel tab is literally named `'Dec24 '` and the file is literally
+`06 Pahol Polpayuhasena Hospital A4D Tracker_Jun_26 - final .xlsx`. R trims
+only `product_released_to` (`read_product_data.R:204`); Python's step 2.16
+strips every string column.
+
+**The finding is not about R.** Python is inconsistent with itself:
+
+| | `file_name` | `sheet_name` |
+|---|---|---|
+| `patient_data_cleaned` | `'... - final '` | `'Dec24 '` |
+| `product_data_cleaned` | `'... - final'` | `'Dec24'` |
+| `tracker_metadata` (`tracker_path.stem`) | `'... - final '` | — |
+
+Measured across all 248 trackers: 1 `file_name` value and 9 `sheet_name`
+values (`Apr26 `, `Dec24 `, `Feb21 `, `Jun19 `, `May19 `, `May20 `, `May26 `,
+`Nov21 `, `Sept20 `) differ between the arms, so any BigQuery join of
+`product_data` to `patient_data_*` or `tracker_metadata` on those keys
+silently drops them.
+
+**User decision:** trim everywhere. *"I see no reason why the pipeline should
+not consistently trim whitespace at the end of all strings, filenames etc.
+there is never a meaning in that"* — the source files should be corrected
+too, but that is a human task, not the pipeline's.
+
+**Implemented as a real pipeline change:**
+
+- `strip_string_whitespace()` (`src/a4d/clean/transformers.py`), applied at
+  **step 0.5** of `clean_patient_data` — deliberately *before* validation,
+  not after, so a value is never rejected for whitespace alone. Product's
+  own step 2.16 already did the equivalent and is unchanged.
+- `tables/metadata.py` now strips `tracker_path.stem`, so
+  `tracker_metadata.file_name` joins the cleaned outputs' own `file_name`.
+  Output parquet names still carry the untrimmed stem, and the trimmed name
+  remains a prefix of them, so the presence check is unaffected.
+- Comparison tool: `product_sheet_name`/`file_name` added to the product
+  cleaned whitespace normalization, and a patient equivalent added for both
+  patient stages, **derived from `get_string_columns()`** rather than
+  hand-listed. `sheet_name` is half the patient row-alignment key, so
+  without this R's untrimmed `"Dec24 "` would fail to join Python's
+  `"Dec24"` and silently drop those rows from the comparison rather than
+  showing them as equal.
+
+**The trim recovered real data that both pipelines were losing.** A test
+written before the change (`test_whitespace_does_not_defeat_allowed_value_validation`)
+predicted it and failed as expected: `sex = "F "` validated to `"Undefined"`.
+Confirmed on the real dataset and against the source Excel —
+`2019_Kantha Bopha Hospital`, sheet `Jan19`, patient `KH_KB023`, cell reads
+literally `'F '`. R's validator rejects it and sentinels it; Python used to
+copy that behaviour and now keeps the value. **72 rows across 6 trackers**,
+classified as `r_validator_rejects_untrimmed` — Python recovering data, not
+diverging.
+
+Patient re-run (`a4d run patient --force`, all 248 trackers) and comparison
+re-run confirm the rest is representation-only:
+
+| Patient cleaned column | Before | After |
+|---|---|---|
+| `complication_screening_remarks` | 57 | 0 |
+| `family_history` | 24 | 0 |
+| `observations` | 360 | 327 |
+| `blood_pressure_dias_mmhg` | 315 | 303 |
+| `testing_frequency` | 154 | 144 |
+| `sex` | 4 | 76 (72 of them the recovery above) |
+
+Patient cleaned total: **99,478 -> 99,408**. The two numeric columns improved
+because trimming lets their values parse. Patient raw is byte-unchanged
+(28,033), as expected — raw deliberately preserves what the source contained.
+
+### Where the numbers stand
+
+Product cleaned-stage `unclassified`: **2,488 -> 20** (11 `product_balance`,
+9 `product_entry_date`), every one explained with a verdict, and each
+remaining as a deliberate signal rather than a label:
+
+- the 11 mean "the two ledgers disagree on closing stock" — both are the
+  2019 Sultanah Bahiyah groups where R is corrupted by a date serial;
+- the 9 are positional-alignment residue.
+
+Both are terminal conclusions of the "the source file is corrupt, a human
+should look at this tracker" kind, which the user confirmed mid-session is a
+valid place for triage to stop.
+
+Full suite 629 passed / 1 skipped, `ruff check`, `ruff format --check`,
+`ty check src/` all pass.

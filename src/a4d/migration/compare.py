@@ -196,8 +196,12 @@ def compare_categorical_overlap(
     return mismatches
 
 
+# Name of the positional row-alignment column add_row_ordinal creates.
+ROW_ORDINAL_COL = "__row_ordinal"
+
+
 def add_row_ordinal(
-    df: pl.DataFrame, group_cols: list[str], ordinal_col: str = "__row_ordinal"
+    df: pl.DataFrame, group_cols: list[str], ordinal_col: str = ROW_ORDINAL_COL
 ) -> tuple[pl.DataFrame, list[str]]:
     """Add a within-group ordinal-position row-alignment key (ticket 17).
 
@@ -275,6 +279,14 @@ class CellMismatch:
     # (ticket 21) rather than a genuine content difference. Diagnostic only;
     # never suppresses a mismatch, only informs its classification.
     row_order_candidate: bool = False
+    # Set by compare_cells when order_group_cols is given and the key is
+    # positional: True if this column's value on the group's LAST row agrees
+    # on both sides. For a derived running total (product_balance), which is
+    # recomputed per row and so cannot travel with its row under a re-sort,
+    # this is the order-independent evidence row_order_candidate cannot
+    # supply -- the ledgers took different paths to the same closing figure
+    # (ticket 36). Diagnostic only, like row_order_candidate.
+    group_endpoint_matches: bool = False
 
 
 CELL_FLOAT_REL_TOL = 1e-9
@@ -323,6 +335,10 @@ def compare_cells(
             for col in value_cols:
                 per_column.setdefault(col, Counter())[row[col]] += 1
 
+    group_endpoint_agrees = _group_endpoint_agreement(
+        joined, order_group_cols, key_cols, value_cols
+    )
+
     mismatches = []
     for row in joined.iter_rows(named=True):
         key = {k: row[k] for k in key_cols}
@@ -341,9 +357,42 @@ def compare_cells(
                         r_value=r_value,
                         py_value=py_value,
                         row_order_candidate=row_order_candidate,
+                        group_endpoint_matches=group_endpoint_agrees.get((gkey, col), False),
                     )
                 )
     return mismatches
+
+
+def _group_endpoint_agreement(
+    joined: pl.DataFrame,
+    order_group_cols: list[str] | None,
+    key_cols: list[str],
+    value_cols: list[str],
+) -> dict[tuple[Any, str], bool]:
+    """Per (group, column): does the group's last positional row agree?
+
+    Only meaningful for ``add_row_ordinal``'s positional key, so it is keyed
+    off ``ROW_ORDINAL_COL`` being present rather than off a new parameter --
+    a genuine identity key has no "last row" to speak of.
+    """
+    if not order_group_cols or ROW_ORDINAL_COL not in key_cols:
+        return {}
+
+    last_ordinals: dict[tuple[Any, ...], int] = {}
+    for row in joined.iter_rows(named=True):
+        gkey = tuple(row[c] for c in order_group_cols)
+        ordinal = row[ROW_ORDINAL_COL]
+        if ordinal > last_ordinals.get(gkey, -1):
+            last_ordinals[gkey] = ordinal
+
+    agreement: dict[tuple[Any, str], bool] = {}
+    for row in joined.iter_rows(named=True):
+        gkey = tuple(row[c] for c in order_group_cols)
+        if row[ROW_ORDINAL_COL] != last_ordinals[gkey]:
+            continue
+        for col in value_cols:
+            agreement[(gkey, col)] = not _values_differ(row[col], row[f"{col}_py"])
+    return agreement
 
 
 Classifier = Callable[[CellMismatch], bool]
@@ -396,11 +445,50 @@ def _is_off_by_one_day(m: CellMismatch) -> bool:
     )
 
 
+def _is_python_future_date_sentinel(m: CellMismatch) -> bool:
+    """Python replaced an out-of-tracker-year date with R's own error sentinel.
+
+    ``_validate_entry_dates`` (clean/product.py) logs a parsed entry date
+    whose year is beyond the tracker's own calendar year and substitutes
+    ``error_val_date`` (9999-09-09), because a future date is genuinely
+    ambiguous -- a premature next-month entry or a typo -- and the sentinel
+    preserves that signal. R validates nothing and carries the bad date
+    through. Verified against the real source data (ticket 36): for Preah
+    Kossamak's 2023 tracker, sheet Aug23, *both* pipelines independently read
+    2029-08-29 out of a sheet whose every other row is August 2023, so the
+    source really does hold the typo -- Python flags it, R propagates it.
+    """
+    return m.py_value == SENTINEL_DATE and isinstance(m.r_value, datetime.date)
+
+
+# An entry-date cell parsing to 1900 is not a date the clinician wrote: it is
+# a tiny integer (a stray day-of-month, e.g. "30") landing in the date column
+# on an end-of-block summary row and being read as an Excel serial.
+_SUMMARY_RESIDUE_YEAR = 1900
+
+
+def _is_summary_residue_nulled(m: CellMismatch) -> bool:
+    """Python nulled end-of-block summary-row residue that R kept as a date.
+
+    ``PRODUCT_DATE_NA_MARKERS`` and the tiny-int scrub (clean/product.py)
+    null these before parsing, so the cleaned output is NULL rather than
+    1900-01-30. Python is the correct side: 1900-01-30 is not a date any
+    tracker records.
+    """
+    return (
+        m.py_value is None
+        and isinstance(m.r_value, datetime.date)
+        and m.r_value.year <= _SUMMARY_RESIDUE_YEAR
+    )
+
+
 PRODUCT_ENTRY_DATE_CLASSIFIERS: dict[str, Classifier] = {
     "sentinel_null": _is_sentinel_null,
     "r_value_missing": _is_r_value_missing,
     "ce_typo": _is_ce_typo,
     "off_by_one_day": _is_off_by_one_day,
+    "python_future_date_sentinel": _is_python_future_date_sentinel,
+    "summary_residue_nulled": _is_summary_residue_nulled,
 }
 
 
@@ -441,6 +529,51 @@ PRODUCT_ROW_ORDER_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_derived_running_total_row_order(m: CellMismatch) -> bool:
+    """Two ledgers, different accumulation order, same closing figure.
+
+    ``product_balance`` is recomputed per row on both sides
+    (``_compute_running_balance``, step 2.15, mirroring R's
+    ``compute_balance``), so under the sort-order divergence ticket 21
+    root-caused it cannot travel with its row -- Python's intermediate
+    balances are a chronological ledger, R's a data-entry-order one, and
+    neither side's intermediate values appear in the other's group. Value
+    membership therefore cannot detect it in principle; the group's *closing*
+    balance can, being order-independent.
+
+    Measured across the real 248-tracker pair (ticket 36): 2,729 of the 2,740
+    mismatching balance cells sit in groups whose closing balance agrees
+    exactly (2,281 of 2,283 groups). The 11 that do not are deliberately left
+    unclassified -- see the ticket: both are 2019 Sultanah Bahiyah groups
+    where R's ledger is corrupted by an Excel date serial leaking out of
+    "Units Received", so a disagreeing endpoint is a real signal worth
+    surfacing rather than a label to absorb it.
+    """
+    return m.group_endpoint_matches
+
+
+DERIVED_RUNNING_TOTAL_CLASSIFIERS: dict[str, Classifier] = {
+    "derived_running_total_row_order": _is_derived_running_total_row_order,
+}
+
+
+# Product rows are aligned by ordinal position within (clinic_id,
+# product_sheet_name), so a within-group re-sort can move any column's value
+# to a different row -- except these, which hold the same value for every row
+# of a group and therefore cannot diverge by ordering alone. Everything else
+# in the product schema must carry PRODUCT_ROW_ORDER_CLASSIFIERS; ticket 36's
+# wiring test derives that list from this exclusion rather than restating it.
+GROUP_INVARIANT_PRODUCT_COLUMNS = frozenset(
+    {
+        "clinic_id",  # alignment group key
+        "product_sheet_name",  # alignment group key
+        "file_name",  # one value per compared file
+        "product_table_month",  # derived from the sheet, so constant per group
+        "product_table_year",
+    }
+)
+
+
 def _is_r_extraction_gap(m: CellMismatch) -> bool:
     """R produced null where Python has a real value.
 
@@ -469,6 +602,24 @@ def _is_r_validator_rejects_multivalue(m: CellMismatch) -> bool:
     parity gap to close.
     """
     return m.r_value == "Undefined" and m.py_value is not None
+
+
+def _is_r_validator_rejects_untrimmed(m: CellMismatch) -> bool:
+    """R's allowed-value validator rejected a value for its whitespace alone.
+
+    readxl does not trim these patient cells, so a source value like "F " (a
+    real one -- Kantha Bopha 2019, patient KH_KB023, verified in the source
+    Excel) misses R's allowed-value list and lands on the "Undefined"
+    character sentinel. Python's cleaning strips string cells before
+    validation (ticket 36), so it keeps the value. Python is recovering data
+    both pipelines previously lost, not diverging.
+    """
+    return m.r_value == "Undefined" and m.py_value is not None
+
+
+PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS: dict[str, Classifier] = {
+    "r_validator_rejects_untrimmed": _is_r_validator_rejects_untrimmed,
+}
 
 
 PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
@@ -534,6 +685,44 @@ def _is_openpyxl_date_typed_stray_cell(m: CellMismatch) -> bool:
 
 STRAY_DATE_CLASSIFIERS: dict[str, Classifier] = {
     "openpyxl_date_typed_stray_cell": _is_openpyxl_date_typed_stray_cell,
+}
+
+
+# An Excel serial in the range a real 2000-2050 date occupies. A unit count
+# this large does not occur in the tracker data (the largest genuine
+# product_units_received across the 248-tracker set is three digits), so a
+# value here is a misplaced date, not a quantity.
+_PLAUSIBLE_DATE_SERIAL_RANGE = (36526.0, 54789.0)
+
+
+def _is_stray_date_zeroed(m: CellMismatch) -> bool:
+    """The cleaned-stage face of STRAY_DATE_CLASSIFIERS' cause (ticket 36).
+
+    Where a clinician typed a date into a quantity column -- verified against
+    the real source Excel (2019 Sultanah Bahiyah, Aug19 rows 10-12: the entry
+    date sits in column E, "Units Received", with column D, "Date", empty) --
+    R's readxl coerces the column to numeric and carries the raw serial into
+    its output, corrupting the ledger it feeds (ticket 36's addendum measured
+    R closing at 43,572 in five such groups). Python's cleaning fails the
+    float cast, emits a ``type_conversion`` error per row, and zeroes the
+    cell. Python is the correct side; the raw-stage classifier cannot see
+    this because it expects Python's value to still be a datetime.
+    """
+    try:
+        r_serial = float(m.r_value)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return False
+    low, high = _PLAUSIBLE_DATE_SERIAL_RANGE
+    if not low <= r_serial <= high:
+        return False
+    try:
+        return float(m.py_value) == 0.0  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return False
+
+
+STRAY_DATE_ZEROED_CLASSIFIERS: dict[str, Classifier] = {
+    "stray_date_zeroed": _is_stray_date_zeroed,
 }
 
 

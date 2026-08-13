@@ -12,6 +12,22 @@ import polars as pl
 from a4d.config import settings
 
 
+def strip_string_whitespace(df: pl.DataFrame) -> pl.DataFrame:
+    """Strip leading/trailing whitespace from every string column (ticket 36).
+
+    Applied to the raw frame rather than a schema-typed one, so it catches
+    source columns before they are parsed or validated. Whitespace at the
+    ends of a cell never carries meaning in these trackers -- it is a
+    data-entry artefact, in cell values, sheet tab names and filenames
+    alike -- and leaving it in place makes identifiers that should join
+    silently fail to.
+    """
+    string_cols = [col for col, dtype in df.schema.items() if dtype == pl.String]
+    if not string_cols:
+        return df
+    return df.with_columns([pl.col(col).str.strip_chars() for col in string_cols])
+
+
 def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.DataFrame:
     """Extract and standardize insulin regimen values.
 
