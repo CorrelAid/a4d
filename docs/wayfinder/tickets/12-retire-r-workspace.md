@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 37]
 assignee: null
 claimed_at: null
 resolution: null
@@ -107,3 +107,7 @@ what "remove R" means concretely (delete outright vs. move to a separate
 archive location/repo vs. keep read-only in git history only) for each
 remaining item in the inventory above, update `CLAUDE.md` and `docs/CLAUDE.md`
 to match, and execute the cleanup.
+
+**Correction (session-2026-08-13b):** ticket 29 closed, spawning ticket 37
+(the patient cleaned-stage residual it did not chase), so `blocked_by` swaps
+`29` for `37`.

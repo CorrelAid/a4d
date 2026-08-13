@@ -2,12 +2,12 @@
 id: 29
 title: Triage the residual patient cleaned-stage column mismatches
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-13b
+claimed_at: 2026-08-14T00:00:00+02:00
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 28
 ---
@@ -73,3 +73,142 @@ the source file carried, fix the pipeline rather than labelling the symptom
 turned a labelling job into a real extraction fix. A cause genuinely
 undecidable on available evidence is recorded as an open question, not
 closed with a label.
+
+
+## Resolution (session-2026-08-13b)
+
+**Decision.** The two priority columns are both R defects, not Python
+divergences, and the 999999-sentinel family that runs through the whole
+report is a deliberate and correct Python representation choice. Three
+classifiers were added and two real Python bugs -- found while sampling the
+long tail -- were fixed in the pipeline. Cleaned-stage mismatches fell
+99,408 -> 95,490 and unclassified rows 55,670 -> 16,698 (-70%). What was
+not chased is split into [ticket 37](37-triage-patient-cleaned-residual-2.md).
+
+**Because.**
+
+1. **`insulin_total_units` (16,985, all R-null) -- R never reads the column
+   at all.** R's `extract_patient_data`
+   (`r-archive/R/script1_helper_read_patient_data.R`) carries a hack for a
+   merged-cell artefact that can produce two "insulin regimen" columns: it
+   greps the source headers for the literal `Insulin` and drops every match
+   after the first. Since the 2024 tracker redesign the monthly sheet also
+   carries "TOTAL Insulin Units per day", so the grep matches two real,
+   unrelated columns and the hack deletes the second. The sibling insulin
+   columns survive only because their sub-headers read
+   "Pre-mixed"/"Short-acting" (the "Human Insulin" group header sits in a row
+   R does not merge here), and "Number of insulin injections" survives on a
+   lowercase "i" the case-sensitive grep misses. Measured: R's cleaned output
+   has **0 non-null values across all 81,859 rows**, and the column is absent
+   from R's raw parquet entirely -- not even as an unmapped passthrough.
+   Python has 18,341. Verified against the real source Excel (06 500 NPT
+   Children's Hospital, `Jan26` header row 93 col 27 "TOTAL Insulin Units ",
+   data rows 94-98 = 20, 48, 24, 30, 20 -- exactly Python's values). Python
+   is not diverging; it is the only side that reads the column.
+   Classifier: `r_insulin_dedup_drop`.
+
+2. **`fbg_baseline_mg` (9,041) and `fbg_baseline_mmol` (1,156) -- R's
+   Patient List join renames both sides on a name collision.**
+   `reading_patient_data` (`r-archive/R/script1_read_patient_data.R`) joins
+   the monthly sheets to the static "Patient List" sheet with
+   `suffix = c(".monthly", ".static")`. Where a column exists on both sheets
+   dplyr renames *both*, so the unsuffixed name disappears and R's cleaning
+   stage -- which reads `fbg_baseline_mg` -- finds nothing and leaves the
+   schema column null for the whole file. R avoids exactly this for
+   `hba1c_baseline` by dropping the monthly copy before the join; it never
+   does the same for the baseline FBG columns. Polars suffixes only the
+   right-hand frame, so Python keeps the monthly value under the base name.
+   Measured across the real drive data: 21 files carry
+   `fbg_baseline_mg.monthly` and 3 carry `fbg_baseline_mmol.monthly`, and
+   those files account for 8,883 of 9,041 and 1,101 of 1,156 mismatches
+   respectively. Across their ~10,000 rows the monthly and static copies are
+   identical or numerically equal in 92.4%, so the column Python keeps is
+   very nearly the one R lost. Classifier: `r_join_suffix_collision`.
+
+3. **The 999999 sentinel (8,085 rows across ~30 columns) -- R stamps a magic
+   number on a cell that never held a usable number; Python nulls it.** R has
+   no missing-value normalization before `as.numeric()`, so a clinician's
+   "-", "NA" or free text fails to parse and R's cleaning substitutes
+   `ERROR_VAL_NUMERIC`. `safe_convert_column`
+   (`src/a4d/clean/converters.py`) normalizes those markers to null *before*
+   conversion, deliberately. Checked exhaustively rather than sampled: every
+   one of the 8,085 rows was traced back to Python's own raw stage, and **not
+   one** had a clean number behind it -- 3,530 missing-value markers, 2,331
+   Excel formula-error strings, 1,719 unparseable free text (e.g. "2 months"
+   as an age), 505 that could not be joined back to a raw row. Python loses
+   no data; the only thing R keeps is the fact of a failed parse, which
+   Python records in the error log instead of in the data. This alone covered
+   4,247 of `t1d_diagnosis_age`'s residual -- item 2 of this ticket's own
+   question. Classifier: `r_numeric_error_sentinel`, wired from
+   `get_numeric_columns()` rather than hand-listed, since the sentinel is a
+   property of R's conversion step and not of any one column.
+
+4. **`insulin_regimen` (1,348) -- a real Python bug, now fixed.** R's
+   `extract_regimen` uses `sub(..., ignore.case = TRUE)`, which matches
+   without case and leaves a value none of its four patterns match exactly as
+   the source wrote it. Python emulated the case-insensitivity by calling
+   `.str.to_lowercase()` on the column first, which permanently rewrote every
+   unmatched value: "NPH" -> "nph", "Other" -> "other", "Glargine" ->
+   "glargine". Fixed by moving the flag into the patterns (`(?i)`). This was
+   a live data-quality regression in the production BigQuery output, not a
+   comparison artefact. 1,348 -> 41.
+
+5. **`status` (2,661) -- a config duplicate plus arbitrary dict ordering, now
+   deterministic.** `reference_data/data_cleaning.yaml` lists both
+   "Active - Remote" and "Active Remote" as allowed values for `status`, and
+   `sanitize_str` reduces both to `activeremote`. R's
+   `setNames`-list lookup returns the *first* entry; Python's dict
+   comprehension kept the *last*, so 2,611 rows emitted "Active Remote" where
+   R emitted "Active - Remote". Fixed to first-wins, which matches R and,
+   more importantly, stops the emitted spelling depending on the order the
+   config happens to list them in. Derived rather than assumed: this is the
+   **only** sanitize-colliding pair in the entire config, checked by
+   enumerating every `allowed_values` block. 2,661 -> 50.
+
+**Rejected.**
+
+- *Changing Python to take the Patient List (`.static`) copy of baseline FBG
+  instead of the monthly one.* R's dropping of monthly `hba1c_baseline`
+  hints its author thought the static sheet authoritative, but R never made
+  that choice for FBG, and there is no evidence the static copy is truer.
+  The two disagree on only 663 of ~10,000 rows, and on those the **source
+  contradicts itself** -- the Patient List and the monthly sheet record
+  different baselines for the same patient. Per this map's Notes that is a
+  legitimate terminal answer, not something a pipeline can resolve. Left as
+  an open question below rather than changed silently.
+- *De-duplicating the `status` allowed-values list in
+  `reference_data/data_cleaning.yaml`.* That would decide which spelling is
+  canonical for production output, which is the user's call, and the config
+  is shared reference data. First-wins makes the behaviour deterministic
+  without making that decision. Raised for the user instead.
+- *Normalizing the 999999 sentinel away inside `compare_cells`.* Follows
+  ticket 26's precedent: the comparison tool documents divergence, it does
+  not hide it. A classifier explains the rows; the count stays visible.
+- *Forcing convergence on the remaining 16,698 rows.* They are a different
+  investigation -- overwhelmingly the date-column family and its four
+  distinct shapes -- and this ticket's own question pre-authorized a split.
+
+**Evidence: executed.** Every number above was measured against the real
+248-tracker `output_r`/`output_python` pair on the USB drive, not reasoned
+from the code. The two source-Excel checks (500 NPT's TOTAL Insulin Units
+header and values; the monthly-vs-static FBG comparison) were read directly
+out of the workbooks with openpyxl. Both pipeline fixes were verified by a
+full `a4d run patient --force` re-run over all 248 trackers followed by a
+fresh comparison run (`output/comparison/2026-08-13T221849Z`). Full suite
+639 passed / 1 skipped, `ruff check`, `ruff format --check` all pass. The
+one claim not fully closed: 505 of the 8,085 sentinel rows could not be
+joined back to a raw row on `(patient_id, sheet_name)` and so were counted
+as untraced rather than as confirmed.
+
+**Tense.** All statements about R describe the frozen 2025-11-14 baseline as
+it exists. All statements about Python describe current behaviour *after*
+this session's two fixes, except the "before" figures, which describe
+behaviour as of the start of this session.
+
+**Open question for the user.** `reference_data/data_cleaning.yaml` lists
+two spellings of the same patient status. Recommendation: delete
+"Active Remote" and keep "Active - Remote", which is what both pipelines now
+emit and what R has always written to production. The alternative --
+keeping "Active Remote" -- would change 2,611 rows of production output and
+diverge from every historical R run. Not acted on: it is shared reference
+data and the choice is the user's.

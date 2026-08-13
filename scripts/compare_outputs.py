@@ -44,11 +44,14 @@ from a4d.migration.compare import (
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
+    PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     STRAY_DATE_CLASSIFIERS,
     STRAY_DATE_ZEROED_CLASSIFIERS,
     WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
@@ -287,6 +290,25 @@ CLASSIFIERS_BY_COLUMN = {
     # real drive data, it matches nothing at the cleaned stage, so the order
     # only guards the raw stage's existing classification.
     "product_units_released": WIDE_FORMAT_FRAGMENT_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 29: R's insulin-column dedup grep deletes "TOTAL Insulin Units"
+    # from every 2024+ tracker before it is read, so R's column is null on all
+    # 81,859 rows while Python reads it correctly.
+    "insulin_total_units": PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
+    # ticket 29: R's Patient List join suffixes both sides on a name
+    # collision, so R's cleaning finds no unsuffixed column and leaves these
+    # null for the whole file (21 files / 3 files respectively).
+    "fbg_baseline_mg": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    "fbg_baseline_mmol": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+}
+
+# ticket 29: R's 999999 numeric sentinel is not a property of any one column
+# -- R stamps it on any numeric cell whose source text failed to parse -- so
+# it is derived from the patient schema's own numeric column list rather than
+# hand-listed. Appended after each column's specific causes so a
+# source-verified, column-specific classifier still wins the first match.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS
+    for col in get_numeric_columns()
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity

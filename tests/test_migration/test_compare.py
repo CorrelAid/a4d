@@ -11,11 +11,14 @@ from a4d.migration.compare import (
     GROUP_INVARIANT_PRODUCT_COLUMNS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
+    PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     ROW_ORDINAL_COL,
     SENTINEL_DATE,
     STRAY_DATE_CLASSIFIERS,
@@ -1353,3 +1356,76 @@ class TestUntrimmedValidationClassifier:
         mismatch = CellMismatch(key={"id": 1}, column="sex", r_value="M", py_value="F")
 
         assert classify(mismatch, PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS) == "unclassified"
+
+
+class TestPatientInsulinTotalUnitsClassifier:
+    """Ticket 29: R's insulin-column dedup drops TOTAL Insulin Units entirely."""
+
+    def test_classified_when_r_is_null_and_python_has_the_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="insulin_total_units", r_value=None, py_value=20.0
+        )
+
+        assert classify(mismatch, PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS) == "r_insulin_dedup_drop"
+
+    def test_unclassified_when_r_also_holds_a_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="insulin_total_units", r_value=18.0, py_value=20.0
+        )
+
+        assert classify(mismatch, PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS) == "unclassified"
+
+
+class TestPatientJoinSuffixCollisionClassifier:
+    """Ticket 29: R's join suffixes both sides on a column-name collision."""
+
+    def test_classified_when_r_is_null_and_python_has_the_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="fbg_baseline_mg", r_value=None, py_value=126.0
+        )
+
+        assert (
+            classify(mismatch, PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS)
+            == "r_join_suffix_collision"
+        )
+
+    def test_unclassified_when_both_sides_hold_a_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="fbg_baseline_mg", r_value=100.0, py_value=126.0
+        )
+
+        assert classify(mismatch, PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS) == "unclassified"
+
+
+class TestRNumericErrorSentinelClassifier:
+    """Ticket 29: R sentinels an unusable source cell where Python nulls it."""
+
+    def test_classified_when_r_holds_the_numeric_sentinel_and_python_is_null(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="hba1c_baseline", r_value=999999.0, py_value=None
+        )
+
+        assert (
+            classify(mismatch, R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS) == "r_numeric_error_sentinel"
+        )
+
+    def test_classified_when_the_sentinel_arrives_as_text(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="hba1c_baseline", r_value="999999", py_value=None
+        )
+
+        assert (
+            classify(mismatch, R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS) == "r_numeric_error_sentinel"
+        )
+
+    def test_unclassified_when_python_also_holds_a_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="hba1c_baseline", r_value=999999.0, py_value=7.5
+        )
+
+        assert classify(mismatch, R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_r_holds_an_ordinary_value(self):
+        mismatch = CellMismatch(key={"id": 1}, column="hba1c_baseline", r_value=8.2, py_value=None)
+
+        assert classify(mismatch, R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"

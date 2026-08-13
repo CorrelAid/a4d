@@ -20,6 +20,7 @@ from typing import Any
 import polars as pl
 
 from a4d.clean.date_parser import parse_date_flexible
+from a4d.config import settings
 
 SENTINEL_DATE = datetime.date(9999, 9, 9)
 
@@ -590,6 +591,97 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
 
 PATIENT_RECRUITMENT_DATE_CLASSIFIERS: dict[str, Classifier] = {
     "r_extraction_gap": _is_r_extraction_gap,
+}
+
+
+def _is_r_insulin_dedup_drop(m: CellMismatch) -> bool:
+    """R deletes the whole "TOTAL Insulin Units" column before it is ever read.
+
+    ``extract_patient_data`` (r-archive/R/script1_helper_read_patient_data.R)
+    carries a hack for a merged-cell artefact that can produce two "insulin
+    regimen" columns: it greps the source headers for the literal ``Insulin``
+    and drops every match after the first. Since the 2024 tracker redesign the
+    monthly sheet also carries "TOTAL Insulin Units per day", so that grep
+    matches two real, unrelated columns and the hack deletes the second. The
+    sibling insulin columns survive only because their sub-headers read
+    "Pre-mixed"/"Short-acting" (the "Human Insulin" group header sits in a row
+    R does not merge here) and "Number of insulin injections" has a lowercase
+    "i" the case-sensitive grep misses.
+
+    Verified against the real source Excel (ticket 29, 06 500 NPT Children's
+    Hospital, Jan26!AA94-98: 20, 48, 24, 30, 20 -- exactly Python's values):
+    the column is absent from R's raw output entirely, so R's cleaned-stage
+    template leaves it null on all 81,859 rows. Python is not diverging, it is
+    the only side that reads the column at all.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS: dict[str, Classifier] = {
+    "r_insulin_dedup_drop": _is_r_insulin_dedup_drop,
+}
+
+
+def _is_r_join_suffix_collision(m: CellMismatch) -> bool:
+    """R's Patient List join renames *both* sides on a name collision.
+
+    ``reading_patient_data`` (r-archive/R/script1_read_patient_data.R) joins
+    the monthly sheets to the static "Patient List" sheet with
+    ``suffix = c(".monthly", ".static")``. Where a column exists on both
+    sheets, dplyr renames both, so the unsuffixed name disappears -- and R's
+    cleaning stage, which reads ``fbg_baseline_mg``, then finds nothing and
+    leaves the schema column null for the whole file. R avoids this for
+    ``hba1c_baseline`` by explicitly dropping the monthly copy before the
+    join; it never does the same for the baseline FBG columns.
+
+    Polars suffixes only the right-hand frame, so Python keeps the monthly
+    value under the base name and the Patient List copy as ``.static``.
+    Measured against the real drive data (ticket 29): 21 files collide on
+    ``fbg_baseline_mg`` and 3 on ``fbg_baseline_mmol``, and across their
+    ~10,000 rows the two copies are identical or numerically equal in 92.4%,
+    so the column Python keeps is very nearly the one R lost. The 663 rows
+    where the two sheets genuinely disagree are the source contradicting
+    itself, not a pipeline choice either side can resolve.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS: dict[str, Classifier] = {
+    "r_join_suffix_collision": _is_r_join_suffix_collision,
+}
+
+
+def _is_r_numeric_error_sentinel(m: CellMismatch) -> bool:
+    """R stamps 999999 on a cell that never held a usable number; Python nulls it.
+
+    R has no missing-value normalization before ``as.numeric()``, so a
+    clinician's "-", "NA" or free text ("2 months") fails to parse and R's
+    cleaning substitutes ``ERROR_VAL_NUMERIC`` (999999).
+    ``safe_convert_column`` (src/a4d/clean/converters.py) normalizes those
+    markers to null *before* conversion, deliberately: 999999 means "a value
+    was recorded but is invalid", which is the wrong claim for a blank, and a
+    magic number silently poisons every downstream mean.
+
+    Checked exhaustively, not sampled (ticket 29): all 8,085 rows carrying
+    this shape were traced back to Python's own raw stage, and **not one** had
+    a clean number behind it. 3,530 are missing-value markers, 2,331 are Excel
+    formula-error strings, 1,719 are unparseable free text; 505 could not be
+    joined back to a raw row. No data is lost on Python's side -- the
+    information R keeps is the fact of a failed parse, which Python records in
+    the error log instead of in the data.
+    """
+    if m.py_value is not None or m.r_value is None:
+        return False
+    try:
+        # The sentinel reaches here as a float from a numeric column and as
+        # text from a string-typed one, so compare numerically either way.
+        return float(m.r_value) == settings.error_val_numeric  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return False
+
+
+R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS: dict[str, Classifier] = {
+    "r_numeric_error_sentinel": _is_r_numeric_error_sentinel,
 }
 
 

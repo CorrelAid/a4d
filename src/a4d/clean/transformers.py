@@ -55,14 +55,17 @@ def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.Dat
     if column not in df.columns:
         return df
 
-    # Apply regex transformations in order (matching R's behavior)
+    # R's sub(..., ignore.case = TRUE) matches without case, and leaves a
+    # value none of the four patterns match exactly as the source wrote it.
+    # Lowercasing the column to emulate that (ticket 29) instead rewrote every
+    # unmatched value -- "NPH" -> "nph", "Other" -> "other" -- so the
+    # case-insensitive flag belongs in the patterns, not on the data.
     df = df.with_columns(
         pl.col(column)
-        .str.to_lowercase()
-        .str.replace(r"^.*basal.*$", "Basal-bolus (MDI)")
-        .str.replace(r"^.*premixed.*$", "Premixed 30/70 BD")
-        .str.replace(r"^.*self-mixed.*$", "Self-mixed BD")
-        .str.replace(r"^.*conventional.*$", "Modified conventional TID")
+        .str.replace(r"(?i)^.*basal.*$", "Basal-bolus (MDI)")
+        .str.replace(r"(?i)^.*premixed.*$", "Premixed 30/70 BD")
+        .str.replace(r"(?i)^.*self-mixed.*$", "Self-mixed BD")
+        .str.replace(r"(?i)^.*conventional.*$", "Modified conventional TID")
         .alias(column)
     )
 
