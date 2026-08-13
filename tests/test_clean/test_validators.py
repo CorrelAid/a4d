@@ -650,3 +650,26 @@ def test_fix_patient_id_matches_r_behavior():
     assert result["patient_id"].to_list() == expected
     # Errors: 5 replacements + 1 truncation + 1 empty string = 7
     assert len(collector) == 7
+
+
+def test_validate_allowed_values_prefers_the_first_of_two_colliding_spellings():
+    """Ticket 29: two allowed values that sanitize identically.
+
+    reference_data/data_cleaning.yaml lists both "Active - Remote" and
+    "Active Remote" for `status`, and sanitize_str reduces both to
+    "activeremote". R's setNames list lookup returns the first entry; the
+    dict comprehension here returned the last, so 2,611 real cleaned rows
+    disagreed with R on which spelling to emit. First-wins also makes the
+    result independent of the order the config happens to list them in.
+    """
+    collector = ErrorCollector()
+    df = pl.DataFrame({"status": ["active remote"]})
+
+    result = validate_allowed_values(
+        df=df,
+        column="status",
+        allowed_values=["Active", "Active - Remote", "Active Remote"],
+        error_collector=collector,
+    )
+
+    assert result["status"].to_list() == ["Active - Remote"]

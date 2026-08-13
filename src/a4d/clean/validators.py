@@ -120,7 +120,14 @@ def validate_allowed_values(
 
     # Create mapping: {sanitized → canonical} like R does
     # E.g., {"active": "Active", "activeremote": "Active - Remote"}
-    canonical_mapping = {sanitize_str(val): val for val in allowed_values}
+    # First-wins, not last-wins: `status` lists both "Active - Remote" and
+    # "Active Remote", which sanitize to the same key. R's setNames list
+    # lookup returns the first entry, a plain dict comprehension the last
+    # (ticket 29). First-wins matches R and, more importantly, stops the
+    # emitted spelling depending on the order the config happens to list them.
+    canonical_mapping: dict[str, str] = {}
+    for val in allowed_values:
+        canonical_mapping.setdefault(sanitize_str(val), val)
 
     # Get unique non-null values from the column
     col_values = df.filter(pl.col(column).is_not_null()).select(column).unique()

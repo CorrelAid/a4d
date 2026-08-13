@@ -124,8 +124,9 @@ def test_extract_regimen_no_match():
 
     result = extract_regimen(df)
 
-    # Values that don't match should be unchanged (lowercased)
-    assert result["insulin_regimen"].to_list() == ["unknown regimen", "other"]
+    # Values that don't match are left exactly as the source wrote them --
+    # R's sub(ignore.case = TRUE) never rewrites a non-match (ticket 29).
+    assert result["insulin_regimen"].to_list() == ["Unknown regimen", "Other"]
 
 
 def test_str_to_lower():
@@ -845,3 +846,23 @@ def test_split_bp_multiple_invalid():
     assert result["blood_pressure_sys_mmhg"][0] == error_val
     assert result["blood_pressure_sys_mmhg"][1] == error_val
     assert result["blood_pressure_sys_mmhg"][2] == "96"
+
+
+def test_extract_regimen_preserves_case_of_unmatched_values():
+    """Ticket 29: R's sub(ignore.case=TRUE) leaves a non-matching value alone.
+
+    Python emulated case-insensitivity by lowercasing the column first, which
+    permanently mangled every value none of the four patterns matched --
+    "NPH" -> "nph", "Other" -> "other" -- on 1,309 real cleaned rows.
+    """
+    df = pl.DataFrame({"insulin_regimen": ["NPH", "Other", "Others", "Glargine", "Mix -bolus"]})
+
+    result = extract_regimen(df)
+
+    assert result["insulin_regimen"].to_list() == [
+        "NPH",
+        "Other",
+        "Others",
+        "Glargine",
+        "Mix -bolus",
+    ]
