@@ -32,16 +32,25 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from a4d.clean.schema import get_date_columns, get_numeric_columns
+from a4d.clean.schema import (
+    get_date_columns,
+    get_numeric_columns,
+)
+from a4d.clean.schema import (
+    get_string_columns as get_patient_string_columns,
+)
 from a4d.migration.compare import (
+    DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
     STRAY_DATE_CLASSIFIERS,
+    STRAY_DATE_ZEROED_CLASSIFIERS,
     WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
     Delta,
     DirectoryComparison,
@@ -170,7 +179,26 @@ PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS = [
 # "FastClix \r\nLancets" vs "FastClix \nLancets"). Scoped to `product` alone:
 # it's the only cleaned-stage column found carrying multi-line values: rest
 # were already fully explained by PRODUCT_ROW_ORDER_CLASSIFIERS.
-PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS = ["product"]
+# ticket 36 extends this to the two identifier columns. Both pipelines now
+# trim every string cell; R trims only product_released_to, so R keeps a
+# stray space the source really carries (sheet tab "Dec24 ", file
+# "... - final .xlsx"). A settled representation difference, so the report
+# should stop counting it as divergence.
+PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS = ["product", "product_sheet_name", "file_name"]
+
+# ticket 36: patient cleaning now trims too, and sheet_name is half the
+# patient row-alignment key -- without this, R's untrimmed "Dec24 " would
+# fail to join Python's "Dec24" and drop those rows from the comparison
+# entirely rather than showing them as equal.
+# Derived from the patient schema rather than hand-listed. R's cleaned patient
+# output keeps the trailing whitespace its source cells carry (measured: ~3,750
+# cells across edu_occ, observations, name, family_history and others), which
+# Python's cleaning now strips -- a settled representation difference, and the
+# same treatment ticket 22 gave product's raw stage. sheet_name matters most:
+# it is half the patient row-alignment key, so without this R's untrimmed
+# "Dec24 " would fail to join Python's "Dec24" and drop those rows from the
+# comparison entirely rather than showing them as equal.
+PATIENT_WHITESPACE_NORMALIZE_COLS = get_patient_string_columns()
 
 CLASSIFIERS_BY_COLUMN = {
     # ticket 28: R's static "Patient List" recruitment-date extraction fails
@@ -182,6 +210,9 @@ CLASSIFIERS_BY_COLUMN = {
     # already documented as a deliberate Python correction in
     # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
     "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    # ticket 36: R rejects a source value for its trailing whitespace alone
+    # and sentinels it; Python now trims before validating and keeps it.
+    "sex": PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     # ticket 27: bmi and t1d_diagnosis_age are formula-derived in the source
     # trackers -- a source formula error (height 0, an unparseable date)
     # leaves R's raw extraction holding the literal Excel error string,
@@ -205,12 +236,23 @@ CLASSIFIERS_BY_COLUMN = {
     "complication_screening_lipid_profile_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "complication_screening_thyroid_test_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "complication_screening_eye_exam_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
-    "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS,
-    "product_category": PRODUCT_CATEGORY_CLASSIFIERS,
+    # ticket 36: the entry-date-specific causes are checked first (they are
+    # source-verified and stage-specific), then the row-order fallback every
+    # positionally-aligned product column carries. R's readxl nulls the
+    # *text*-formatted cells of a mixed-type Entry Date column (verified: 2022
+    # Vietnam National Children's Hospital, Apr22, where "20/04/2022" is
+    # stored as text and "2022-04-01" as a datetime), which drops R back to
+    # input-order sorting -- so both sides hold a real, different date and
+    # `r_value_missing` never fires.
+    "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_category": PRODUCT_CATEGORY_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     # ticket 21: cleaned-stage columns whose mismatches are dominated by a
     # within-(clinic, sheet) sort-order divergence, not genuine content
     # differences -- see PRODUCT_ROW_ORDER_CLASSIFIERS's docstring.
-    "product_balance": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 36: the endpoint test comes first -- it is the order-independent
+    # evidence for a derived running total, where the membership heuristic
+    # under-detects by construction (27.9% caught, ticket 21's "future work").
+    "product_balance": DERIVED_RUNNING_TOTAL_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     # ticket 24: also carries the raw-stage stray-date-typed-cell cause --
     # merged since CLASSIFIERS_BY_COLUMN holds one registry per column across
     # every stage. Stray-date checked first: row_order_candidate is a loose
@@ -220,8 +262,22 @@ CLASSIFIERS_BY_COLUMN = {
     "product_received_from": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product_released_to": PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product_remarks": PRODUCT_ROW_ORDER_CLASSIFIERS,
-    "product_units_received": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 36: STRAY_DATE_ZEROED_CLASSIFIERS is the cleaned-stage face of the
+    # same cause and must, like the raw-stage one, precede the loose row-order
+    # heuristic -- "0" appears all over a group, so row_order_candidate
+    # false-fires on it.
+    "product_units_received": STRAY_DATE_CLASSIFIERS
+    | STRAY_DATE_ZEROED_CLASSIFIERS
+    | PRODUCT_ROW_ORDER_CLASSIFIERS,
     "product": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 36: the remaining schema columns, wired so no positionally
+    # aligned column is left without the row-order fallback.
+    "product_units_notes": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_units_returned": STRAY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_returned_by": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_balance_status": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "orig_product_released_to": PRODUCT_ROW_ORDER_CLASSIFIERS,
+    "product_unit_capacity": PRODUCT_ROW_ORDER_CLASSIFIERS,
     # ticket 24: raw-stage wide-format comma/hyphen split ambiguity (2017-2019
     # Mandalay files). ticket 25 adds the row-order cause for the cleaned
     # stage, which this column shares with every sibling above -- it was
@@ -261,7 +317,7 @@ STAGES = [
         None,
         PATIENT_RAW_DATE_NORMALIZE_COLS,
         PATIENT_RAW_NUMERIC_NORMALIZE_COLS,
-        None,
+        PATIENT_WHITESPACE_NORMALIZE_COLS,
     ),
     (
         "Patient (cleaned)",
@@ -272,7 +328,7 @@ STAGES = [
         None,
         None,
         None,
-        None,
+        PATIENT_WHITESPACE_NORMALIZE_COLS,
     ),
     (
         "Product (raw)",

@@ -28,7 +28,7 @@ from a4d.clean.schema import (
     get_date_columns,
     get_patient_data_schema,
 )
-from a4d.clean.transformers import extract_regimen
+from a4d.clean.transformers import extract_regimen, strip_string_whitespace
 from a4d.clean.validators import validate_all_columns
 from a4d.config import settings
 from a4d.errors import ErrorCollector
@@ -68,6 +68,16 @@ def clean_patient_data(
     # before type conversion so these don't land in safe_convert_column's
     # parse-failure branch and pick up the 999999 sentinel.
     df_raw = normalize_excel_formula_errors(df_raw, error_collector)
+
+    # Step 0.5: Strip whitespace from the ends of every string cell (ticket
+    # 36). Runs before validation, not after, mirroring readxl's
+    # `trim_ws = TRUE` default on R's side: without it a stray trailing space
+    # makes an otherwise-valid value fail allowed-value validation and land
+    # on the "Undefined" sentinel. Product's cleaning already did this (step
+    # 2.16), which left the two arms disagreeing on `file_name` and
+    # `sheet_name` for any tracker whose filename or sheet tab carries a
+    # stray space -- identifiers that join the arms' tables together.
+    df_raw = strip_string_whitespace(df_raw)
 
     # Step 1: Legacy format fixes
     df = _apply_legacy_fixes(df_raw)
