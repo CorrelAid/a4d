@@ -86,3 +86,33 @@ the source file carried, fix the pipeline rather than labelling the symptom
 turned a labelling job into a real extraction fix. A cause genuinely
 undecidable on available evidence is recorded as an open question, not
 closed with a label.
+
+## Premise update (session-2026-08-14, ticket 37's session)
+
+Two things moved under this ticket without changing what it asks:
+
+- **The tracker set is now 254 files, not 248**, and the frozen R baseline
+  was renamed to match a bulk `06 ... -> 2026_...` rename by the data analyst
+  (see [ticket 37's addendum](37-triage-patient-cleaned-residual-2.md)). The
+  numbers below supersede this ticket's original ones, and the baseline run
+  is `output/comparison/2026-08-14T200342Z`, not the 2026-08-12 snapshot the
+  Question cites.
+- **Ticket 37's date-parser fixes reach this stage too.** The raw-stage
+  comparison normalizes both sides with `normalize_date_column`, which calls
+  the same `parse_date_flexible` ticket 37 fixed three times over (the broken
+  month-name truncation, the 2-digit-only month-year branch, and the new
+  longest-parseable-prefix fallback). So some of this ticket's residual has
+  already moved without anyone triaging it.
+
+Current raw-stage figures: **27,921 mismatches, 14,844 unclassified** (was
+28,033 / 14,981). `complication_screening` remains the dominant single
+column and this ticket's main question is unchanged.
+
+Also inherited from ticket 37: **13 cleaned-stage rows were found where both
+pipelines hold the same two rows in a different order**, because
+`patient_id` + `sheet_name` is duplicated for that patient in that sheet --
+the same "swapped adjacent row" shape this ticket's Question already lists in
+its long tail. [Ticket 38](38-triage-patient-cleaned-date-family.md) now owns
+deciding whether patient's row-alignment key needs product's positional
+treatment; whatever it decides settles this ticket's version too, so do not
+re-derive it here.

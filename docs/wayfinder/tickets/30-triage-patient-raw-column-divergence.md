@@ -77,3 +77,13 @@ the source file carried, fix the pipeline rather than labelling the symptom
 turned a labelling job into a real extraction fix. A cause genuinely
 undecidable on available evidence is recorded as an open question, not
 closed with a label.
+
+## Premise update (session-2026-08-14, ticket 37's session)
+
+The tracker set is now 254 files and the frozen R baseline was renamed to
+match a bulk `06 ... -> 2026_...` rename by the data analyst (see [ticket
+37's addendum](37-triage-patient-cleaned-residual-2.md)). This ticket's
+"18,783 rows across 245 common files" is measured against the old 248-file
+set; the current figure is **18,235 rows across 245 files**
+(`output/comparison/2026-08-14T200342Z`). The two patterns the Question
+names are unchanged -- only the counts moved.

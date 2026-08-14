@@ -12,7 +12,7 @@ from a4d.clean.converters import (
     safe_convert_column,
     safe_convert_multiple_columns,
 )
-from a4d.clean.date_parser import rescue_date_typos
+from a4d.clean.date_parser import parse_date_flexible, rescue_date_typos
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 
@@ -491,3 +491,44 @@ def test_parse_date_column_logs_unparseable_dates():
     assert err.column == "entry_date"
     assert err.original_value == "garbage_value_xyz"
     assert err.patient_id == "P2"
+
+
+def test_parse_date_flexible_month_with_four_digit_year_is_first_of_month():
+    """ "Jun 2006" is a real recorded diagnosis date in 2017-era trackers.
+
+    Without an explicit branch dateutil fills the missing day from *today*,
+    which makes the pipeline's output depend on the day it runs. R's own
+    harmoniser resolves the same cell to the first of the month.
+    """
+    assert parse_date_flexible("Jun 2006") == date(2006, 6, 1)
+    assert parse_date_flexible("March 2011") == date(2011, 3, 1)
+
+
+def test_parse_date_flexible_month_with_two_digit_year_still_first_of_month():
+    """The pre-existing two-digit branch keeps its behaviour."""
+    assert parse_date_flexible("Mar-18") == date(2018, 3, 1)
+
+
+def test_parse_date_flexible_handles_full_month_names():
+    """Full month names were truncated to nonsense ("March" -> "Marh") and
+    sentinelled; these are the docstring's own examples, which never worked.
+    """
+    assert parse_date_flexible("January-20") == date(2020, 1, 1)
+    assert parse_date_flexible("March 2011") == date(2011, 3, 1)
+    assert parse_date_flexible("07 March 2015") == date(2015, 3, 7)
+    assert parse_date_flexible("Sept-19") == date(2019, 9, 1)
+
+
+def test_parse_date_flexible_recovers_a_date_followed_by_free_text():
+    """Hospitalisation cells carry a clause after the date. The prefix
+    fallback must reach the date without a bare month name completing itself
+    from today's date.
+    """
+    assert parse_date_flexible("16-Nov-2019 due to DKA") == date(2019, 11, 16)
+    assert parse_date_flexible("Jan-2020 due to poor glycaemic control") == date(2020, 1, 1)
+    assert parse_date_flexible("May 2019, Dec 2019 DKA") == date(2019, 5, 1)
+
+
+def test_parse_date_flexible_still_sentinels_genuine_garbage():
+    assert parse_date_flexible("garbage_value_xyz") == date(9999, 9, 9)
+    assert parse_date_flexible("NA") is None

@@ -113,3 +113,21 @@ Two caveats this ticket should still carry:
    principle. That residual now has its own home in [ticket
    36](36-triage-product-cleaned-unclassified-residual.md); this ticket's
    `row_order_divergence` entry can point there instead of holding it open.
+
+## Inherited from session-2026-08-14 (ticket 37)
+
+This ticket also now inherits `r_ifelse_na_propagation` (new), plus three
+changes to existing causes:
+
+- `PATIENT_RECRUITMENT_DATE_CLASSIFIERS` was renamed
+  `PATIENT_R_EXTRACTION_GAP_CLASSIFIERS` and now serves three columns, its
+  single `r_extraction_gap` cause documenting three separately-verified R
+  mechanisms. That lumping is deliberate -- `classify()` cannot see the file,
+  so it cannot tell a 2022 tracker from a 2026 one -- but it is exactly the
+  kind of generalization this ticket exists to re-check.
+- `buddhist_era_typo` is now symmetric (either side may hold the sentinel).
+- `python_future_date_sentinel` is now wired to a patient column as well as
+  product ones.
+
+All were verified against the real drive data or the source Excel when
+written, per the map's Notes.

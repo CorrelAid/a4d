@@ -44,7 +44,7 @@ flowchart TD
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
+    T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -52,7 +52,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 26"]
+  subgraph DECIDED["Decided · 27"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -80,6 +80,7 @@ flowchart TD
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
+    T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -121,14 +122,14 @@ flowchart TD
   T28 --> T12
   T30 --> T12
   T31 --> T12
-  T37 --> T12
+  T38 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T30,T31,T32,T34,T35,T37 frontier
+  class T16,T30,T31,T32,T34,T35,T38 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T33,T36 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T33,T36,T37 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1125,7 +1126,98 @@ all but those three closed).**
 `r_numeric_error_sentinel`. All three were verified against the real drive
 data rather than sampled, and the sentinel one exhaustively.
 
+**Twenty-seven tickets resolved.** [Triage the residual patient cleaned-stage
+mismatches (round 2)](tickets/37-triage-patient-cleaned-residual-2.md) is
+done for four of its five named leads -- and it was overwhelmingly a
+bug-fixing session, not a labelling one. **Four real Python bugs** were found
+and fixed, three of them silent data loss and one of them
+non-determinism: `merge_headers` produced the unmappable header
+`Updated 2022 Date` for every 2022 tracker (that template writes
+`Updated 2022` in the upper header row instead of repeating the subject; R
+carries an explicit fixup for it), losing **4,442 blood-pressure and 2,723
+education update dates**; `_apply_type_conversions` stripped a trailing time
+component by splitting on the first space, so `"Jun 2006"` became `"Jun"`,
+which dateutil completed **from today's date** -- destroying real diagnosis
+dates and making the output depend on the day the pipeline ran;
+`parse_date_flexible`'s month-name truncation deleted only the *fourth*
+letter, so `"March"` became `"Marh"` and every full month name in the
+trackers was unparseable and sentinelled (its own docstring examples never
+worked); and its month-year branch accepted only 2-digit years. A
+longest-parseable-prefix fallback was added to replace the free-text
+truncation the space-split had been doing by accident
+(`"16-Nov-2019 due to DKA"`). Three causes were named besides
+(`r_extraction_gap` extended to two more columns over two separately-verified
+R mechanisms, the new `r_ifelse_na_propagation` for R's three-valued-logic
+NA propagation on `insulin_type`, and `buddhist_era_typo` made symmetric).
+Unclassified cleaned-stage mismatches **16,698 -> 8,259 (-51%)**. The
+date-column family did not converge and split into [ticket
+38](tickets/38-triage-patient-cleaned-date-family.md). Full detail: [ticket
+37](tickets/37-triage-patient-cleaned-residual-2.md).
+
+**The tracker set was refreshed to 254 files in the same session**, at the
+user's direction, after the data analyst renamed every `06 ...` tracker to a
+`2026_...` form and added new clinics. This is a change to the map's own
+measuring instrument, so it is recorded here rather than only on the ticket:
+the 41 stale `06 ...` local copies were **moved** (not deleted) to
+`stale_06_trackers_2026-08-14/` on the drive -- left in place they would have
+been processed alongside their renamed twins and double-counted every 2026
+patient; the frozen R output's 322 per-tracker files were renamed to match,
+the mapping derived from the clinic folder rather than guessed, verified 1:1
+and saved at `output_r_rename_map_2026-08-14.json` so it is reversible; and
+R's `file_name` column -- the only column carrying the old stem -- was
+rewritten across 160 parquets / 40,701 rows, since renaming the files alone
+left 33k phantom mismatches by construction. R was **not** re-run: the new
+trackers have no R counterpart and show as Python-only, which the user
+accepted. Post-refresh state, all four stages: patient cleaned 93,997
+mismatches / 8,259 unclassified; patient raw 27,921 / 14,844; product cleaned
+22,718 / 20; product raw 118 / 0. **Every earlier count on this map was
+measured against the 248-file set and should be read as historical.**
+
+**The frontier is now [Build a drill-down log analyzer for admins to inspect
+a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the patient pipeline's raw-stage column-existence
+divergence](tickets/30-triage-patient-raw-column-divergence.md), [Triage the
+residual patient raw-stage column mismatches (round
+2)](tickets/31-triage-patient-raw-residual-2.md), [Re-audit every existing
+cause classifier](tickets/32-audit-classifiers-against-decision-bar.md),
+[Make the local pre-push check set actually match
+CI](tickets/34-local-ci-parity-guard.md), [Resolve the Polars 2.0
+deprecation warnings](tickets/35-polars-2-deprecation-warnings.md), and
+[Triage the patient cleaned-stage date-column family (round
+3)](tickets/38-triage-patient-cleaned-date-family.md) -- seven tickets,
+ticket 37 replaced by its spawned residual ticket 38. Tickets 30, 31 and 38
+are ticket 12's only remaining triage blockers (`blocked_by: [20, 21, 22, 23,
+24, 25, 26, 28, 30, 31, 38]`, all but those three closed); tickets 16, 32, 34
+and 35 are independently takeable. Tickets 30 and 31 both had their premise
+numbers refreshed against the new 254-file baseline -- neither needed
+re-scoping.**
+
+
 ## Decisions so far
+
+- [Triage the residual patient cleaned-stage mismatches (round
+  2)](tickets/37-triage-patient-cleaned-residual-2.md) -- decided and
+  implemented, four real Python bugs fixed: the 2022 template's
+  `Updated 2022` header left `blood_pressure_updated`/`edu_occ_updated`
+  unmapped on every 2022 tracker (7,165 values recovered); the cleaned
+  stage's time-stripping split on the first space and destroyed genuine
+  space-separated dates like `"Jun 2006"`, which dateutil then completed from
+  *today*, making the output non-deterministic and sentinelling real dates;
+  `parse_date_flexible`'s month-name truncation dropped only the fourth
+  letter (`"March"` -> `"Marh"`), breaking every full month name; and its
+  month-year branch handled only 2-digit years. Three causes named:
+  `r_extraction_gap` extended over two verified R mechanisms (R's own 2022
+  fixup defeated by a leading space in the source cell, and R reading nothing
+  from the 2026 template's new `Annual` sheet), the new
+  `r_ifelse_na_propagation` (R's `FALSE | FALSE | NA` is NA, so a row whose
+  analog-insulin columns plainly read Y loses its `insulin_type`), and
+  `buddhist_era_typo` made symmetric. Unclassified 16,698 -> 8,259 (-51%).
+  13 rows left deliberately unclassified as a duplicate-row-key alignment
+  signal rather than given a false cause. Residual split into [ticket
+  38](tickets/38-triage-patient-cleaned-date-family.md). Same session, after
+  closure: the tracker set was refreshed to 254 files and the frozen R
+  baseline renamed, `file_name` column included, to keep the comparison
+  pairing -- see the ticket's addendum.
 
 - [Triage the residual patient cleaned-stage column
   mismatches](tickets/29-triage-patient-cleaned-residual.md) — decided:
@@ -1773,6 +1865,10 @@ flowchart TB
     direction LR
     U29["<b>29</b><br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
   end
+  subgraph S2026_08_14["Session 2026-08-14"]
+    direction LR
+    U37["<b>37</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -1784,7 +1880,7 @@ flowchart TB
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U37["<b>37</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
+    U38["<b>38</b><br/>Triage the patient<br/>cleaned-stage date-<br/>column family (round 3)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1807,7 +1903,8 @@ flowchart TB
   S2026_08_12g ~~~ S2026_08_12h
   S2026_08_12h ~~~ S2026_08_13
   S2026_08_13 ~~~ S2026_08_13b
-  S2026_08_13b ~~~ Sopen
+  S2026_08_13b ~~~ S2026_08_14
+  S2026_08_14 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1845,7 +1942,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U37 --->|blocked| U12
+  U38 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -1870,13 +1967,14 @@ flowchart TB
   U33 -.->|spawned| U35
   U25 -.->|spawned| U36
   U29 -.->|spawned| U37
+  U37 -.->|spawned| U38
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U30,U31,U32,U34,U35,U37 tfrontier
+  class U16,U30,U31,U32,U34,U35,U38 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36,U37 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
