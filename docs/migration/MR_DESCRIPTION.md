@@ -1,0 +1,465 @@
+# Migration: R to Python data pipeline (`migration` -> `dev`, PR #2)
+
+Replaces the R implementation of the A4D medical tracker pipeline with a Python
+one covering both arms (patient + product), plus deployment, state management,
+and an R/Python comparison harness used to verify the migration cell by cell.
+
+240 commits, 335 files, +37,949 / -701. CI green on `migration` HEAD
+(run `31841680157`). 664 tests.
+
+**This MR is not ready to merge yet** — see "Still open" at the end. It is
+posted so the state is reviewable while the remaining verification work runs.
+
+> Keep this document current: update it at the end of every working session,
+> alongside [docs/wayfinder/map.md](../wayfinder/map.md).
+
+---
+
+## Treasure map
+
+```mermaid
+flowchart TD
+  subgraph DONE["Shipped and verified"]
+    A["Patient pipeline<br/>extract - clean - tables"]
+    B["Product pipeline<br/>extract - clean - table"]
+    C["Merged into one branch<br/>PR #6, 2026-08-09"]
+    D["Cloud Run Job<br/>GCS + BigQuery + Drive"]
+    E["Incremental processing<br/>tracker_metadata + MD5"]
+    F["Production verification run<br/>verified vs BQ snapshot"]
+    G["Perf profile<br/>6.6x patient speedup"]
+    H["Dependency audit<br/>19 CVEs cleared"]
+    I["Comparison harness<br/>4 stages, run-over-run deltas"]
+  end
+
+  subgraph TRIAGE["R/Python triage - 28 of 39 tickets closed"]
+    J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
+    K["Product raw: COMPLETE<br/>0 unclassified"]
+    L["Patient cleaned: 6,652 unclassified<br/>down from 55,670"]
+    M["Patient raw: 14,844 unclassified<br/>ticket 30 + 31"]
+  end
+
+  subgraph OPEN["Still open"]
+    N["30 - patient raw column divergence"]
+    O["31 - patient raw mismatches r2"]
+    P["32 - re-audit all classifiers"]
+    Q["34 - local checks match CI"]
+    R["35 - Polars 2.0 deprecations"]
+    S["39 - dates inside free text"]
+    T["16 - per-file log drill-down"]
+  end
+
+  subgraph BLOCKED["Blocked on the above"]
+    U["12 - retire R from the workspace"]
+    V["6 - promote migration to dev"]
+    W["9 - golden-master snapshot tests"]
+  end
+
+  A --> C
+  B --> C
+  C --> D --> F
+  C --> I --> TRIAGE
+  M --> N
+  M --> O
+  N --> U
+  O --> U
+  U --> V --> W
+
+  classDef done fill:#1a7f37,stroke:#116329,color:#fff
+  classDef partial fill:#9a6700,stroke:#7d4e00,color:#fff
+  classDef open fill:#1f6feb,stroke:#0b3d91,color:#fff
+  classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
+  class A,B,C,D,E,F,G,H,I,J,K done
+  class L,M partial
+  class N,O,P,Q,R,S,T open
+  class U,V,W blocked
+```
+
+---
+
+# Part 1 — The `a4d` package
+
+## What it does
+
+Reads A4D clinic Excel trackers (one workbook per clinic per year, one sheet
+per month) and produces analysis-ready BigQuery tables. Two independent arms
+run over the same workbooks:
+
+- **patient** — the per-month patient sheets plus the `Patient List` sheet
+- **product** — the `INV` / stock section (insulin and supply movements)
+
+```
+GCS bucket                Excel trackers            per-tracker parquet          tables            BigQuery
+a4dphase2_upload   -->    <clinic>/<year>_...  -->  patient_data_raw/       -->  patient_static    -->  tracker.*
+Google Drive              .xlsx                     patient_data_cleaned/        patient_monthly
+clinic_data.xlsx                                    product_data_raw/            patient_annual
+                                                    product_data_cleaned/        product_data
+                                                    logs/                        clinic_data_static
+                                                                                 table_logs
+                                                                                 table_errors
+                                                                                 tracker_metadata
+```
+
+`clinic_id` is the tracker's parent folder name. The tracker year comes from
+sheet names (`Jan24` -> 2024) or the filename.
+
+## Module map
+
+| Module | Purpose |
+|---|---|
+| `extract/patient.py` | Excel -> raw patient parquet (openpyxl, multi-sheet, two-row header merge) |
+| `extract/product.py` | Excel -> raw product parquet (month sheets, stock section) |
+| `extract/wide_format.py` | Mandalay wide-format handling (column expansion 2020-21, cell splitting 2017-19) |
+| `clean/patient.py` | Type conversion, validation, transformations -> cleaned parquet |
+| `clean/product.py` | Product cleaning (R steps 2.0-2.21), running balance, chronological sort |
+| `clean/schema.py` / `schema_product.py` | 83-column patient and 20-column product meta schemas |
+| `clean/converters.py` | Safe type conversion with `ErrorCollector` |
+| `clean/validators.py` | Allowed-value validation, canonical labels + alias map |
+| `clean/transformers.py` | Regimen extraction, BP splitting, FBG conversion |
+| `clean/date_parser.py` | Flexible date parsing (Excel serials, DD/MM/YYYY, month-year, typo rescue) |
+| `tables/*.py` | Aggregate cleaned parquets into the final tables (patient, product, clinic, logs, metadata) |
+| `pipeline/*.py` | Per-tracker and per-arm orchestration, parallel workers, result dataclasses |
+| `gcp/*.py` | GCS download/upload, BigQuery load, Drive download, production-run verification |
+| `reference/*.py` | Column synonyms, product categories, province validation (YAML in `reference_data/`) |
+| `validate/*.py` | Source-vs-output reconciliation |
+| `migration/compare.py` | R/Python comparison engine (Part 2) — dies with R's retirement |
+| `state/*.py` | Incremental processing: manifest, MD5 filter, source resolution |
+| `config.py` | Pydantic settings from `.env` / `A4D_*` env vars |
+| `cli.py` | Typer CLI |
+
+Row-level data-quality problems never raise: `ErrorCollector` accumulates them
+and they land in `table_errors` / `table_logs` with an `error_code`. Sentinels
+for unusable values are numeric `999999`, string `"Undefined"`, date
+`"9999-09-09"` — matching R's constants.
+
+## Configuration
+
+Everything is a Pydantic setting, overridable via `.env` or `A4D_*` env vars:
+
+| Setting | Default |
+|---|---|
+| `A4D_DATA_ROOT` | the local tracker directory |
+| `A4D_OUTPUT_DIR` | `output` (relative to `data_root`) |
+| `A4D_PROJECT_ID` / `A4D_DATASET` | `a4dphase2` / `tracker` |
+| `A4D_DOWNLOAD_BUCKET` / `A4D_UPLOAD_BUCKET` | `a4dphase2_upload` / `a4dphase2_output` |
+| `A4D_MAX_WORKERS` | `4` |
+| `A4D_ERROR_VAL_NUMERIC` / `_CHARACTER` / `_DATE` | `999999` / `Undefined` / `9999-09-09` |
+| `A4D_MIN_TRACKER_YEAR` / `_MAX_TRACKER_YEAR` | `2017` / `2030` |
+
+## CLI
+
+Commands are grouped by *process*, not by the object they act on:
+
+```bash
+uv run a4d run                    # full end-to-end: Drive + GCS download, both arms, tables, GCS + BigQuery upload
+uv run a4d run patient            # patient arm only, local
+uv run a4d run product            # product arm only, local
+
+uv run a4d create tables          # rebuild all tables from existing cleaned parquets
+uv run a4d create logs            # rebuild only the logs table from existing log files
+
+uv run a4d upload tables          # -> BigQuery (--only patient|product|clinic|logs|errors|metadata)
+uv run a4d upload output          # -> GCS
+
+uv run a4d download trackers      # <- GCS
+uv run a4d download clinic-data   # <- Google Drive
+```
+
+Key flags on `run`: `--file` (single tracker), `--workers/-w`, `--skip-download`,
+`--skip-upload`, `--skip-drive-download`, `--skip-patient`, `--skip-product`,
+`--skip-tables`, `--incremental`, `--force`.
+
+`--incremental` skips trackers whose MD5 and completion state match the previous
+run's manifest (BigQuery -> local parquet -> empty fallback); both arms see the
+same filtered queue. `--force` wipes prior local outputs first and overrides
+`--incremental`.
+
+## Usage scenarios
+
+```bash
+# 1. First-time setup
+uv sync && just hooks
+
+# 2. Debug one tracker end to end (no GCS, no upload)
+just run-file "/path/to/2024_Mahosot Hospital A4D Tracker.xlsx"
+just run-file-product "/path/to/2024_Mahosot Hospital A4D Tracker.xlsx"
+
+# 3. Full local run over everything in data_root, both arms, no cloud
+uv run a4d run --skip-download --skip-upload --skip-drive-download
+
+# 4. Reprocess everything from scratch (what triage sessions use before comparing)
+uv run a4d run patient --force
+uv run a4d run product --force
+
+# 5. Pull the current production trackers down, process locally, upload nothing
+just run-download
+
+# 6. Cheap daily-style run: only trackers that actually changed
+uv run a4d run --incremental
+
+# 7. Tables only, from parquets already on disk
+just create-tables
+
+# 8. Deploy and execute in production
+just backup-bq        # snapshot BigQuery first (7-day expiry) -- the rollback point
+just deploy           # build, push, point the Cloud Run Job at the new image
+just run-job          # execute
+just logs-job         # stream logs
+just rollback abc1234 # revert the job to a previous git SHA
+uv run python scripts/verify_production_run.py   # live tables vs the snapshot
+```
+
+## Development commands
+
+```bash
+just ci            # format-check + lint + type-check + test, the same set CI runs
+just test          # unit tests (skips slow/integration)
+just test-fast     # no coverage, fail fast
+just test-all      # everything including slow + integration
+just format / fix / lint / check
+just sync / update / info / clean
+just docker-build / docker-smoke / docker-push / docker-list / docker-clean
+just job-settings  # current Cloud Run CPU/memory/timeout/parallelism
+```
+
+---
+
+# Part 2 — The R/Python comparison harness
+
+The single most important tool in this migration. It is how "is the Python
+pipeline right?" was turned into a number that goes down each session.
+
+Migration-only, deliberately **not** wired into `a4d.cli`: it has a defined
+end of life at R's retirement (ticket 12). Engine in
+`src/a4d/migration/compare.py` (pure, unit-tested), thin CLI in
+`scripts/compare_outputs.py`.
+
+## How to run it
+
+```bash
+just compare-outputs \
+  "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r" \
+  "/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_python" \
+  output/comparison
+
+# equivalently
+uv run python scripts/compare_outputs.py \
+  --r-dir  ".../output_r" \
+  --py-dir ".../output_python" \
+  --output-dir output/comparison \
+  --only-mismatches      # print only files with at least one measure flagged
+```
+
+It takes two *existing* output directories and diffs them — it never runs
+either pipeline. The R side is a frozen baseline on the test-data drive; R is
+not re-run (one deliberate exception, when the tracker set grew, framed as the
+final capture before R is retired).
+
+## What it compares
+
+Four stages, each producing its own workbook, so a divergence can be localised
+to extraction vs. cleaning:
+
+| Stage | Directory | Row-alignment key |
+|---|---|---|
+| Patient (raw) | `patient_data_raw/` | `patient_id` + `sheet_name` |
+| Patient (cleaned) | `patient_data_cleaned/` | `patient_id` + `sheet_name` |
+| Product (raw) | `product_data_raw/` | ordinal position within `(clinic_id, sheet)` |
+| Product (cleaned) | `product_data_cleaned/` | ordinal position within `(clinic_id, sheet)` |
+
+Product has no natural identity key — `product_entry_date` is null on many rows
+and collapsed the join, so `add_row_ordinal()` computes a positional key at
+comparison time instead (never stored: the frozen R baseline cannot be re-run
+to pick up a new column).
+
+Seven measures per file, coarse to fine:
+
+| Measure | What it answers |
+|---|---|
+| Shape match | same row count? Structural only. |
+| ID divergence | patients/products present on only one side. Independent of the row key. |
+| Column divergence | columns only on one side, plus dtype differences. |
+| Categorical divergence | label values appearing on one side but never the other. |
+| Totals divergence | numeric columns whose column-sum differs beyond tolerance. |
+| Row-key divergence | rows that found no partner at all. **Read this before Cell divergence** — 0 cell mismatches can mean "everything agreed" or "nothing was paired". |
+| Cell divergence | matched rows diffed value by value. |
+
+## Normalisation, before anything is called a mismatch
+
+Representation differences are not divergences, and they used to drown
+everything else. Three normalisers run per stage, on columns declared in the
+`STAGES` table:
+
+- `normalize_date_column` — R stores unparsed Excel serials as strings, Python
+  stores parsed dates. Both sides go through the pipeline's own
+  `parse_date_flexible`. *Product raw `product_entry_date`: 65,743 -> 91.
+  Patient raw overall: 564,096 -> 46,788.*
+- `normalize_numeric_column` — R and Python round float-to-string differently.
+  Parse both back to `float` so the tolerance applies.
+- `normalize_whitespace_column` — readxl's `trim_ws=TRUE` strips what openpyxl
+  keeps, and represents an embedded line break as `\r\n` vs `\n`.
+
+## Cause classifiers
+
+Every cell mismatch is run through a per-column registry and labelled with a
+cause, or left `unclassified`. ~20 classifiers exist, each named after the
+*mechanism* it identifies, e.g.:
+
+`r_extraction_gap`, `r_category_lookup_miss`, `r_insulin_dedup_drop`,
+`r_join_suffix_collision`, `r_ifelse_na_propagation`, `r_date_error_sentinel`,
+`r_numeric_error_sentinel`, `row_order_divergence`,
+`derived_running_total_row_order`, `buddhist_era_typo`,
+`python_canonical_label`, `python_future_date_sentinel`,
+`stray_date_zeroed`, `wide_format_fragment`.
+
+**`unclassified` is the number that matters.** A classifier records that a
+difference is *understood*, not that Python won. Where a difference is
+genuinely undecidable, or the source file itself is corrupt, that is recorded
+as the answer rather than papered over with a label.
+
+## What a run writes
+
+```
+output/comparison/2026-08-14T204031Z/          # one self-contained folder per run
+├── compare_report_patient_data_raw.xlsx
+├── compare_report_patient_data_cleaned.xlsx
+├── compare_report_product_data_raw.xlsx
+├── compare_report_product_data_cleaned.xlsx
+└── snapshot_<stage>.json                      # per-column / per-cause counts
+```
+
+Each workbook carries summary sheets (per-column and per-cause mismatch counts,
+files only in R, files only in Python) and one detail sheet per measure:
+`column_divergence`, `id_overlap`, `categorical_overlap`, `row_key_overlap`,
+`totals`, `cell_mismatches`. Excel rather than HTML on purpose — triage means
+loading the result as a dataframe, filtering, sorting and adding columns.
+
+The console prints the same summary plus a **run-over-run delta** (red/green)
+against the previous run folder's snapshot for that stage, so a fix's effect is
+visible by count without needing a classifier to prove it worked.
+
+## How it was actually used
+
+The loop each session:
+
+1. `just compare-outputs ...` -> pick the largest `unclassified` population in
+   the `cell_mismatches` sheet.
+2. Filter that column in Excel, look for the shape of the difference
+   (R-null vs Python-has-value? sentinel? ordering?).
+3. **Open the real source Excel workbook** and read the cell. This is the step
+   that mattered — a shape-matching heuristic is not a diagnosis. Nearly every
+   real bug in the table below was found here, not in the report.
+4. Also read R's own source in `r-archive/` when the mechanism lives there.
+5. Then either: fix Python (most sessions), or add a named classifier
+   explaining the mechanism, or record it as an open question.
+6. Re-run the pipeline (`a4d run patient --force`) and the comparison; the
+   delta shows the effect.
+7. Whatever did not converge is split into a new ticket rather than left
+   sprawling.
+
+Rules that made it work, learned the hard way:
+
+- **Triage means deciding, not labelling.** Two bars: explain the actual
+  mechanism, and say what you checked.
+- **Not 1:1 R parity.** R can be wrong and often is. The arbiter is the source
+  workbook, not R's output.
+- **A corrupt source is a valid terminal answer** — "this tracker needs human
+  inspection" is a finding, not a failure.
+- **Split rather than sprawl.** 39 tickets exist because sessions ended by
+  handing the residual forward with its numbers attached.
+
+Ticket 32 exists to re-audit every classifier written before that bar was set.
+
+---
+
+# Part 3 — Results
+
+## Real defects found and fixed
+
+Triage was overwhelmingly a bug-hunt, not a labelling exercise. The ones that
+changed production output:
+
+| Fix | Effect |
+|---|---|
+| `_fix_t1d_diagnosis_age` recomputed from dates, discarding recorded ages | 25,968 -> 4,807 mismatches |
+| `merge_headers` left the 2022 template's `Updated 2022` header unmapped | recovered 7,165 blood-pressure / education dates |
+| `_apply_type_conversions` split on the first space; dateutil then completed from *today* | non-deterministic output, real dates destroyed |
+| `parse_date_flexible` deleted the 4th letter of month names (`March` -> `Marh`) | every full month name was unparseable |
+| Date path knew 4 missing-value markers where the numeric path knew 11 | sentinel-stamped date cells 6,186 -> 1,994 |
+| `extract_regimen` lowercased every unmatched value (`NPH` -> `nph`) | live data corruption |
+| `validate_allowed_values` picked the last of two identically-sanitising spellings | now a loud config error; canonical labels declared in config |
+| `remove_header_rows` missed rows blank except one formula-emptied cell | row insertion/shift across product raw |
+| Inconsistent whitespace trimming across both arms | recovered 72 rows of patient `sex` |
+| `find_data_start_row` was O(n^2) on read-only worksheets | 6.6x speedup, 145.8s -> 22.0s |
+| `clean_product_data` crashed on pre-product-tracking trackers | 4 trackers now yield empty schema-conformant output |
+| `run-pipeline` aborted the whole run on one patient tracker failure | soft-fail-and-continue, both arms |
+
+Also added: a `balance_reconciliation` error code that fires when the computed
+closing stock contradicts the tracker's own recorded total (113 groups across
+21 files).
+
+## Where verification stands
+
+Current baseline: `output/comparison/2026-08-14T204031Z`, 254 trackers.
+Earlier counts on the wayfinder map were measured against smaller tracker sets
+and should be read as historical.
+
+| Stage | Mismatches | Unclassified |
+|---|---|---|
+| Product (raw) | 118 | **0** |
+| Product (cleaned) | 22,718 | **20** (kept on purpose as signals) |
+| Patient (cleaned) | 93,997 | 6,652 (from 55,670) |
+| Patient (raw) | 27,921 | 14,844 |
+
+The product arm is fully triaged on both stages. Patient's cleaned stage is
+down 88%; patient's raw stage is the remaining body of work.
+
+---
+
+# Still open
+
+Nothing here blocks review of the code — it blocks the merge.
+
+**Frontier (takeable now)**
+
+- **30 — patient raw-stage column-existence divergence.** 18,783 rows across
+  245 files: hundreds of uniquely-numbered only-in-R junk columns (`na`,
+  `na1`, … `na10064`) and a large only-in-Python set of unmapped literal
+  source header text. Blocks retiring R.
+- **31 — patient raw-stage mismatches, round 2.** 14,844 unclassified,
+  dominated by `complication_screening` (a probable multi-select extraction
+  Python captures and R only partially does) plus ~50 smaller columns. Blocks
+  retiring R.
+- **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
+  when written, but the decision bar was tightened partway through; this
+  re-checks that none merely labels a diff it never explained.
+- **34 — make the local pre-push checks match CI.** CI was red for four days
+  unnoticed because the locally-run check set was a strict subset.
+- **35 — 17 Polars 2.0 deprecation warnings.** Each asks about a behaviour
+  change; they need decisions, not silencing.
+- **39 — dates buried in clinical notes.** 487 cells where R parses a date out
+  of free text and Python does not. Open question: recover or discard.
+- **16 — per-file log drill-down.** Replaces `LogViewerA4D`'s job. Not yet
+  decided whether it gates rollout or is a nice-to-have.
+
+**Blocked**
+
+- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
+  on 30 and 31: triage has repeatedly needed to read R's actual source to
+  root-cause a mismatch, not just diff its output.
+- **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
+- **9 — golden-master/snapshot regression tests.** Deliberately deferred until
+  after promotion.
+
+**Known and accepted**
+
+- The frozen R baseline covers 254 trackers via a documented, reversible rename
+  map; new clinics added after the last R run have no R counterpart and show as
+  Python-only.
+- `compare_columns` deliberately flags every dtype difference, including
+  harmless representation artifacts (R `Float64` vs Python `Int32` on integer
+  columns); these are documented rather than normalised away.
+- A local, untracked `a4d-python/` directory at the repo root is a stale copy
+  predating the current `src/` layout — not in git, pending a decision to delete.
+
+Full history, per-ticket evidence and every decision:
+[docs/wayfinder/map.md](../wayfinder/map.md).
