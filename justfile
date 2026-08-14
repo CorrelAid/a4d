@@ -181,9 +181,9 @@ backup-bq:
     set -euo pipefail
     DATE=$(date +%Y%m%d)
     EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
-    # Output data tables that get WRITE_TRUNCATE'd by load_pipeline_tables on every run.
+    # Every table load_pipeline_tables deletes and recreates on each run.
     # Keep in sync with PARQUET_TO_TABLE in src/a4d/gcp/bigquery.py when adding new pipelines.
-    TABLES="patient_data_static patient_data_monthly patient_data_annual product_data"
+    TABLES="patient_data_static patient_data_monthly patient_data_annual product_data clinic_data_static logs errors tracker_metadata"
     for TABLE in $TABLES; do
         if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
             SNAP="${TABLE}_${DATE}"

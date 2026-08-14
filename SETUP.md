@@ -17,8 +17,11 @@ brew install google-cloud-sdk
 
 ### Install
 
+Run everything from the repository root — the Python pipeline lives at the root
+(`src/`, `tests/`, `pyproject.toml`); the legacy R code is archived under
+`r-archive/`.
+
 ```bash
-cd a4d-python
 uv sync
 cp .env.example .env
 ```
@@ -188,14 +191,15 @@ Authenticate Docker to Artifact Registry once:
 gcloud auth configure-docker asia-southeast2-docker.pkg.dev
 ```
 
-Then build and push (run from `a4d-python/`):
+Then build and push (from the repository root):
 
 ```bash
 just docker-push
 ```
 
-This builds with the repo root as context (required — the Dockerfile copies
-`reference_data/` from outside `a4d-python/`) and pushes to Artifact Registry.
+This builds with the repo root as context — the Dockerfile copies
+`pyproject.toml`, `uv.lock`, `src/` and `reference_data/` from there — and
+pushes both the `:latest` and `:<git-sha>` tags to Artifact Registry.
 
 To verify the image was pushed and see what's already in the registry:
 
@@ -218,7 +222,6 @@ A4D_PROJECT_ID=a4dphase2,\
 A4D_DATASET=tracker,\
 A4D_DOWNLOAD_BUCKET=a4dphase2_upload,\
 A4D_UPLOAD_BUCKET=a4dphase2_output,\
-A4D_DATA_ROOT=/tmp/data,\
 A4D_OUTPUT_DIR=output,\
 A4D_MAX_WORKERS=8" \
     --memory=8Gi \
@@ -227,8 +230,20 @@ A4D_MAX_WORKERS=8" \
     --project=a4dphase2
 ```
 
-`A4D_DATA_ROOT=/tmp/data` uses ephemeral in-container storage — the job downloads
-tracker files there, processes them, uploads the output, then exits. Nothing persists.
+The container writes to `A4D_DATA_ROOT`, which the image already sets to
+`/workspace/data` (see the `Dockerfile`) — ephemeral in-container storage. The
+job downloads tracker files there, processes them, uploads the output, then
+exits. Nothing persists between executions. Override it on the job only if you
+want a different path.
+
+> **What is actually deployed today**: the live `a4d-pipeline` job sets only
+> `A4D_MAX_WORKERS=8` as an env var; every other setting resolves from the
+> image's own `ENV` or from `src/a4d/config.py` defaults, which already match
+> the values above. Check with `just job-settings` or:
+>
+> ```bash
+> gcloud run jobs describe a4d-pipeline --region=asia-southeast2 --project=a4dphase2
+> ```
 
 To update the job after a config change:
 
