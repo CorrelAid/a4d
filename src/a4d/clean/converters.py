@@ -14,7 +14,11 @@ The pattern is:
 import polars as pl
 from loguru import logger
 
-from a4d.clean.date_parser import parse_date_flexible, rescue_date_typos
+from a4d.clean.date_parser import (
+    MISSING_VALUE_MARKERS,
+    parse_date_flexible,
+    rescue_date_typos,
+)
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 from a4d.extract.common import EXCEL_ERROR_STRINGS
@@ -141,11 +145,15 @@ def safe_convert_column(
     # This ensures missing data stays null rather than becoming error values
     # Matches R behavior where these values → NA (not conversion error)
     if df[column].dtype in (pl.Utf8, pl.String):
-        # Common missing value representations to treat as null
-        missing_values = ["", "N/A", "NA", "n/a", "na", "-", ".", "None", "none", "NULL", "null"]
+        # Shared with the date path (MISSING_VALUE_MARKERS, clean/date_parser.py)
+        # so the two cannot drift apart again -- they had, and a date cell
+        # holding "-" reached the error sentinel where the numeric one nulled.
         df = df.with_columns(
             pl.when(
-                pl.col(column).str.strip_chars().is_in(missing_values)
+                pl.col(column)
+                .str.strip_chars()
+                .str.to_lowercase()
+                .is_in(list(MISSING_VALUE_MARKERS))
                 | (pl.col(column).str.strip_chars().str.len_chars() == 0)
             )
             .then(None)

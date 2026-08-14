@@ -55,6 +55,7 @@ from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
     PYTHON_CANONICAL_LABEL_CLASSIFIERS,
+    R_DATE_ERROR_SENTINEL_CLASSIFIERS,
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     STRAY_DATE_CLASSIFIERS,
     STRAY_DATE_ZEROED_CLASSIFIERS,
@@ -339,6 +340,17 @@ CLASSIFIERS_BY_COLUMN |= {
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS
     for col in get_numeric_columns()
+}
+
+# ticket 38: the same argument on the date path -- R stamps 9999-09-09 on any
+# date cell that recorded an absence its is.na() check does not recognize
+# (literal "NA", "-", "Nil"), so like its numeric twin the cause belongs to
+# every date column rather than to any one of them. Derived from the schema's
+# own date column list, and appended last so a column-specific,
+# source-verified cause still wins the first match.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | R_DATE_ERROR_SENTINEL_CLASSIFIERS
+    for col in get_date_columns()
 }
 
 # (label, output subdir, row-alignment key or ordinal-group cols, identity

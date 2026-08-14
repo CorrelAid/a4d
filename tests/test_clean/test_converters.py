@@ -532,3 +532,38 @@ def test_parse_date_flexible_recovers_a_date_followed_by_free_text():
 def test_parse_date_flexible_still_sentinels_genuine_garbage():
     assert parse_date_flexible("garbage_value_xyz") == date(9999, 9, 9)
     assert parse_date_flexible("NA") is None
+
+
+def test_parse_date_flexible_treats_every_numeric_missing_marker_as_missing():
+    """A date column's missing markers are the same ones the numeric path
+    already normalizes (ticket 38). "-" and "N/A" reaching the sentinel meant
+    the cleaned output claimed "a date was recorded but is invalid" for a cell
+    that plainly recorded nothing.
+    """
+    for marker in ("-", ".", "N/A", "n/a", "NULL", "None", "  "):
+        assert parse_date_flexible(marker) is None, marker
+
+
+def test_parse_date_flexible_treats_written_absence_as_missing():
+    """Clinicians write absence in words, not only as "NA" (ticket 38:
+    "Nil" 510 rows, "Unknown" 481, "?" 130 across the real 254-tracker set).
+    """
+    for marker in ("Nil", "nil", "Nill", "Unknown", "unknwon", "uncertain", "?"):
+        assert parse_date_flexible(marker) is None, marker
+
+
+def test_parse_date_flexible_treats_template_placeholder_text_as_missing():
+    """The tracker template's own instruction text leaks into data rows
+    ("Insert Date", "NA or Hospitalisation Date") -- it is a blank cell that
+    was never filled in, not a date that failed to parse.
+    """
+    for marker in ("Insert Date", "Insert Date or NA", "NA or Hospitalisation Date"):
+        assert parse_date_flexible(marker) is None, marker
+
+
+def test_parse_date_flexible_still_sentinels_a_recorded_but_unusable_value():
+    """The widened missing set must not swallow the case the sentinel exists
+    for: something was written, and it is not a date and not an absence.
+    """
+    assert parse_date_flexible("garbage_value_xyz") == date(9999, 9, 9)
+    assert parse_date_flexible("She stay in Hospital") == date(9999, 9, 9)
