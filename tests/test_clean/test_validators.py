@@ -1,6 +1,7 @@
 """Tests for schema and validation utilities."""
 
 import polars as pl
+import pytest
 
 from a4d.clean.validators import (
     fix_patient_id,
@@ -652,24 +653,55 @@ def test_fix_patient_id_matches_r_behavior():
     assert len(collector) == 7
 
 
-def test_validate_allowed_values_prefers_the_first_of_two_colliding_spellings():
-    """Ticket 29: two allowed values that sanitize identically.
+def test_validate_allowed_values_maps_a_configured_alias_to_its_canonical_form():
+    """Ticket 29: the pre-2024 template's spelling is an alias, not a value.
 
-    reference_data/data_cleaning.yaml lists both "Active - Remote" and
-    "Active Remote" for `status`, and sanitize_str reduces both to
-    "activeremote". R's setNames list lookup returns the first entry; the
-    dict comprehension here returned the last, so 2,611 real cleaned rows
-    disagreed with R on which spelling to emit. First-wins also makes the
-    result independent of the order the config happens to list them in.
+    The source carries both "Active - Remote" (2020-2023 trackers) and
+    "Active Remote" (2024+ trackers, and the only spelling the current
+    Lookup List dropdown defines). One canonical label must reach the
+    reports, and which one is canonical is stated in the config rather than
+    implied by list order.
     """
     collector = ErrorCollector()
-    df = pl.DataFrame({"status": ["active remote"]})
+    df = pl.DataFrame({"status": ["Active - Remote", "active remote", "Active"]})
 
     result = validate_allowed_values(
         df=df,
         column="status",
-        allowed_values=["Active", "Active - Remote", "Active Remote"],
+        allowed_values=["Active", "Active Remote"],
+        aliases={"Active Remote": ["Active - Remote"]},
         error_collector=collector,
     )
 
-    assert result["status"].to_list() == ["Active - Remote"]
+    assert result["status"].to_list() == ["Active Remote", "Active Remote", "Active"]
+
+
+def test_validate_allowed_values_rejects_two_allowed_values_that_sanitize_alike():
+    """Two canonical values reducing to one key made the winner depend on
+    dict-insertion order (ticket 29). Fail loudly instead of picking one."""
+    collector = ErrorCollector()
+    df = pl.DataFrame({"status": ["Active Remote"]})
+
+    with pytest.raises(ValueError, match="sanitize to the same key"):
+        validate_allowed_values(
+            df=df,
+            column="status",
+            allowed_values=["Active - Remote", "Active Remote"],
+            error_collector=collector,
+        )
+
+
+def test_validate_allowed_values_rejects_aliases_for_a_non_allowed_canonical():
+    """Aliases declared under a label that is not a canonical value are a
+    config typo."""
+    collector = ErrorCollector()
+    df = pl.DataFrame({"status": ["Active"]})
+
+    with pytest.raises(ValueError, match="not an allowed value"):
+        validate_allowed_values(
+            df=df,
+            column="status",
+            allowed_values=["Active"],
+            aliases={"Active Remotte": ["Active - Remote"]},
+            error_collector=collector,
+        )

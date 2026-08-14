@@ -39,6 +39,7 @@ from a4d.clean.schema import (
 from a4d.clean.schema import (
     get_string_columns as get_patient_string_columns,
 )
+from a4d.clean.validators import load_validation_rules
 from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
@@ -51,6 +52,7 @@ from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    PYTHON_CANONICAL_LABEL_CLASSIFIERS,
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     STRAY_DATE_CLASSIFIERS,
     STRAY_DATE_ZEROED_CLASSIFIERS,
@@ -299,6 +301,17 @@ CLASSIFIERS_BY_COLUMN = {
     # null for the whole file (21 files / 3 files respectively).
     "fbg_baseline_mg": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     "fbg_baseline_mmol": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+}
+
+# ticket 29: every column whose validation rules declare canonical-label
+# aliases diverges from R by design -- R's config lists the retired spelling
+# as an allowed value and its first-match lookup collapses onto it, while
+# Python folds retired spellings into one canonical label. Derived from the
+# same config that produces the values, so a future alias needs no edit here.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PYTHON_CANONICAL_LABEL_CLASSIFIERS
+    for col, spec in load_validation_rules().items()
+    if isinstance(spec, dict) and spec.get("aliases")
 }
 
 # ticket 29: R's 999999 numeric sentinel is not a property of any one column

@@ -20,6 +20,7 @@ from typing import Any
 import polars as pl
 
 from a4d.clean.date_parser import parse_date_flexible
+from a4d.clean.validators import load_validation_rules, sanitize_str
 from a4d.config import settings
 
 SENTINEL_DATE = datetime.date(9999, 9, 9)
@@ -682,6 +683,49 @@ def _is_r_numeric_error_sentinel(m: CellMismatch) -> bool:
 
 R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS: dict[str, Classifier] = {
     "r_numeric_error_sentinel": _is_r_numeric_error_sentinel,
+}
+
+
+def _declared_aliases() -> dict[str, set[str]]:
+    """Canonical label -> the sanitized retired spellings it absorbs.
+
+    Read from ``reference_data/validation_rules.yaml`` rather than restated
+    here, so this classifier cannot drift from the config that produced the
+    values it is explaining.
+    """
+    resolved: dict[str, set[str]] = {}
+    for spec in load_validation_rules().values():
+        if not isinstance(spec, dict):
+            continue
+        for canonical, spellings in (spec.get("aliases") or {}).items():
+            resolved.setdefault(canonical, set()).update(sanitize_str(s) for s in spellings)
+    return resolved
+
+
+ALIAS_CANONICAL_LABELS = _declared_aliases()
+
+
+def _is_python_canonical_label(m: CellMismatch) -> bool:
+    """R emits a retired spelling of a label; Python emits the canonical one.
+
+    Where a tracker generation renamed a status, both spellings appear across
+    the corpus -- "Active - Remote" in 2020-2023 trackers, "Active Remote" in
+    2024+ ones, which is the only spelling the Lookup List dropdown
+    introduced with the 2024 template defines (verified against the real
+    source workbooks, ticket 29). R's own config lists both as allowed values
+    and R's first-match lookup collapses everything onto the older spelling.
+    Python declares one canonical label per status and folds the retired
+    spellings into it, so the reports carry one label per status rather than
+    two competing ones. A deliberate divergence from the frozen R baseline,
+    not a defect on either side -- and the source cell is unchanged in both.
+    """
+    if not isinstance(m.r_value, str) or not isinstance(m.py_value, str):
+        return False
+    return sanitize_str(m.r_value) in ALIAS_CANONICAL_LABELS.get(m.py_value, set())
+
+
+PYTHON_CANONICAL_LABEL_CLASSIFIERS: dict[str, Classifier] = {
+    "python_canonical_label": _is_python_canonical_label,
 }
 
 
