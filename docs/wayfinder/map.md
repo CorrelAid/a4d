@@ -1242,6 +1242,33 @@ baseline is `output/comparison/2026-08-14T204031Z`.
 `r_date_error_sentinel`, source-verified against the real 2020 Mahosot
 workbook rather than sampled.
 
+**Session 2026-08-15, no ticket claimed — a living MR description, and four
+real staleness findings.** The user asked for a merge-request description for
+PR #2 and said it must be kept current after every session, so
+[docs/migration/MR_DESCRIPTION.md](../migration/MR_DESCRIPTION.md) is now a
+second session-end deliverable beside this map: treasure-map diagram, `a4d`
+package overview + usage scenarios, the production Cloud Run Job setup, the
+comparison harness and the triage loop it supports, the defects fixed, the
+current per-stage counts, and the open-ticket list. Auditing deployment/CI for
+drift while writing it turned up four things worth recording, all fixed
+(`10bb0ae`): **CI never ran on PR #2** — the `pull_request` trigger listed
+`[main, develop, migration]` where the default branch is `dev` and `develop`
+does not exist, and its `paths:` filter covered only `src/`/`tests/` while ruff
+runs repo-wide (the ticket-33 failure mode, now removed); **`just backup-bq`
+snapshotted 4 of the 8 tables** `load_pipeline_tables` deletes and recreates,
+so `clinic_data_static`, `logs`, `errors` and `tracker_metadata` had no
+rollback point despite the recipe's own "keep in sync with `PARQUET_TO_TABLE`"
+comment; **SETUP.md documented `A4D_DATA_ROOT=/tmp/data`** while the live job
+sets only `A4D_MAX_WORKERS=8` and the container actually uses the image's
+`/workspace/data` (verified against the deployed job); and stale
+`a4d-python/`-era paths in SETUP.md/README.md. `PLAN.md` was deleted — it
+planned the `a4d-python`-to-root move, long since done. Left for their owners:
+`just hooks`/`hooks-run` are broken (no `.pre-commit-config.yaml`, though
+`pre-commit` is a dev dependency) and `just ci` still differs from CI's marker
+set and coverage gate — both [ticket 34](tickets/34-local-ci-parity-guard.md);
+the `.github/workflows/*.bak` R workflows are
+[ticket 12](tickets/12-retire-r-workspace.md)'s.
+
 
 ## Decisions so far
 
