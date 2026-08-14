@@ -93,6 +93,10 @@ flowchart TB
     direction LR
     U37["<b>37</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
   end
+  subgraph S2026_08_14b["Session 2026-08-14b"]
+    direction LR
+    U38["<b>38</b><br/>Triage the patient<br/>cleaned-stage date-<br/>column family (round 3)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -104,7 +108,7 @@ flowchart TB
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U38["<b>38</b><br/>Triage the patient<br/>cleaned-stage date-<br/>column family (round 3)"]
+    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -128,7 +132,8 @@ flowchart TB
   S2026_08_12h ~~~ S2026_08_13
   S2026_08_13 ~~~ S2026_08_13b
   S2026_08_13b ~~~ S2026_08_14
-  S2026_08_14 ~~~ Sopen
+  S2026_08_14 ~~~ S2026_08_14b
+  S2026_08_14b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -166,7 +171,6 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U38 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -192,12 +196,13 @@ flowchart TB
   U25 -.->|spawned| U36
   U29 -.->|spawned| U37
   U37 -.->|spawned| U38
+  U38 -.->|spawned| U39
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U30,U31,U32,U34,U35,U38 tfrontier
+  class U16,U30,U31,U32,U34,U35,U39 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36,U37 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36,U37,U38 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

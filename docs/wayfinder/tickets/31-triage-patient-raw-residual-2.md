@@ -116,3 +116,24 @@ its long tail. [Ticket 38](38-triage-patient-cleaned-date-family.md) now owns
 deciding whether patient's row-alignment key needs product's positional
 treatment; whatever it decides settles this ticket's version too, so do not
 re-derive it here.
+
+## Premise update (session-2026-08-14b, ticket 38's session)
+
+**The row-alignment question this ticket deferred to [ticket
+38](38-triage-patient-cleaned-date-family.md) is answered: patient's key stays
+as it is.** Measured across all 254 cleaned files, 84 of 85,325 rows (0.10%),
+in 7 files, sit on a duplicated `patient_id` + `sheet_name`. Product's key was
+broken in a different league (up to 35-way duplication) before ticket 17 gave
+it `add_row_ordinal`. Do not re-derive this; the "swapped adjacent row" shape
+in this ticket's long tail is that bounded 84-row population.
+
+**Two of ticket 38's changes move this stage's numbers without anyone having
+triaged them.** The raw-stage comparison normalizes both sides with
+`normalize_date_column`, which calls `parse_date_flexible` -- and ticket 38
+widened its missing-marker handling (`MISSING_VALUE_MARKERS`,
+`DATE_ABSENCE_MARKERS`, `DATE_PLACEHOLDER_FRAGMENTS`), so cells recording "-",
+"Nil" or the template's placeholder text now normalize to null on both sides
+rather than to the error sentinel. Current raw-stage figures: **27,893
+mismatches, 14,816 unclassified** (was 27,921 / 14,844); the baseline run is
+`output/comparison/2026-08-14T204031Z`. `complication_screening` remains the
+dominant single column and this ticket's main question is unchanged.

@@ -40,6 +40,40 @@ MONTH_NAME_PATTERN = re.compile(
 )
 
 
+# The markers that mean "nothing was recorded here". Declared once and shared
+# with safe_convert_column (clean/converters.py), which carried its own copy:
+# the two drifted, and a date cell holding "-" or "N/A" reached the error
+# sentinel while the identical numeric cell was correctly nulled (ticket 38).
+# Compared against the stripped, lowercased value.
+MISSING_VALUE_MARKERS: frozenset[str] = frozenset(
+    {"", "na", "n/a", "n.a", "n.a.", "nan", "none", "null", "-", "--", "."}
+)
+
+# Absence written as a word rather than as a marker. Date-scoped: these were
+# measured on the real 254-tracker set behind Python's own date sentinel
+# ("Nil" 510 rows, "Unknown" 481, "?" 130, plus two spellings of each), where
+# the sentinel's claim -- "a date was recorded and it is invalid" -- is simply
+# false. The numeric path stamps 999999 on the same words; whether it should
+# is a separate question this ticket deliberately did not reopen.
+DATE_ABSENCE_MARKERS: frozenset[str] = frozenset(
+    {"nil", "nill", "no", "unknown", "unknwon", "uncertain", "?", "??", "n\\a"}
+)
+
+# The tracker template's own instruction text, left in place in a data row
+# instead of being replaced by a date. Substring-matched because clinics
+# copy it with varying suffixes ("Insert Date or NA", "NA or Hospitalisation
+# Date"), all of which mean the cell was never filled in.
+DATE_PLACEHOLDER_FRAGMENTS: tuple[str, ...] = ("insert date", "hospitalisation date")
+
+
+def _is_missing_date_text(value: str) -> bool:
+    """True when the cell records an absence rather than an unusable date."""
+    normalized = value.strip().lower()
+    if normalized in MISSING_VALUE_MARKERS or normalized in DATE_ABSENCE_MARKERS:
+        return True
+    return any(fragment in normalized for fragment in DATE_PLACEHOLDER_FRAGMENTS)
+
+
 def rescue_date_typos(s: str) -> tuple[str, bool]:
     """Substitute known month-name typos. Returns (possibly-rewritten, was_rescued)."""
     rescued = False
@@ -75,12 +109,8 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     Returns:
         Parsed date, None for NA/empty, or error date if parsing fails
     """
-    # Handle None, empty, or NA strings
-    if (
-        date_str is None
-        or date_str == ""
-        or str(date_str).strip().lower() in ["na", "nan", "null", "none"]
-    ):
+    # Handle None and every way a tracker records "no date here"
+    if date_str is None or _is_missing_date_text(str(date_str)):
         return None
 
     date_str = str(date_str).strip()

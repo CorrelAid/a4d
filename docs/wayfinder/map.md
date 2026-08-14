@@ -44,7 +44,7 @@ flowchart TD
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
+    T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -52,7 +52,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 27"]
+  subgraph DECIDED["Decided · 28"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -81,6 +81,7 @@ flowchart TD
     T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
+    T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -122,14 +123,13 @@ flowchart TD
   T28 --> T12
   T30 --> T12
   T31 --> T12
-  T38 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T30,T31,T32,T34,T35,T38 frontier
+  class T16,T30,T31,T32,T34,T35,T39 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T33,T36,T37 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T33,T36,T37,T38 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1193,7 +1193,84 @@ numbers refreshed against the new 254-file baseline -- neither needed
 re-scoping.**
 
 
+**Twenty-eight tickets resolved.** [Triage the patient cleaned-stage
+date-column family (round 3)](tickets/38-triage-patient-cleaned-date-family.md)
+is done, and it was a bug-fixing session rather than a labelling one. The
+date path's missing-value handling had drifted from the numeric path's --
+`parse_date_flexible` knew four markers, `safe_convert_column` eleven -- so
+every date cell recording an absence as `-`, `.`, `N/A`, `Nil`, `Unknown`, `?`
+or the tracker template's own leftover placeholder text was stamped
+9999-09-09 in production. The list is now declared once and shared, with two
+date-scoped sets beside it; sentinel-stamped date cells fell 6,186 -> 1,994
+(-68%), the unrecognized-marker share of those 4,377 -> 0. R's side of the
+same shape became the `r_date_error_sentinel` cause (5,707 rows), wired across
+every column `get_date_columns()` returns, with Python verified as the correct
+side against the source template's own "(Insert Date or NA)" sub-header.
+Cleaned-stage unclassified 8,259 -> 6,652. **The ticket's own suggested
+shortcut was rejected on measurement**: wiring `python_future_date_sentinel`
+across the date columns would have labelled 1,209 cells as the future-date
+guard when only 722 are -- the other 487 are Python failing to parse what R
+parsed, which became [ticket
+39](tickets/39-recover-dates-embedded-in-free-text.md). Two questions were
+also closed by measurement: patient's row-alignment key stays an identity key
+(0.10% of rows sit on a duplicated key), which settles ticket 31's copy of it;
+and `t1d_diagnosis_date`'s largest population is a corrupt source file, not a
+pipeline divergence.
+
+**The frontier is now [Build a drill-down log analyzer for admins to inspect a
+specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
+[Triage the patient pipeline's raw-stage column-existence
+divergence](tickets/30-triage-patient-raw-column-divergence.md), [Triage the
+residual patient raw-stage column mismatches (round
+2)](tickets/31-triage-patient-raw-residual-2.md), [Re-audit every existing
+cause classifier](tickets/32-audit-classifiers-against-decision-bar.md), [Make
+the local pre-push check set actually match CI](tickets/34-local-ci-parity-guard.md),
+[Resolve the Polars 2.0 deprecation warnings](tickets/35-polars-2-deprecation-warnings.md),
+and [Decide whether a date buried inside a clinical note should be recovered
+or discarded](tickets/39-recover-dates-embedded-in-free-text.md) -- seven
+tickets, ticket 38 replaced by its spawned residual ticket 39. **Tickets 30
+and 31 are now ticket 12's only remaining blockers**
+(`blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31]`), and both are patient
+raw-stage triage -- the cleaned stage of both arms is now fully owned. Ticket
+39 is deliberately not wired as a blocker of ticket 12: it asks what Python
+should do with a date buried in a clinical note, which needs no reference to
+R's source. Every count on this map from before 2026-08-14 was measured
+against an earlier tracker set or an earlier baseline run; the current
+baseline is `output/comparison/2026-08-14T204031Z`.
+
+**Note for ticket 32** (the classifier re-audit): it now also inherits
+`r_date_error_sentinel`, source-verified against the real 2020 Mahosot
+workbook rather than sampled.
+
+
 ## Decisions so far
+
+- [Triage the patient cleaned-stage date-column family (round
+  3)](tickets/38-triage-patient-cleaned-date-family.md) -- decided and
+  implemented. The date sentinel was being stamped on cells that recorded an
+  **absence**: `parse_date_flexible` recognized four missing markers where the
+  numeric path's `safe_convert_column` already recognized eleven, so `-`, `.`,
+  `N/A`, `Nil`, `Unknown`, `?` and the tracker template's own leftover
+  instruction text ("Insert Date or NA") all became 9999-09-09 -- the claim "a
+  date was recorded and it is invalid" about a cell that recorded nothing. The
+  marker list is now declared once in `clean/date_parser.py` and **shared**
+  with `converters.py`, which had been carrying the copy that drifted; two
+  date-scoped sets were added beside it for absence-written-as-a-word and for
+  the template placeholder. R's side of the same shape became the
+  `r_date_error_sentinel` cause, wired across every column `get_date_columns()`
+  returns, with Python the verified-correct side: the source template's own
+  sub-header reads "(Insert Date or NA)". Sentinel-stamped date cells in
+  Python's own output 6,186 -> **1,994 (-68%)**, of which the
+  unrecognized-marker share went 4,377 -> **0**; cleaned-stage unclassified
+  8,259 -> **6,652**. Also settled, by measurement rather than judgement:
+  patient's row-alignment key stays an identity key (84 of 85,325 rows, 0.10%,
+  sit on a duplicated `patient_id` + `sheet_name`) -- which settles [ticket
+  31](tickets/31-triage-patient-raw-residual-2.md)'s copy of the question too.
+  `t1d_diagnosis_date`'s largest population is a **corrupt source, not a
+  pipeline difference**: one 2022-named, 2022-sheeted tracker whose Patient
+  List holds 2023 diagnosis dates for all 43 patients, internally consistent
+  with its own D.O.B. and age columns. Spawned [ticket
+  39](tickets/39-recover-dates-embedded-in-free-text.md).
 
 - [Triage the residual patient cleaned-stage mismatches (round
   2)](tickets/37-triage-patient-cleaned-residual-2.md) -- decided and
@@ -1739,6 +1816,17 @@ re-scoping.**
   List copy is the intended baseline, which would make Python's monthly-wins
   a silent data choice rather than a harmless one.
 
+- **The words that count as "no date recorded" are the right ones.**
+  `DATE_ABSENCE_MARKERS` (clean/date_parser.py) treats `nil`, `nill`, `no`,
+  `unknown`, `unknwon`, `uncertain` and `?` as an absence rather than as an
+  unusable value. `nil`/`unknown`/`uncertain`/`?` are unambiguous; `unknwon`
+  and `nill` are typo spellings observed in this dataset and may be
+  over-fitting to it. Resting on [ticket
+  38](tickets/38-triage-patient-cleaned-date-family.md); overturned by a
+  tracker where one of these words carries meaning other than absence, or by
+  the numeric path being brought in line (see **Not yet specified**), which
+  would need the same list to survive a second review.
+
 (The one assumption this map originally carried, patient's completeness being
 unverified, was confirmed rather than overturned by
 [the completeness audit](tickets/07-pipeline-completeness-audit.md) and is now
@@ -1746,6 +1834,14 @@ folded into Decisions so far above.)
 
 ## Not yet specified
 
+- Whether the **numeric** conversion path should treat absence-written-as-a-
+  word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
+  (ticket 38). Correct in principle -- 999999 makes the same false claim there
+  that 9999-09-09 made on dates -- but it moves production numeric output and
+  would invalidate ticket 29's exhaustive verification of
+  `r_numeric_error_sentinel`, so it was deliberately not reopened in the same
+  session that depended on it. Not sharp enough to ticket until someone has
+  measured how many numeric cells it actually moves.
 - Whether the R pipeline (`r-archive/`) gets formally retired/archived-further
   once `migration` reaches `dev`/`main`, and what "official migration"
   communication or cutover steps that implies — out of this map's current
@@ -1869,6 +1965,10 @@ flowchart TB
     direction LR
     U37["<b>37</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
   end
+  subgraph S2026_08_14b["Session 2026-08-14b"]
+    direction LR
+    U38["<b>38</b><br/>Triage the patient<br/>cleaned-stage date-<br/>column family (round 3)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -1880,7 +1980,7 @@ flowchart TB
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U38["<b>38</b><br/>Triage the patient<br/>cleaned-stage date-<br/>column family (round 3)"]
+    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -1904,7 +2004,8 @@ flowchart TB
   S2026_08_12h ~~~ S2026_08_13
   S2026_08_13 ~~~ S2026_08_13b
   S2026_08_13b ~~~ S2026_08_14
-  S2026_08_14 ~~~ Sopen
+  S2026_08_14 ~~~ S2026_08_14b
+  S2026_08_14b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -1942,7 +2043,6 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U38 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -1968,13 +2068,14 @@ flowchart TB
   U25 -.->|spawned| U36
   U29 -.->|spawned| U37
   U37 -.->|spawned| U38
+  U38 -.->|spawned| U39
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U30,U31,U32,U34,U35,U38 tfrontier
+  class U16,U30,U31,U32,U34,U35,U39 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36,U37 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U33,U36,U37,U38 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

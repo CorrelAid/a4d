@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 38]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31]
 assignee: null
 claimed_at: null
 resolution: null
@@ -111,3 +111,14 @@ to match, and execute the cleanup.
 **Correction (session-2026-08-13b):** ticket 29 closed, spawning ticket 37
 (the patient cleaned-stage residual it did not chase), so `blocked_by` swaps
 `29` for `37`.
+
+## Premise update (session-2026-08-14b)
+
+[Ticket 38](38-triage-patient-cleaned-date-family.md) closed, so `blocked_by`
+drops to `[20, 21, 22, 23, 24, 25, 26, 28, 30, 31]` — **tickets 30 and 31 are
+now the only open blockers**, both patient raw-stage triage. Ticket 38's own
+spawned residual, [ticket 39](39-recover-dates-embedded-in-free-text.md), is
+deliberately *not* wired as a blocker here: it asks what Python should do with
+a date buried in a clinical note, which is a question about Python's own
+behaviour and needs no reference to R's source, so it survives R's retirement
+intact.

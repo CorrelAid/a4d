@@ -19,6 +19,7 @@ from a4d.migration.compare import (
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
     PYTHON_CANONICAL_LABEL_CLASSIFIERS,
+    R_DATE_ERROR_SENTINEL_CLASSIFIERS,
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     ROW_ORDINAL_COL,
     SENTINEL_DATE,
@@ -1467,3 +1468,47 @@ class TestPythonCanonicalLabelClassifier:
         )
 
         assert classify(mismatch, PYTHON_CANONICAL_LABEL_CLASSIFIERS) == "unclassified"
+
+
+class TestRDateErrorSentinelClassifier:
+    """Ticket 38: R stamps its date sentinel on a cell recording an absence."""
+
+    def test_classified_when_r_holds_the_date_sentinel_and_python_is_null(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="hospitalisation_date",
+            r_value=datetime.date(9999, 9, 9),
+            py_value=None,
+        )
+
+        assert classify(mismatch, R_DATE_ERROR_SENTINEL_CLASSIFIERS) == "r_date_error_sentinel"
+
+    def test_classified_when_the_sentinel_arrives_as_a_datetime(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="hospitalisation_date",
+            r_value=datetime.datetime(9999, 9, 9),
+            py_value=None,
+        )
+
+        assert classify(mismatch, R_DATE_ERROR_SENTINEL_CLASSIFIERS) == "r_date_error_sentinel"
+
+    def test_unclassified_when_python_also_holds_a_date(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="hospitalisation_date",
+            r_value=datetime.date(9999, 9, 9),
+            py_value=datetime.date(2020, 3, 1),
+        )
+
+        assert classify(mismatch, R_DATE_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_r_holds_a_real_date(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="hospitalisation_date",
+            r_value=datetime.date(2020, 3, 1),
+            py_value=None,
+        )
+
+        assert classify(mismatch, R_DATE_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"

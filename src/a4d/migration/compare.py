@@ -714,6 +714,51 @@ R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _as_date(value: Any) -> datetime.date | None:
+    """The date behind a cell value, whether it arrives as a date or a datetime.
+
+    A ``pl.Date`` column reads back as ``date`` and a ``pl.Datetime`` one as
+    ``datetime``; ``datetime`` is a subclass of ``date`` but never equal to it,
+    so a plain ``==`` against the sentinel silently misses half the cases.
+    """
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    return value if isinstance(value, datetime.date) else None
+
+
+def _is_r_date_error_sentinel(m: CellMismatch) -> bool:
+    """R stamps 9999-09-09 on a date cell that recorded an absence; Python nulls it.
+
+    The date-column twin of ``r_numeric_error_sentinel``. R's ``parse_dates``
+    (script2_helper_patient_data_fix.R) tests ``is.na(date)``, which is false
+    for the *string* "NA", so the value falls through to ``lubridate::as_date``,
+    fails, and ``convert_to`` substitutes ``ERROR_VAL_DATE``.
+
+    Python is the correct side, and the source says so explicitly: the tracker
+    template's own sub-header for ``hospitalisation_date`` reads "(Insert Date
+    or NA)", so a cell holding "NA" is the form being filled in as designed,
+    not a date that failed to parse. Verified on the real 254-tracker set
+    (ticket 38): of the 1,607 cells carrying this shape, 1,565 were traced back
+    to a raw value both pipelines agree on -- literal "NA" -- with the
+    remainder unmatched to a raw row rather than contradicting it. Checked
+    directly in the source workbook for 2020 Mahosot (Jan20, column 24, header
+    "Hospitalisation due to diabetes emergency or glucose control / (Insert
+    Date or NA)"), where "NA" is what the clinic wrote on nearly every row.
+
+    Ticket 38 also widened Python's own missing-marker set on the date path
+    (``MISSING_VALUE_MARKERS`` / ``DATE_ABSENCE_MARKERS``, clean/date_parser.py),
+    so cells recording absence as "-", "Nil", "Unknown" or the template's
+    leftover placeholder text now land here too rather than agreeing with R's
+    sentinel by accident.
+    """
+    return m.py_value is None and m.r_value is not None and _as_date(m.r_value) == SENTINEL_DATE
+
+
+R_DATE_ERROR_SENTINEL_CLASSIFIERS: dict[str, Classifier] = {
+    "r_date_error_sentinel": _is_r_date_error_sentinel,
+}
+
+
 def _declared_aliases() -> dict[str, set[str]]:
     """Canonical label -> the sanitized retired spellings it absorbs.
 
