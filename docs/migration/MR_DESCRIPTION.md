@@ -199,13 +199,7 @@ uv run a4d run --incremental
 # 7. Tables only, from parquets already on disk
 just create-tables
 
-# 8. Deploy and execute in production
-just backup-bq        # snapshot BigQuery first (7-day expiry) -- the rollback point
-just deploy           # build, push, point the Cloud Run Job at the new image
-just run-job          # execute
-just logs-job         # stream logs
-just rollback abc1234 # revert the job to a previous git SHA
-uv run python scripts/verify_production_run.py   # live tables vs the snapshot
+# 8. Production -- see "Running in production" below
 ```
 
 ## Development commands
@@ -220,6 +214,52 @@ just sync / update / info / clean
 just docker-build / docker-smoke / docker-push / docker-list / docker-clean
 just job-settings  # current Cloud Run CPU/memory/timeout/parallelism
 ```
+
+## Running in production (GCP)
+
+The pipeline is **already deployed and running** in Google Cloud as a Cloud Run
+Job — a one-shot container that downloads trackers from GCS, processes both
+arms, uploads output to GCS and loads it into BigQuery, then exits. It has been
+executed for real against production and verified against a pre-run snapshot.
+
+Everything lives in **`asia-southeast2` (Jakarta)** — Artifact Registry, the
+Cloud Run Job, both GCS buckets and the BigQuery dataset. This is a data
+residency requirement: patient data must not be processed or stored in the EU.
+Bucket and dataset locations are fixed at creation time.
+
+| | |
+|---|---|
+| Job | `a4d-pipeline` (Cloud Run Job, `asia-southeast2`) |
+| Image | `asia-southeast2-docker.pkg.dev/a4dphase2/a4d/pipeline:latest`, also tagged per git SHA |
+| Resources | 8 vCPU, 8 GiB, 3600s task timeout, `A4D_MAX_WORKERS=8` |
+| Service account | `a4d-pipeline@a4dphase2.iam.gserviceaccount.com` — `storage.objectViewer` on `a4dphase2_upload`, `storage.objectCreator` on `a4dphase2_output`, `bigquery.jobUser` + `bigquery.dataEditor` project-level |
+| Storage | `A4D_DATA_ROOT=/tmp/data`, ephemeral in-container — nothing persists between executions |
+| Base image | `python:3.14-slim`, `uv sync --frozen --no-dev`, default `CMD` is `a4d run` |
+| Scheduling | Cloud Scheduler is **not** enabled yet; runs are triggered manually |
+
+Start, monitor, verify, roll back:
+
+```bash
+just backup-bq        # snapshot BigQuery tables (7-day expiry) -- the rollback point
+just deploy           # build, push, point the job at the new image
+just run-job          # trigger an execution
+just logs-job         # stream logs from the running execution
+just job-settings     # current CPU / memory / timeout / parallelism
+just rollback abc1234 # revert the job to a previous git SHA
+uv run python scripts/verify_production_run.py   # live BigQuery tables vs the snapshot
+
+just deploy && just run-job   # redeploy + run after a code change
+```
+
+`verify_production_run.py` (+ `src/a4d/gcp/verify.py`, unit-tested) compares row
+counts, distinct clinic counts and schema against the `backup-bq` snapshot. The
+first combined patient+product production execution passed it cleanly — all
+four tables grew, 51 -> 53 clinics, no anomalies.
+
+Full instructions — one-time infrastructure setup (service account, IAM grants,
+Artifact Registry, job creation), the three levels of local image testing before
+deploying, and the optional Cloud Scheduler wiring — are in
+[SETUP.md](../../SETUP.md).
 
 ---
 
