@@ -450,8 +450,9 @@ def _is_off_by_one_day(m: CellMismatch) -> bool:
 def _is_python_future_date_sentinel(m: CellMismatch) -> bool:
     """Python replaced an out-of-tracker-year date with R's own error sentinel.
 
-    ``_validate_entry_dates`` (clean/product.py) logs a parsed entry date
-    whose year is beyond the tracker's own calendar year and substitutes
+    ``_validate_entry_dates`` (clean/product.py) and its patient counterpart
+    ``_validate_dates`` (clean/patient.py) log a parsed date whose year is
+    beyond the tracker's own calendar year and substitute
     ``error_val_date`` (9999-09-09), because a future date is genuinely
     ambiguous -- a premature next-month entry or a typo -- and the sentinel
     preserves that signal. R validates nothing and carries the bad date
@@ -491,6 +492,12 @@ PRODUCT_ENTRY_DATE_CLASSIFIERS: dict[str, Classifier] = {
     "off_by_one_day": _is_off_by_one_day,
     "python_future_date_sentinel": _is_python_future_date_sentinel,
     "summary_residue_nulled": _is_summary_residue_nulled,
+}
+
+# The patient arm's cleaned stage runs the same future-date guard, so its date
+# columns need the same cause without the product-specific siblings above.
+PATIENT_FUTURE_DATE_CLASSIFIERS: dict[str, Classifier] = {
+    "python_future_date_sentinel": _is_python_future_date_sentinel,
 }
 
 
@@ -579,18 +586,39 @@ GROUP_INVARIANT_PRODUCT_COLUMNS = frozenset(
 def _is_r_extraction_gap(m: CellMismatch) -> bool:
     """R produced null where Python has a real value.
 
-    Verified against the real source Excel (ticket 28): R's static
-    "Patient List" recruitment-date extraction fails to populate
-    recruitment_date for the large majority of patients even where the
-    tracker plainly records one (e.g. Quirino Memorial Medical Center,
-    patient PH_QD001, "Date of Recruitment" = 2025-12-01 in the source file --
-    Python extracts it correctly, R leaves it null). A genuine R limitation,
-    not a Python defect.
+    Three source-verified instances share this shape, in three different
+    tracker generations. classify() sees only the (r_value, py_value) pair,
+    not the file, so they carry one cause name; the mechanisms are:
+
+    - ``recruitment_date`` (ticket 28): R's static "Patient List"
+      recruitment-date extraction fails to populate it for the large majority
+      of patients even where the tracker plainly records one (e.g. Quirino
+      Memorial Medical Center, patient PH_QD001, "Date of Recruitment" =
+      2025-12-01 in the source).
+    - ``edu_occ_updated`` on 2022 trackers (ticket 37): R's own
+      "Updated 2022" header fixup (script1_helper_read_patient_data.R)
+      rewrites that cell to "Level of Education Or Occupation", but the
+      source cell reads " Updated \\n2022" with a *leading* space, which
+      survives the rewrite -- so R's merged header is " Level of Education Or
+      Occupation Date" and R's name sanitizer turns it into the junk column
+      ``xlevelofeducationoroccupationdate``, which no synonym matches. The
+      same fixup's blood-pressure branch has no leading space and works.
+      Verified against the real source Excel (2022 Kantha Bopha, Patient
+      List!M13/N13: "Law School - Year 2" updated 2022-11-04) and against R's
+      own raw parquet, which carries the junk column.
+    - ``blood_pressure_updated`` and ``edu_occ_updated`` on 2026 trackers
+      (ticket 37): the 2026 template moved the complication-screening block
+      to a new "Annual" sheet; R reads no values from it at all (0 non-null
+      for the whole file), while Python extracts them. Verified against the
+      real source Excel (06 YGH T1D Tracker_June_26, Annual!G/H/I for
+      MM_QF101: 2026-02-05, 100, 60).
+
+    A genuine R limitation in every case, not a Python defect.
     """
     return m.r_value is None and m.py_value is not None
 
 
-PATIENT_RECRUITMENT_DATE_CLASSIFIERS: dict[str, Classifier] = {
+PATIENT_R_EXTRACTION_GAP_CLASSIFIERS: dict[str, Classifier] = {
     "r_extraction_gap": _is_r_extraction_gap,
 }
 
@@ -763,6 +791,37 @@ PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_ifelse_na_propagation(m: CellMismatch) -> bool:
+    """R's derivation returns NA because one input is NA, not because the
+    answer is unknown.
+
+    ``insulin_type`` is derived on both sides from the five 2024+ insulin
+    columns. R (script2_process_patient_data.R:94) writes
+    ``ifelse(pre_mixed == "Y" | short_acting == "Y" | intermediate == "Y",
+    "human insulin", "analog insulin")``. Under R's three-valued logic
+    ``FALSE | FALSE | NA`` is NA, so a row whose human columns are blank --
+    but whose *analog* columns plainly read "Y" -- yields NA and R loses the
+    type entirely. ``_derive_insulin_fields`` (clean/patient.py) instead
+    derives whenever any of the five columns is populated, so it answers
+    "analog insulin" for exactly those rows.
+
+    Verified against the real 248-tracker pair (ticket 37, 06 Baguio General
+    Hospital_Jun_26, May26, PH_QA001 and PH_QA004): both pipelines hold the
+    *same* five input values (human blank/N, rapid-acting Y, long-acting Y),
+    R's insulin_type is NULL and Python's is "Analog Insulin". Python is the
+    correct side -- the information is in the row, R's NA propagation drops
+    it. Not the same cause as ``r_validator_rejects_multivalue`` on the
+    sibling ``insulin_subtype`` column, which is a validator rejection of a
+    value R did produce.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PATIENT_INSULIN_TYPE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_ifelse_na_propagation": _is_r_ifelse_na_propagation,
+}
+
+
 def _excel_serial_to_datetime(serial: float) -> datetime.date | datetime.time | datetime.datetime:
     """Convert an Excel serial to the exact value openpyxl would read for it.
 
@@ -902,18 +961,27 @@ EXCEL_FORMULA_ERROR_CLASSIFIERS: dict[str, Classifier] = {
 # Python's raw extraction is a faithful pass-through of the cell's literal
 # value, by design, so it carries the bad year through. Not a pipeline bug:
 # the cleaned stage's own future-date guard (`_validate_dates`,
-# `clean/patient.py`) independently replaces it with the same sentinel, so
-# the two pipelines already agree from the cleaned stage onward. Threshold
+# `clean/patient.py`) independently replaces it with the same sentinel.
+#
+# Which side sentinels is not fixed (ticket 37): on `blood_pressure_updated`
+# the direction reverses at the cleaned stage, because R's raw extraction
+# carries the BE year through for that column and R's cleaning has no
+# future-date guard, while Python's does. Same typo, same verdict -- the
+# sentinelling side is the one that recognized an unusable year -- so the
+# test is symmetric rather than two separately-named causes. Threshold
 # matches the product pipeline's own `BUDDHIST_ERA_THRESHOLD`
 # (`clean/product.py`) rather than a new one.
 PATIENT_BUDDHIST_ERA_THRESHOLD = 2400
 
 
 def _is_buddhist_era_typo(m: CellMismatch) -> bool:
+    sentinelled, carried = (
+        (m.r_value, m.py_value) if m.r_value == SENTINEL_DATE else (m.py_value, m.r_value)
+    )
     return (
-        m.r_value == SENTINEL_DATE
-        and isinstance(m.py_value, datetime.date)
-        and m.py_value.year >= PATIENT_BUDDHIST_ERA_THRESHOLD
+        sentinelled == SENTINEL_DATE
+        and isinstance(carried, datetime.date)
+        and carried.year >= PATIENT_BUDDHIST_ERA_THRESHOLD
     )
 
 

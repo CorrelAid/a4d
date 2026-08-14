@@ -13,7 +13,7 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
-    PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -630,12 +630,12 @@ class TestClassify:
             r_value=None, py_value=datetime.date(2025, 12, 1), column="recruitment_date"
         )
 
-        assert classify(mismatch, PATIENT_RECRUITMENT_DATE_CLASSIFIERS) == "r_extraction_gap"
+        assert classify(mismatch, PATIENT_R_EXTRACTION_GAP_CLASSIFIERS) == "r_extraction_gap"
 
     def test_recruitment_date_unclassified_when_both_sides_null(self):
         mismatch = _mismatch(r_value=None, py_value=None, column="recruitment_date")
 
-        assert classify(mismatch, PATIENT_RECRUITMENT_DATE_CLASSIFIERS) == "unclassified"
+        assert classify(mismatch, PATIENT_R_EXTRACTION_GAP_CLASSIFIERS) == "unclassified"
 
     def test_r_validator_rejects_multivalue_when_r_is_undefined(self):
         mismatch = _mismatch(
@@ -827,6 +827,18 @@ class TestClassify:
         )
 
         assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_buddhist_era_typo_when_python_is_the_sentinelling_side(self):
+        """blood_pressure_updated reverses the direction at the cleaned stage:
+        R carries the BE year through, Python's future-date guard sentinels it.
+        """
+        mismatch = _mismatch(
+            r_value=datetime.date(2569, 4, 24),
+            py_value=SENTINEL_DATE,
+            column="blood_pressure_updated",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "buddhist_era_typo"
 
     def test_buddhist_era_typo_unclassified_when_r_is_not_the_sentinel(self):
         mismatch = _mismatch(

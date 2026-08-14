@@ -44,10 +44,12 @@ from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    PATIENT_FUTURE_DATE_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
+    PATIENT_INSULIN_TYPE_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
-    PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -209,12 +211,22 @@ CLASSIFIERS_BY_COLUMN = {
     # ticket 28: R's static "Patient List" recruitment-date extraction fails
     # to populate recruitment_date for most patients even where the tracker
     # plainly records one -- verified against the real source Excel.
-    "recruitment_date": PATIENT_RECRUITMENT_DATE_CLASSIFIERS,
+    "recruitment_date": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    # ticket 37: two verified R gaps on the same column -- the leading-space
+    # defeat of R's own "Updated 2022" header fixup on 2022 trackers, and the
+    # 2026 template's new "Annual" sheet, which R reads nothing from. Both
+    # leave R null where Python has a source-verified value, so both land on
+    # r_extraction_gap; the future-date cause covers the reverse direction.
+    "edu_occ_updated": PATIENT_FUTURE_DATE_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     # ticket 28: R's own allowed-values validator rejects the multi-insulin
     # CSV output R's own derivation logic produces for 2024+ trackers --
     # already documented as a deliberate Python correction in
     # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
     "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    # ticket 37: the sibling insulin_type column has a different cause --
+    # R's ifelse propagates NA from a blank human-insulin column and loses
+    # a type the analog columns plainly state.
+    "insulin_type": PATIENT_INSULIN_TYPE_CLASSIFIERS,
     # ticket 36: R rejects a source value for its trailing whitespace alone
     # and sentinels it; Python now trims before validating and keeps it.
     "sex": PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
@@ -233,7 +245,12 @@ CLASSIFIERS_BY_COLUMN = {
     # column found carrying this pattern against the real drive data.
     "bmi_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "hba1c_updated_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
-    "blood_pressure_updated": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    # ticket 37: also the R extraction gap on the 2026 template's new
+    # "Annual" sheet -- checked after the Buddhist-era cause, which is the
+    # more specific of the two (the shapes are disjoint either way).
+    "blood_pressure_updated": (
+        PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS
+    ),
     "fbg_updated_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "last_clinic_visit_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "hospitalisation_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,

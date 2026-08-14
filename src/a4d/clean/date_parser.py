@@ -31,6 +31,15 @@ TYPO_REPLACEMENTS: list[tuple[str, str]] = [
 ]
 
 
+# Any month name written out beyond its 3-letter abbreviation, so it can be
+# truncated back to that abbreviation. Word-boundary-anchored so a longer word
+# that merely starts with a month name is left alone.
+MONTH_NAME_PATTERN = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+\b",
+    re.IGNORECASE,
+)
+
+
 def rescue_date_typos(s: str) -> tuple[str, bool]:
     """Substitute known month-name typos. Returns (possibly-rewritten, was_rescued)."""
     rescued = False
@@ -47,7 +56,9 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     Handles common edge cases from A4D tracker data:
     - NA/None/empty values → None
     - Excel serial numbers (e.g., "45341.0") → converted from days since 1899-12-30
-    - 4-letter month names (e.g., "March") → truncated to 3 letters before parsing
+    - Long month names (e.g., "March") → truncated to 3 letters before parsing
+    - A date followed by a free-text clause ("16-Nov-2019 due to DKA") → the
+      date, via the longest parseable prefix
     - All standard date formats via dateutil.parser (very flexible)
 
     Examples:
@@ -55,6 +66,7 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
         "28/8/2017" → 2017-08-28
         "45341.0" → 2024-01-13 (Excel serial)
         "January-20" → 2020-01-01
+        "Jun 2006" → 2006-06-01
 
     Args:
         date_str: Date string to parse
@@ -73,6 +85,48 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
 
     date_str = str(date_str).strip()
 
+    result = _parse_date_str(date_str)
+    if result is None:
+        result = _parse_longest_parseable_prefix(date_str)
+    if result is not None:
+        return result
+
+    logger.bind(error_code="invalid_value").warning(
+        f"Could not parse date '{date_str}'. Returning error value {error_val}"
+    )
+    try:
+        return datetime.strptime(error_val, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_longest_parseable_prefix(date_str: str) -> date | None:
+    """Drop trailing words until what remains parses as a date.
+
+    Hospitalisation and diagnosis cells routinely carry a clause after the
+    date ("16-Nov-2019 due to DKA", "Jan-2020 due to poor glycaemic control").
+    The caller used to strip these by taking everything before the first
+    space, which also destroyed genuine space-separated dates like
+    "Jun 2006" (ticket 37) -- so the truncation lives here instead, tried only
+    after the whole string has failed.
+
+    A purely alphabetic prefix is skipped: dateutil would complete a bare
+    month name from *today*, making the result depend on the run date.
+    """
+    tokens = date_str.split()
+    for end in range(len(tokens) - 1, 0, -1):
+        prefix = " ".join(tokens[:end]).rstrip(",;.-/ ")
+        if prefix.replace("-", "").replace(",", "").isalpha():
+            continue
+        result = _parse_date_str(prefix)
+        if result is not None:
+            logger.debug(f"Parsed '{date_str}' via prefix '{prefix}' → {result}")
+            return result
+    return None
+
+
+def _parse_date_str(date_str: str) -> date | None:
+    """Parse one already-trimmed, non-null string. None means unparseable."""
     # Handle Excel serial numbers
     # Excel stores dates as number of days since 1899-12-30
     try:
@@ -85,24 +139,38 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     except ValueError:
         pass  # Not a number, continue with text parsing
 
-    # Truncate 4-letter month names to 3 letters for better parsing
-    # "March" → "Mar", "January" → "Jan", etc.
-    if re.search(r"[a-zA-Z]{4}", date_str):
-        date_str = re.sub(r"([a-zA-Z]{3})[a-zA-Z]", r"\1", date_str)
+    # Truncate long month names to their 3-letter abbreviation
+    # ("March" -> "Mar", "January" -> "Jan", "Sept" -> "Sep"), which the
+    # month-year branch below and dateutil both handle.
+    #
+    # Anchored on the month names themselves rather than on any run of 4+
+    # letters (ticket 37): the previous form dropped only the *fourth* letter,
+    # so "March" became "Marh" and "January" became "Janary" -- unparseable,
+    # and sentinelled as an error date. Every full month name in the trackers
+    # was affected.
+    date_str = MONTH_NAME_PATTERN.sub(lambda m: m.group(1).title(), date_str)
 
     # Special handling for month-year formats (e.g., "Mar-18", "Jan-20", "May18")
     # These should be interpreted as "Mar 2018", "Jan 2020", not "Mar day-18 of current year"
     # Separator (hyphen/space) is optional to handle both "May-18" and "May18"
-    month_year_pattern = r"^([A-Za-z]{3})[-\s]?(\d{2})$"
+    # A 4-digit year ("Jun 2006", the 2017-era trackers' diagnosis-date format)
+    # is handled here too rather than left to dateutil: dateutil fills the
+    # missing day from datetime.now(), which makes the parse depend on the day
+    # the pipeline runs -- and can push a genuinely historical date past the
+    # tracker year, where _validate_dates then sentinels it (ticket 37).
+    month_year_pattern = r"^([A-Za-z]{3})[-\s]?(\d{2}|\d{4})$"
     match = re.match(month_year_pattern, date_str)
     if match:
-        month_abbr, year_2digit = match.groups()
-        # Convert 2-digit year to 4-digit: 00-68 → 2000-2068, 69-99 → 1969-1999
-        year_int = int(year_2digit)
-        if year_int <= 68:
-            year_4digit = 2000 + year_int
+        month_abbr, year_digits = match.groups()
+        if len(year_digits) == 4:
+            year_4digit = int(year_digits)
         else:
-            year_4digit = 1900 + year_int
+            # Convert 2-digit year to 4-digit: 00-68 → 2000-2068, 69-99 → 1969-1999
+            year_int = int(year_digits)
+            if year_int <= 68:
+                year_4digit = 2000 + year_int
+            else:
+                year_4digit = 1900 + year_int
         # Parse as "Mon YYYY" format, defaults to first day of month
         date_str_full = f"{month_abbr} {year_4digit}"
         try:
@@ -136,12 +204,5 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
         result = date_parser.parse(date_str, dayfirst=True).date()
         logger.debug(f"Parsed '{date_str}' with dateutil → {result}")
         return result
-    except (ValueError, date_parser.ParserError) as e:
-        # If parsing fails, log warning and return error date
-        logger.bind(error_code="invalid_value").warning(
-            f"Could not parse date '{date_str}': {e}. Returning error value {error_val}"
-        )
-        try:
-            return datetime.strptime(error_val, "%Y-%m-%d").date()
-        except ValueError:
-            return None
+    except ValueError, date_parser.ParserError, OverflowError:
+        return None

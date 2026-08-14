@@ -115,6 +115,19 @@ def read_header_rows(ws, data_start_row: int, max_cols: int = 100) -> tuple[list
     return header_1, header_2
 
 
+_UPDATED_YEAR_MARKER = re.compile(r"^updated\s*(19|20)\d{2}$")
+
+
+def _is_updated_year_marker(header_cell: object) -> bool:
+    """Is this header cell a bare "Updated <year>" continuation marker?
+
+    Whole-cell match only: "Level of Education Or Occupation Updated 2023" is a
+    real single-cell header (see synonyms_patient.yaml) and must not match.
+    """
+    normalized = re.sub(r"\s+", " ", str(header_cell).replace("\n", " ")).strip().lower()
+    return bool(_UPDATED_YEAR_MARKER.match(normalized))
+
+
 def merge_headers(
     header_1: list,
     header_2: list,
@@ -160,6 +173,13 @@ def merge_headers(
     prev_h2 = None
 
     for h1, h2 in zip(header_1, header_2, strict=True):
+        if h2 is not None and _is_updated_year_marker(h2) and prev_h2:
+            # The 2022 template labels an update-date column "Updated 2022"
+            # instead of repeating its subject, so the marker alone is not a
+            # column name -- the subject sits in the column to its left. R
+            # rewrites the same cell in script1_helper_read_patient_data.R.
+            h2 = prev_h2
+
         if h1 and h2:
             headers.append(f"{h2} {h1}".strip())
             prev_h2 = str(h2).strip()

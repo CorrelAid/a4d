@@ -439,6 +439,42 @@ class TestMergeHeaders:
             "Full Name Name",
         ]
 
+    def test_updated_year_marker_inherits_previous_subject(self):
+        """The 2022 template labels an update-date column "Updated 2022".
+
+        The subject it belongs to is only in the column to its left, so
+        "Updated <year>" alone must not become the column name. Mirrors R's
+        script1_helper_read_patient_data.R fixup, which rewrites the same cell.
+        """
+        h1 = ["mm HG", "Date"]
+        h2 = ["Blood Pressure ", "Updated\n2022"]
+        result = merge_headers(h1, h2)
+        assert result == ["Blood Pressure mm HG", "Blood Pressure Date"]
+
+    def test_updated_year_marker_on_patient_list(self):
+        """Same marker, different subject: the Patient List's education column."""
+        h1 = [None, "Date"]
+        h2 = ["Level of Education\nOr Occupation", " Updated \n2022"]
+        result = merge_headers(h1, h2)
+        assert result == [
+            "Level of Education Or Occupation",
+            "Level of Education Or Occupation Date",
+        ]
+
+    def test_updated_year_marker_without_previous_subject(self):
+        """With nothing to inherit, the marker is left alone rather than dropped."""
+        h1 = ["Date"]
+        h2 = ["Updated 2022"]
+        result = merge_headers(h1, h2)
+        assert result == ["Updated 2022 Date"]
+
+    def test_updated_without_year_is_not_a_marker(self):
+        """ "Updated HbA1c" is a real subject, not a continuation marker."""
+        h1 = ["%"]
+        h2 = ["Updated HbA1c"]
+        result = merge_headers(h1, h2)
+        assert result == ["Updated HbA1c %"]
+
     def test_empty_headers(self):
         """Test with empty header lists."""
         result = merge_headers([], [])

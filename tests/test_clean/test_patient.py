@@ -6,6 +6,7 @@ import polars as pl
 
 from a4d.clean.patient import (
     _apply_preprocessing,
+    _apply_type_conversions,
     _fix_age_from_dob,
     _fix_t1d_diagnosis_age,
     clean_patient_data,
@@ -485,3 +486,23 @@ class TestStripStringWhitespace:
         result = clean_patient_data(df_raw, ErrorCollector())
 
         assert result["sex"].to_list() == ["F"]
+
+
+def test_apply_type_conversions_keeps_the_year_of_a_space_separated_date():
+    """Stripping a trailing time component must not eat a real date's year.
+
+    2017-era trackers record diagnosis dates as "Jun 2006"; splitting on the
+    first space left "Jun", which dateutil then completed with the *current*
+    year, so the row was sentinelled as a future date and the real value lost.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx", "t.xlsx"],
+            "patient_id": ["P1", "P2"],
+            "t1d_diagnosis_date": ["Jun 2006", "2009-04-17 00:00:00"],
+        }
+    )
+
+    result = _apply_type_conversions(df, ErrorCollector())
+
+    assert result["t1d_diagnosis_date"].to_list() == [date(2006, 6, 1), date(2009, 4, 17)]
