@@ -1,20 +1,13 @@
 name: Python CI
 
+# No `paths:` filter on purpose: ruff (`check .` / `format --check .`) runs
+# repo-wide, so a change under scripts/, docs/ or the justfile can turn CI red
+# while never triggering it. The whole job takes ~30s.
 on:
   push:
-    branches: [migration]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - '.github/workflows/python-ci.yml'
+    branches: [migration, dev]
   pull_request:
-    branches: [main, develop, migration]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - '.github/workflows/python-ci.yml'
+    branches: [main, dev, migration]
 
 jobs:
   test:

@@ -207,9 +207,9 @@ just docker-smoke
 # Push both tags to Artifact Registry
 just docker-push
 
-# Or manually:
-docker build -t a4d-python:latest .
-docker run --rm --env-file .env -v $(pwd)/output:/app/output a4d-python:latest
+# Or manually (build from the repo root; the image writes under A4D_DATA_ROOT):
+docker build --platform=linux/amd64 -t a4d-pipeline:latest .
+docker run --rm --env-file .env -v "$(pwd)/data:/workspace/data" a4d-pipeline:latest
 ```
 
 ### Other Commands
