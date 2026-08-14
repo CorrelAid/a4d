@@ -1088,11 +1088,20 @@ fresh comparison: cleaned-stage mismatches 99,408 -> 95,490, unclassified
 37](tickets/37-triage-patient-cleaned-residual-2.md). Full detail: [ticket
 29](tickets/29-triage-patient-cleaned-residual.md).
 
-**One question is back with the user**: `reference_data/data_cleaning.yaml`
-lists both "Active - Remote" and "Active Remote" as allowed patient statuses,
-the only sanitize-colliding pair in the whole config. Recommendation: delete
-"Active Remote". Not acted on -- it is shared reference data and decides
-production output.
+**The canonical-label question was raised and settled in the same session,
+reversing the recommendation it was raised with.** Checking the source rather
+than the two pipelines showed the two spellings split by tracker generation:
+2020-2023 trackers write "Active - Remote", 2024+ trackers write
+"Active Remote", and the `Lookup List` dropdown the 2024 template introduced
+defines only the latter (2022/2023 trackers have no such sheet at all). The
+user decided: **one canonical label per status, aliases folded into it, and
+the canonical form declared in config rather than implied by list order.**
+`reference_data/validation_rules.yaml` (Python-only -- R reads
+`data_cleaning.yaml`) now carries a `canonical -> [retired spellings]` alias
+map, and `validate_allowed_values` raises on a silent collision instead of
+resolving it. Production now emits one label (`Active Remote`, 2,776 rows);
+the resulting 2,611-row divergence from R is deliberate and classified as
+`python_canonical_label`, derived from that same config.
 
 **The frontier is now [Build a drill-down log analyzer for admins to inspect
 a specific tracker file's errors/logs](tickets/16-log-analyzer-drill-down.md),
@@ -1127,8 +1136,11 @@ data rather than sampled, and the sentinel one exhaustively.
   source, none a real value Python dropped). Two live Python bugs fixed:
   `extract_regimen`'s column-wide lowercasing and
   `validate_allowed_values`'s last-wins config lookup. Unclassified rows
-  55,670 -> 16,698 (-70%) against the real 248-tracker pair. Residual split
-  into [ticket 37](tickets/37-triage-patient-cleaned-residual-2.md).
+  55,670 -> 16,698 (-70%) against the real 248-tracker pair. Also settled the
+  canonical-label question the source (not R) decides: one label per status,
+  aliases declared in `validation_rules.yaml`, collisions now a loud config
+  error. Residual split into [ticket
+  37](tickets/37-triage-patient-cleaned-residual-2.md).
 
 - [Diagnose and fix why CI is red at migration HEAD](tickets/04-fix-migration-ci.md)
   — decided and implemented: CI was red because GitHub Actions sets

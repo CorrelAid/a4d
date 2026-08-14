@@ -212,3 +212,64 @@ emit and what R has always written to production. The alternative --
 keeping "Active Remote" -- would change 2,611 rows of production output and
 diverge from every historical R run. Not acted on: it is shared reference
 data and the choice is the user's.
+
+### Addendum (same session): the canonical-label decision, settled
+
+The "open question for the user" above was answered in-session, and the
+answer **reversed this ticket's original recommendation**. Checking the
+source rather than the two pipelines showed the spellings split by tracker
+generation, not at random:
+
+| Years | Spelling | Rows | Files |
+|---|---|---|---|
+| 2020-2023 | `Active - Remote` | 1,421 | 30 |
+| 2024-2026 | `Active Remote` | 1,354 | 28 |
+
+Only `2024_Mahosot` mixes both, on a single row. The 2024 template redesign
+introduced a `Lookup List` sheet defining the dropdown; 2022 and 2023
+trackers **have no such sheet at all**, and every tracker that has one
+defines `Active`, **`Active Remote`**, `Active Monitoring`, `Query`,
+`Lost Follow Up` -- no hyphen. So `Active Remote` is the spelling the
+current template sanctions and `Active - Remote` is the retired one. Keeping
+the hyphenated form (the original recommendation, made from R's behaviour
+before the source was checked) would have written a two-years-dead spelling
+into production.
+
+**Decision (the user's).** One canonical label per status, with known
+aliases folded into it, and the canonical form **declared in config** rather
+than implied by list order.
+
+`reference_data/validation_rules.yaml` -- a Python-only file; R reads
+`data_cleaning.yaml`, so this touches nothing R depends on -- now reads:
+
+```yaml
+status:
+  allowed_values: ["Active", "Active Remote", ...]   # "Active - Remote" removed
+  aliases:
+    "Active Remote":          # canonical label
+      - "Active - Remote"     # the retired spellings it absorbs
+```
+
+`validate_allowed_values` gained an `aliases` parameter of that shape and now
+**raises** when two `allowed_values` sanitize to the same key, or when
+aliases are declared for a label that is not itself an allowed value. The
+first-wins ordering hack this ticket originally introduced is gone: a silent
+ambiguity is now a loud config error, which is what made the original bug
+invisible.
+
+**Result, verified on a full 248-tracker re-run:** cleaned output carries one
+label -- `Active Remote` 2,776, no `Active - Remote` at all. Against R's
+frozen baseline this is a *deliberate* divergence of 2,611 rows (R collapses
+everything onto the retired spelling via its own first-match lookup), so
+cleaned-stage mismatches rise 95,490 -> 98,101 while **unclassified rows stay
+at 16,698** -- the new rows are explained, not added to the backlog. The new
+`python_canonical_label` classifier reads the alias map out of the same YAML
+that produced the values, and its column wiring is derived from that config
+too, so a future alias needs no code edit. The 50 residual `status` rows are
+genuinely different statuses (e.g. R `Discontinued` vs Python `Active`) and
+belong to [ticket 37](37-triage-patient-cleaned-residual-2.md).
+
+**Rejected:** reordering `allowed_values` so the canonical spelling sits
+first. It gets the right answer today but encodes the decision as list
+position -- insert order by another name -- which is exactly the fragility
+that produced the original defect.

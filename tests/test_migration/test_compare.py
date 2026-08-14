@@ -18,6 +18,7 @@ from a4d.migration.compare import (
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
+    PYTHON_CANONICAL_LABEL_CLASSIFIERS,
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     ROW_ORDINAL_COL,
     SENTINEL_DATE,
@@ -1429,3 +1430,28 @@ class TestRNumericErrorSentinelClassifier:
         mismatch = CellMismatch(key={"id": 1}, column="hba1c_baseline", r_value=8.2, py_value=None)
 
         assert classify(mismatch, R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"
+
+
+class TestPythonCanonicalLabelClassifier:
+    """Ticket 29: Python collapses a retired spelling to its canonical label."""
+
+    def test_classified_when_r_holds_a_declared_alias_of_pythons_value(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="status", r_value="Active - Remote", py_value="Active Remote"
+        )
+
+        assert classify(mismatch, PYTHON_CANONICAL_LABEL_CLASSIFIERS) == "python_canonical_label"
+
+    def test_matches_case_insensitively(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="status", r_value="active-remote", py_value="Active Remote"
+        )
+
+        assert classify(mismatch, PYTHON_CANONICAL_LABEL_CLASSIFIERS) == "python_canonical_label"
+
+    def test_unclassified_when_the_two_labels_are_genuinely_different_statuses(self):
+        mismatch = CellMismatch(
+            key={"id": 1}, column="status", r_value="Discontinued", py_value="Active"
+        )
+
+        assert classify(mismatch, PYTHON_CANONICAL_LABEL_CLASSIFIERS) == "unclassified"

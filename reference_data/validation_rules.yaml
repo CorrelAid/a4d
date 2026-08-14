@@ -128,7 +128,6 @@ status:
   # If matched, returns the canonical value (e.g., "active" → "Active")
   allowed_values:
     - "Active"
-    - "Active - Remote"
     - "Active Remote"
     - "Active Monitoring"
     - "Query"
@@ -137,6 +136,15 @@ status:
     - "Lost Follow Up"
     - "Deceased"
     - "Discontinued"
+  # Canonical label -> the retired spellings it absorbs. Reports need one
+  # label per status, so which spelling wins is declared here rather than
+  # left to the order allowed_values happens to list (ticket 29).
+  # "Active - Remote" is how 2020-2023 trackers wrote it; the Lookup List
+  # dropdown introduced with the 2024 template redesign defines only
+  # "Active Remote", which every 2024+ tracker uses.
+  aliases:
+    "Active Remote":
+      - "Active - Remote"
   replace_invalid: true
 
 support_level:

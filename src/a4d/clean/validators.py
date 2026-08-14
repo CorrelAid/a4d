@@ -85,6 +85,7 @@ def validate_allowed_values(
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
     allow_csv_subset: bool = False,
+    aliases: dict[str, list[str]] | None = None,
 ) -> pl.DataFrame:
     """Validate column against allowed values with case-insensitive matching.
 
@@ -92,6 +93,13 @@ def validate_allowed_values(
     1. Sanitize both input values and allowed values for matching
     2. If matched, replace with canonical value from allowed_values
     3. If not matched, replace with error value (if replace_invalid=True)
+
+    Where a tracker generation renamed a label, the retired spelling belongs
+    in ``aliases`` rather than in ``allowed_values`` (ticket 29): reports need
+    one label per status, and which spelling wins has to be a stated decision
+    in the config, not a consequence of list order. Two canonical values that
+    sanitize to the same key are therefore a config error and raise, instead
+    of silently resolving to whichever the dict happened to keep.
 
     Args:
         df: Input DataFrame
@@ -101,6 +109,9 @@ def validate_allowed_values(
         replace_invalid: If True, replace invalid values with error value
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
+        aliases: Canonical value -> the retired spellings it absorbs, e.g.
+            ``{"Active Remote": ["Active - Remote"]}``. Matched
+            case-insensitively like everything else here.
 
     Returns:
         DataFrame with values normalized to canonical form or replaced
@@ -119,15 +130,31 @@ def validate_allowed_values(
         return df
 
     # Create mapping: {sanitized → canonical} like R does
-    # E.g., {"active": "Active", "activeremote": "Active - Remote"}
-    # First-wins, not last-wins: `status` lists both "Active - Remote" and
-    # "Active Remote", which sanitize to the same key. R's setNames list
-    # lookup returns the first entry, a plain dict comprehension the last
-    # (ticket 29). First-wins matches R and, more importantly, stops the
-    # emitted spelling depending on the order the config happens to list them.
+    # E.g., {"active": "Active", "activeremote": "Active Remote"}
     canonical_mapping: dict[str, str] = {}
     for val in allowed_values:
-        canonical_mapping.setdefault(sanitize_str(val), val)
+        key = sanitize_str(val)
+        if key in canonical_mapping:
+            raise ValueError(
+                f"{column}: allowed values {canonical_mapping[key]!r} and {val!r} "
+                f"sanitize to the same key {key!r}. Keep one as canonical and "
+                f"declare the other under `aliases`."
+            )
+        canonical_mapping[key] = val
+
+    for canonical, spellings in (aliases or {}).items():
+        if canonical not in allowed_values:
+            raise ValueError(
+                f"{column}: aliases are declared for {canonical!r}, which is not an allowed value."
+            )
+        for alias in spellings:
+            key = sanitize_str(alias)
+            if key in canonical_mapping and canonical_mapping[key] != canonical:
+                raise ValueError(
+                    f"{column}: alias {alias!r} of {canonical!r} collides with "
+                    f"{canonical_mapping[key]!r}."
+                )
+            canonical_mapping[key] = canonical
 
     # Get unique non-null values from the column
     col_values = df.filter(pl.col(column).is_not_null()).select(column).unique()
@@ -249,6 +276,7 @@ def validate_column_from_rules(
     allowed_values = rules.get("allowed_values", [])
     replace_invalid = rules.get("replace_invalid", True)
     allow_csv_subset = rules.get("allow_csv_subset", False)
+    aliases = rules.get("aliases")
 
     df = validate_allowed_values(
         df=df,
@@ -259,6 +287,7 @@ def validate_column_from_rules(
         file_name_col=file_name_col,
         patient_id_col=patient_id_col,
         allow_csv_subset=allow_csv_subset,
+        aliases=aliases,
     )
 
     return df
