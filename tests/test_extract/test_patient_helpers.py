@@ -9,8 +9,11 @@ from openpyxl import Workbook
 from a4d.extract.patient import (
     filter_valid_columns,
     find_data_start_row,
+    find_dropped_data_columns,
+    find_layout_changes,
     merge_headers,
     read_header_rows,
+    recover_blank_headers,
 )
 
 
@@ -544,3 +547,174 @@ class TestFilterValidColumns:
 
         assert valid_headers == ["A", "B", "C", "D"]
         assert filtered_data == [[1, 3, 5, 6]]
+
+
+class TestFindDroppedDataColumns:
+    """Tests for find_dropped_data_columns() function."""
+
+    def test_reports_headerless_column_holding_text(self):
+        headers = ["ID", None, "Age"]
+        data = [("1", "Self-mixed BD", "30"), ("2", "Basal-Bolus", "25")]
+
+        assert find_dropped_data_columns(headers, data) == [(1, 2)]
+
+    def test_ignores_headerless_column_that_is_empty(self):
+        headers = ["ID", None, "Age"]
+        data = [("1", None, "30"), ("2", "", "25")]
+
+        assert find_dropped_data_columns(headers, data) == []
+
+    def test_ignores_row_counter(self):
+        """A headerless all-numeric column is the tracker's own row counter."""
+        headers = [None, "ID"]
+        data = [("1", "KH_PK001"), ("2", "KH_PK002"), ("3.0", "KH_PK003")]
+
+        assert find_dropped_data_columns(headers, data) == []
+
+    def test_reports_mixed_numeric_and_text_column(self):
+        """A stray number among real text does not make the column a counter."""
+        headers = [None, "ID"]
+        data = [("7", "KH_JV001"), ("*Needs Meter", "KH_JV002")]
+
+        assert find_dropped_data_columns(headers, data) == [(0, 2)]
+
+    def test_ignores_columns_that_have_headers(self):
+        headers = ["ID", "Notes"]
+        data = [("1", "text")]
+
+        assert find_dropped_data_columns(headers, data) == []
+
+
+class TestRecoverBlankHeaders:
+    """Tests for recover_blank_headers() function."""
+
+    def test_recovers_from_the_one_sibling_that_names_the_column(self):
+        headers = ["ID", None]
+        data = [("1", "Self-mixed BD")]
+        siblings = [["ID", "Insulin Regime"]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", "Insulin Regime"]
+
+    def test_abstains_when_siblings_disagree(self):
+        """Two candidate names is a guess, not a recovery."""
+        headers = ["ID", None]
+        data = [("1", "x")]
+        siblings = [["ID", "Complication Screening"], ["ID", "Hospitalisation Date"]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", None]
+
+    def test_agreeing_siblings_are_not_a_disagreement(self):
+        headers = ["ID", None]
+        data = [("1", "x")]
+        siblings = [["ID", "Clinic Visit"], ["ID", "Clinic Visit"], ["ID", None]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", "Clinic Visit"]
+
+    def test_abstains_when_no_sibling_names_the_column(self):
+        """The 2022 template's hidden merged-cell column is blank in every sheet."""
+        headers = ["ID", None]
+        data = [("1", "Self-mixed BD")]
+        siblings = [["ID", None], ["ID", None]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", None]
+
+    def test_leaves_an_empty_column_alone(self):
+        """A blank header over no data is a spacer, not a lost column."""
+        headers = ["ID", None]
+        data = [("1", None)]
+        siblings = [["ID", "Insulin Regime"]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", None]
+
+    def test_ignores_the_row_counter(self):
+        headers = [None, "ID"]
+        data = [("1", "KH_PK001"), ("2", "KH_PK002")]
+        siblings = [["Nr", "ID"]]
+
+        assert recover_blank_headers(headers, data, siblings) == [None, "ID"]
+
+    def test_never_creates_a_duplicate_column_name(self):
+        """A donor name this sheet already uses would collide on rename."""
+        headers = ["ID", "Insulin Regime", None]
+        data = [("1", "a", "b")]
+        siblings = [["ID", "Insulin Regime", "Insulin Regime"]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", "Insulin Regime", None]
+
+    def test_tolerates_siblings_of_different_width(self):
+        headers = ["ID", None]
+        data = [("1", "x")]
+        siblings = [["ID"], ["ID", "Clinic Visit"]]
+
+        assert recover_blank_headers(headers, data, siblings) == ["ID", "Clinic Visit"]
+
+    def test_no_siblings_is_a_no_op(self):
+        headers = ["ID", None]
+        data = [("1", "x")]
+
+        assert recover_blank_headers(headers, data, []) == ["ID", None]
+
+
+class TestFindLayoutChanges:
+    """Tests for find_layout_changes() function."""
+
+    def test_flags_a_position_whose_canonical_column_changes(self):
+        layouts = {
+            "Jan20": ["Patient ID", "Baseline FBG (mmol/dL)"],
+            "Jun20": ["Patient ID", "Baseline FBG (mg/dL)"],
+        }
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: {
+            "Baseline FBG (mmol/dL)": "fbg_baseline_mmol",
+            "Baseline FBG (mg/dL)": "fbg_baseline_mg",
+        }.get(h, h)
+
+        changes = find_layout_changes(layouts, mapper)
+
+        assert len(changes) == 1
+        assert changes[0].index == 1
+        assert changes[0].renames_only is False
+        assert changes[0].headers == ["Baseline FBG (mg/dL)", "Baseline FBG (mmol/dL)"]
+
+    def test_a_pure_rename_is_flagged_but_marked_harmless(self):
+        layouts = {
+            "Jan20": ["Patient ID", "Insulin regime"],
+            "Mar20": ["Patient ID", "Insulin regimen"],
+        }
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: "insulin_regimen" if "nsulin" in h else h
+
+        changes = find_layout_changes(layouts, mapper)
+
+        assert len(changes) == 1
+        assert changes[0].renames_only is True
+
+    def test_sheets_that_agree_produce_nothing(self):
+        layouts = {"Jan20": ["Patient ID", "Age"], "Feb20": ["Patient ID", "Age"]}
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: h
+
+        assert find_layout_changes(layouts, mapper) == []
+
+    def test_a_blank_header_is_not_a_change(self):
+        """One sheet leaving a header empty is recover_blank_headers' business."""
+        layouts = {"Jan20": ["Patient ID", "Age"], "Feb20": ["Patient ID", None]}
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: h
+
+        assert find_layout_changes(layouts, mapper) == []
+
+    def test_a_single_sheet_cannot_disagree_with_itself(self):
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: h
+
+        assert find_layout_changes({"Jan20": ["Patient ID"]}, mapper) == []
+
+    def test_sheets_of_different_width_are_compared_where_they_overlap(self):
+        layouts = {"Jan20": ["ID", "Insulin Regimen", "BASAL"], "Apr20": ["ID", "BASAL"]}
+        mapper = create_mock_mapper(set())
+        mapper.get_standard_name = lambda h: h
+
+        changes = find_layout_changes(layouts, mapper)
+
+        assert [c.index for c in changes] == [1]
