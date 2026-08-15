@@ -48,35 +48,66 @@ What the inventory establishes (executed, whole-set):
   `Baseline FBG (mmol/dL)` at 2020 CDA. The mixed-unit problem below is a
   different kind of defect -- individual rows in the wrong unit inside a
   correctly-labelled column, which no header fix can reach.
-- **The mmol-mapped columns hold physiologically implausible values.** Normal
-  fasting glucose is ~4-7 mmol/L and severe DKA rarely exceeds ~50:
+- **Unit confusion runs in both directions**, and is an order of magnitude
+  larger in one of them. Grouping every glucose column by when it is measured
+  and the unit its header states
+  ([assets/glucose_readings_by_unit.md](../assets/glucose_readings_by_unit.md)):
+  **9,264 readings sit in mg/dL-labelled columns but below 30 mg/dL** (3,714
+  baseline + 5,550 updated), which cannot be an ambulatory reading and is
+  exactly where a mmol/L number lands; **122 sit in mmol/L-labelled columns but
+  above 100** (30 + 92), where a mg/dL number lands.
+- **Zeros are placeholders, not hypoglycaemia**: all 244 baseline mmol/L
+  readings under 3 mmol/L are exactly 0.
+- **The baseline distribution is broad but continuous** -- median 19.3 mmol/L,
+  p90 38.0, and **no values above 100 at all**. That is not the bimodal shape
+  bulk mg/dL contamination would produce, so the high baseline may simply be
+  presentation hyperglycaemia.
 
-  | Header | Values | Median | Max | > 35 mmol/L |
-  |---|---|---|---|---|
-  | `Baseline FBG (mmol/L)` | 2,787 | 21.8 | 71.5 | 386 (13.9%) |
-  | `Baseline FBG* mmol/L` | 1,293 | 16.6 | 81.9 | 129 (10.0%) |
-  | `Baseline FBG mmol/L` | 449 | 11.1 | 53.8 | 40 (8.9%) |
-  | `Updated FBG mmol/L` | 11,108 | 8.0 | 516.8 | 66 (0.6%) |
-
-  The baseline columns are 10-14% implausible where the updated ones are 0.6%,
-  which points at mixed units *within* a single column rather than scattered
-  typos.
+Two framings were tried and discarded before this one, both recorded so they
+are not retried: bucketing on **35 mmol/L** (an invented threshold, replaced by
+percentiles and the two physiologically impossible cut-offs above), and
+comparing **mg-recording clinics against mmol-recording clinics** (unsound --
+different clinics and populations, no dual recording of the same patient).
 
 Nothing in `reference_data/synonyms/synonyms_patient.yaml` was changed while
 closing ticket 30: resolving a unit needs clinical input, not a code decision.
 
+## Status: asked, awaiting reply
+
+**The email went to A4D's medical advisor on 2026-08-15**, with a
+clinician-facing spreadsheet (the grouped table above plus a tab listing every
+exact column label; no clinic names, no pipeline vocabulary, no invented
+thresholds). This ticket cannot be worked until that reply lands -- there is
+nothing to derive from the code or the data that would settle it, which is why
+it is not simply blocked on another ticket.
+
+The four questions asked, in the order sent:
+
+1. Are a reading below 30 mg/dL and a reading above 100 mmol/L both impossible
+   in this setting? If so, ~9,300 readings have their unit mixed up one way and
+   ~120 the other.
+2. What is the credible range for a fasting glucose reading, top and bottom?
+3. Is a baseline median of 19.3 mmol/L (p90 38.0) what you would expect at T1D
+   diagnosis in these clinics?
+4. What should the pipeline do with a reading outside that range -- mark it
+   suspect, convert it (mg/dL / 18), or discard it?
+
+Plus one statement offered for correction: that readings of exactly 0 mean
+"not measured".
+
 ## Question
 
-The user will put the clinical half to A4D's medical advisor. This ticket
-carries the decision once that answer is in.
+The decision this ticket carries, once the reply is in.
 
-1. **What ceiling is physiologically credible for FBG in mmol/L**, and is a
-   *baseline* median of 21.8 plausible for newly-diagnosed T1D patients (it may
-   genuinely be high at diagnosis) or evidence of mixed units?
+1. **What credible range does the advisor give**, and does it confirm that
+   below 30 mg/dL and above 100 mmol/L are impossible? That confirmation is
+   what turns ~9,400 readings from "odd" into "unit mixed up at entry".
 2. **What should the pipeline do with an out-of-range value** -- flag it via
-   `ErrorCollector` and keep it, convert it on the assumption it is mg/dL
-   (`mmol/L = mg/dL / 18.0182`), or sentinel it? Converting is a data-altering
-   guess and should not be done on a heuristic alone.
+   `ErrorCollector` and keep it, convert it (`mmol/L = mg/dL / 18.0182`), or
+   sentinel it? Converting is a data-altering guess and should not be done on a
+   heuristic alone. Note the asymmetry in scale: the mg/dL-labelled columns
+   hold 9,264 suspect readings against the mmol/L columns' 122, so whatever is
+   decided moves far more data in one direction than the other.
 3. **Does `Baseline FBG (mmol/L or mg/dL)` get mapped**, and if so to which
    column -- or is the answer that a template should never offer an ambiguous
    header, making this a source fix rather than a synonym one? Note the

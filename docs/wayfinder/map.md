@@ -1334,10 +1334,20 @@ cannot answer alone, now [ticket
 cannot be blanket-aliased and being unmapped is the safe default rather than a
 gap; a 2018 tracker ships a header that offers the reader a choice of units
 (`Baseline FBG (mmol/L or mg/dL)`, 155 values dropped -- low priority under the
-latest-template rule); and the mmol-mapped baseline columns hold **10-14%
-physiologically implausible values** (max 81.9 mmol/L) against 0.6% on the
-updated ones, which looks like mixed units inside a correctly-labelled column
--- a defect no header fix can reach. The user is taking the clinical half to A4D's
+latest-template rule); and, the largest finding, **unit confusion runs in both
+directions across the whole dataset**: 9,264 readings sit in mg/dL-labelled
+columns but below 30 mg/dL, where a mmol/L number lands, against 122 in
+mmol/L-labelled columns above 100 mmol/L
+([assets/glucose_readings_by_unit.md](assets/glucose_readings_by_unit.md)).
+Neither is a header defect, so no header fix reaches them.
+
+**The email to A4D's medical advisor went out 2026-08-15**, asking for a
+credible range and what the pipeline should do outside it. Ticket 42 is open
+but not workable until that reply lands -- it needs clinical judgement, not
+more measurement. Two framings were tried and dropped on the way and should
+not be retried: bucketing on an invented 35 mmol/L threshold, and comparing
+mg-recording clinics against mmol-recording ones (different clinics, different
+populations, no dual recording). The user is taking the clinical half to A4D's
 medical advisor; nothing in the synonym file was changed meanwhile.
 
 **The user set a scoping rule this session that applies to the whole map: the
