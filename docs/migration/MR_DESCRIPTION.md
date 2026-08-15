@@ -35,7 +35,7 @@ flowchart TD
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
     L["Patient cleaned: 6,652 unclassified<br/>down from 55,670"]
-    M["Patient raw: 14,844 unclassified<br/>ticket 31"]
+    M["Patient raw: 1,879 unclassified<br/>ticket 43"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
@@ -361,7 +361,7 @@ as the answer rather than papered over with a label.
 ## What a run writes
 
 ```
-output/comparison/2026-08-14T204031Z/          # one self-contained folder per run
+output/comparison/2026-08-15T214447Z/          # one self-contained folder per run
 ├── compare_report_patient_data_raw.xlsx
 ├── compare_report_patient_data_cleaned.xlsx
 ├── compare_report_product_data_raw.xlsx
@@ -435,6 +435,7 @@ changed production output:
 | `clean_product_data` crashed on pre-product-tracking trackers | 4 trackers now yield empty schema-conformant output |
 | `run-pipeline` aborted the whole run on one patient tracker failure | soft-fail-and-continue, both arms |
 | Columns with data under an empty header cell were dropped silently | 17 sites recovered from the sheets that label them; 194 insulin-regimen rows back on one tracker |
+| `rename_columns` kept only the first of several source columns sharing a canonical name | 2,489 recorded screening values recovered across 27 trackers |
 | A tracker changing shape mid-year was invisible | `tracker_layout_changed` flags it: 37 trackers, 284 positions, incl. one clinic's baseline FBG silently dropped for 5 months |
 
 Also added: a `balance_reconciliation` error code that fires when the computed
@@ -481,10 +482,9 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Frontier (takeable now)**
 
-- **31 — patient raw-stage mismatches, round 2.** 14,844 unclassified,
-  dominated by `complication_screening` (a probable multi-select extraction
-  Python captures and R only partially does) plus ~50 smaller columns. Blocks
-  retiring R.
+- **43 — patient raw-stage mismatches, round 3.** 1,879 unclassified across
+  ~50 columns, none larger than 235, after round 2 resolved the stage's
+  dominant column. Blocks retiring R — it is ticket 12's only open blocker.
 - **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
   when written, but the decision bar was tightened partway through; this
   re-checks that none merely labels a diff it never explained.

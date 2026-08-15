@@ -49,6 +49,7 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_INSULIN_TYPE_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -224,6 +225,14 @@ CLASSIFIERS_BY_COLUMN = {
     # already documented as a deliberate Python correction in
     # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
     "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    # ticket 31: the three canonical columns whose source sub-columns both
+    # pipelines unite into one value. R's tidyr::unite pads absent
+    # sub-columns with the literal string "NA"; Python skips them. Derived,
+    # not guessed: these are the only targets that form a duplicate group
+    # anywhere in the 254-tracker set.
+    "complication_screening": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    "latest_complication_screenning": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    "observations": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     # ticket 37: the sibling insulin_type column has a different cause --
     # R's ifelse propagates NA from a blank human-insulin column and loses
     # a type the analog columns plainly state.

@@ -1036,6 +1036,39 @@ PATIENT_BUDDHIST_ERA_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_na_unite_padding(m: CellMismatch) -> bool:
+    """R renders an absent sub-column as the literal string ``NA`` when uniting.
+
+    The 2023 template splits complication screening across B.P./Kidney/Eye/Foot/
+    Lipids sub-columns that all map to one canonical ``complication_screening``;
+    ``reading_patient_data`` (r-archive/R/script1_read_patient_data.R) merges them
+    with ``tidyr::unite(sep = ",")``, whose ``na.rm`` defaults to ``FALSE``, so
+    every empty cell in the group becomes the four characters ``NA`` in R's
+    output: a patient screened in January reads ``JAN,NA,NA,NA,NA`` and a patient
+    screened not at all reads ``NA,NA,NA,NA,NA`` rather than being null.
+
+    Python merges the same group in ``ColumnMapper.rename_columns`` but skips
+    empty cells, so it carries the values alone. Verified against the real source
+    Excel (2023 Kantha Bopha, Jan'23!AB98-AF98 = B.P./Kidney/Eye/Foot/Lipids;
+    KH_QD023 has ``JAN`` in Kidney and nothing else): the sub-columns R pads are
+    genuinely empty in the workbook, so the padding is R's rendering and carries
+    no information. Python is the correct side.
+
+    Fires only when stripping the ``NA`` tokens from R's value leaves exactly
+    Python's value, so a real disagreement inside the group stays unclassified.
+    """
+    if m.r_value is None or "NA" not in str(m.r_value):
+        return False
+    stripped = [p for p in str(m.r_value).split(",") if p.strip() not in ("NA", "")]
+    py_parts = [] if m.py_value is None else str(m.py_value).split(",")
+    return stripped == [p for p in py_parts if p.strip() != ""]
+
+
+PATIENT_NA_UNITE_PADDING_CLASSIFIERS: dict[str, Classifier] = {
+    "r_na_unite_padding": _is_r_na_unite_padding,
+}
+
+
 def _is_wide_format_fragment_truncated(m: CellMismatch) -> bool:
     """R's value is a truncated prefix of Python's for a 2017-2019 Mandalay
     wide-format ``product_units_released`` cell.
