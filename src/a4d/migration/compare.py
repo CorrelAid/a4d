@@ -12,6 +12,7 @@ defined end-of-life (R's retirement) -- deliberately not wired into
 """
 
 import datetime
+import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1174,6 +1175,37 @@ def compare_directory(
     )
 
 
+_R_BLANK_HEADER_COLUMN = re.compile(r"^na\d*(\.(monthly|static|\d+))*$")
+
+
+def classify_column_divergence(kind: str, column: str, r_only: set[str], py_only: set[str]) -> str:
+    """Name why a column exists on one side of the comparison only.
+
+    Two structural causes account for almost all of the patient raw stage's
+    divergence, and neither is a content difference:
+
+    - `r_blank_header_artifact`: R's `make.names(header_cols, unique = TRUE)`
+      (script1_helper_read_patient_data.R) renders a blank header cell as the
+      *string* "NA.", so the following `is.na(colnames(...))` drop never fires
+      and every spacer column survives as na, na1, ... na10064. Python drops
+      blank-header columns in `filter_valid_columns`, so it has no equivalent.
+    - `name_sanitization_only`: both sides carry the column, but R stores the
+      sanitized name ("currentinsulinregimen") where Python's raw stage keeps
+      the literal source header ("Current Insulin Regimen").
+
+    Checked in that order: R's artifact name would otherwise be masked by any
+    Python column that happens to sanitize to "na".
+    """
+    if kind == "only in R" and _R_BLANK_HEADER_COLUMN.match(column):
+        return "r_blank_header_artifact"
+
+    other = py_only if kind == "only in R" else r_only
+    if sanitize_str(column) in {sanitize_str(c) for c in other}:
+        return "name_sanitization_only"
+
+    return "unclassified"
+
+
 def build_mismatch_rows(
     comparison: DirectoryComparison,
     classifiers_by_column: dict[str, dict[str, Classifier]] | None = None,
@@ -1190,9 +1222,19 @@ def build_mismatch_rows(
     for file_comparison in comparison.files:
         name = file_comparison.file_name
 
+        r_only = set(file_comparison.columns.only_in_r)
+        py_only = set(file_comparison.columns.only_in_py)
+
         for column in file_comparison.columns.only_in_r:
             column_divergence_rows.append(
-                {"file": name, "column": column, "kind": "only in R", "r_dtype": "", "py_dtype": ""}
+                {
+                    "file": name,
+                    "column": column,
+                    "kind": "only in R",
+                    "r_dtype": "",
+                    "py_dtype": "",
+                    "cause": classify_column_divergence("only in R", column, r_only, py_only),
+                }
             )
         for column in file_comparison.columns.only_in_py:
             column_divergence_rows.append(
@@ -1202,6 +1244,7 @@ def build_mismatch_rows(
                     "kind": "only in Python",
                     "r_dtype": "",
                     "py_dtype": "",
+                    "cause": classify_column_divergence("only in Python", column, r_only, py_only),
                 }
             )
         for column, r_dtype, py_dtype in file_comparison.columns.dtype_mismatches:
@@ -1212,6 +1255,7 @@ def build_mismatch_rows(
                     "kind": "dtype mismatch",
                     "r_dtype": str(r_dtype),
                     "py_dtype": str(py_dtype),
+                    "cause": "unclassified",
                 }
             )
 

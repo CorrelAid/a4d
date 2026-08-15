@@ -40,6 +40,7 @@ from a4d.migration.compare import (
     build_mismatch_rows,
     build_summary_rows,
     classify,
+    classify_column_divergence,
     compare_categorical_overlap,
     compare_cells,
     compare_columns,
@@ -1192,6 +1193,7 @@ class TestBuildMismatchRows:
                 "kind": "only in R",
                 "r_dtype": "",
                 "py_dtype": "",
+                "cause": "unclassified",
             },
             {
                 "file": "a.parquet",
@@ -1199,6 +1201,7 @@ class TestBuildMismatchRows:
                 "kind": "only in Python",
                 "r_dtype": "",
                 "py_dtype": "",
+                "cause": "unclassified",
             },
             {
                 "file": "a.parquet",
@@ -1206,6 +1209,7 @@ class TestBuildMismatchRows:
                 "kind": "dtype mismatch",
                 "r_dtype": "Int64",
                 "py_dtype": "Float64",
+                "cause": "unclassified",
             },
         ]
 
@@ -1512,3 +1516,56 @@ class TestRDateErrorSentinelClassifier:
         )
 
         assert classify(mismatch, R_DATE_ERROR_SENTINEL_CLASSIFIERS) == "unclassified"
+
+
+class TestClassifyColumnDivergence:
+    """Ticket 30: name the two structural causes of raw-stage column divergence."""
+
+    def test_r_blank_header_artifact(self):
+        """R's make.names turns a blank header cell into the string "NA."."""
+        assert (
+            classify_column_divergence("only in R", "na", set(), set()) == "r_blank_header_artifact"
+        )
+        assert (
+            classify_column_divergence("only in R", "na10064", set(), set())
+            == "r_blank_header_artifact"
+        )
+        assert (
+            classify_column_divergence("only in R", "na1.static", set(), set())
+            == "r_blank_header_artifact"
+        )
+
+    def test_real_r_column_name_is_not_a_blank_header_artifact(self):
+        assert classify_column_divergence("only in R", "name", set(), set()) == "unclassified"
+        assert (
+            classify_column_divergence("only in R", "national_id", set(), set()) == "unclassified"
+        )
+
+    def test_name_sanitization_only(self):
+        """Both sides carry the column; only the name spelling differs."""
+        r_only = {"instantmeterreceiveddate"}
+        py_only = {"INSTANT Meter Received Date"}
+
+        assert (
+            classify_column_divergence("only in R", "instantmeterreceiveddate", r_only, py_only)
+            == "name_sanitization_only"
+        )
+        assert (
+            classify_column_divergence(
+                "only in Python", "INSTANT Meter Received Date", r_only, py_only
+            )
+            == "name_sanitization_only"
+        )
+
+    def test_unmatched_column_stays_unclassified(self):
+        assert (
+            classify_column_divergence("only in Python", "BGM A4D", {"na"}, {"BGM A4D"})
+            == "unclassified"
+        )
+
+    def test_blank_header_artifact_wins_over_a_python_name_that_sanitizes_to_it(self):
+        """A Python column literally named "NA" must not mask R's artifact."""
+        assert (
+            classify_column_divergence("only in R", "na", {"na"}, {"N/A"})
+            == "r_blank_header_artifact"
+        )

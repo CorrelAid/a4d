@@ -6,11 +6,13 @@ evolved over the years with different formats and structures.
 
 import re
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
 from loguru import logger
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from a4d.errors import ErrorCollector
 from a4d.extract.common import (
@@ -331,12 +333,201 @@ def filter_valid_columns(
     return valid_headers, filtered_data
 
 
+def _is_number(value: object) -> bool:
+    try:
+        float(str(value))
+    except ValueError:
+        return False
+    return True
+
+
+def find_dropped_data_columns(
+    headers: list[str | None], data: list[tuple]
+) -> list[tuple[int, int]]:
+    """Find headerless columns that nonetheless carry data.
+
+    `filter_valid_columns` drops any column whose header cell is blank, which is
+    right for the trackers' many spacer columns but silently loses real values
+    when a clinician left a header cell empty by mistake -- e.g. 2021 Kantha
+    Bopha's Mar21/Apr21 sheets, where the insulin-regimen column has data from
+    row 87 down and no header, while the same column in May21 reads
+    "Insulin Regime". Reporting these lets the source workbook be corrected;
+    the pipeline cannot name such a column on its own.
+
+    All-numeric columns are excluded: the trackers put an unlabelled row counter
+    left of the patient data, which accounts for 189 of the 199 headerless
+    columns holding values across the 254-tracker set.
+
+    Returns:
+        (column index, count of non-empty values) per affected column
+    """
+    findings = []
+    for i, header in enumerate(headers):
+        if header:
+            continue
+        values = [row[i] for row in data if i < len(row) and row[i] not in (None, "")]
+        if not values or all(_is_number(v) for v in values):
+            continue
+        findings.append((i, len(values)))
+    return findings
+
+
+def recover_blank_headers(
+    headers: list[str | None], data: list[tuple], sibling_headers: list[list[str | None]]
+) -> list[str | None]:
+    """Name a headerless data column from the month sheets that do label it.
+
+    A tracker's month sheets share one layout, so when a clinician leaves a
+    header cell empty in one sheet the same column is usually still labelled in
+    the others -- e.g. 2021 Kantha Bopha, where Mar21/Apr21 hold insulin-regimen
+    values under an empty header and May21 reads "Insulin Regime". Without this
+    the column is dropped and its values are lost on both pipelines.
+
+    Deliberately self-limiting; it abstains unless the workbook itself settles
+    the answer:
+
+    - the siblings must **agree**: two different candidate names is a guess
+      (2021 Putrajaya offers three at one position),
+    - a position no sibling names is left alone -- which is what keeps the 2022
+      template's hidden merged-cell column, blank in every sheet and correctly
+      dropped, out of reach of this rule,
+    - a name this sheet already uses is refused, since it would collide,
+    - and only columns `find_dropped_data_columns` reports are eligible, so
+      spacer columns and the unlabelled row counter are untouched.
+
+    Measured over the 254-tracker set: recovers 316 values across 5 trackers and
+    does nothing to the other 4,256.
+    """
+    if not sibling_headers:
+        return headers
+
+    recovered = list(headers)
+    taken = {h for h in headers if h}
+
+    for index, _ in find_dropped_data_columns(headers, data):
+        donors: set[str] = set()
+        for sibling in sibling_headers:
+            if index < len(sibling):
+                candidate = sibling[index]
+                if candidate:
+                    donors.add(candidate)
+        if len(donors) != 1:
+            continue
+        donor = donors.pop()
+        if donor in taken:
+            continue
+        recovered[index] = donor
+        taken.add(donor)
+
+    return recovered
+
+
+@dataclass(frozen=True)
+class LayoutChange:
+    """One column position the month sheets of a tracker disagree about."""
+
+    index: int
+    headers: list[str]
+    canonical: list[str]
+    renames_only: bool
+
+
+def find_layout_changes(
+    layouts_by_sheet: dict[str, list[str | None]], mapper: ColumnMapper
+) -> list[LayoutChange]:
+    """Find column positions whose meaning is not stable across a tracker's sheets.
+
+    A tracker is one workbook for one clinic-year and should not change shape
+    partway through it, so a position that means one thing in January and
+    another in June is a defect in the workbook worth reporting -- and a
+    dangerous one, because nothing downstream can see it.
+
+    Two kinds, distinguished because only one is harmful:
+
+    - **renames_only**: every spelling at that position maps to the same
+      canonical column (`Insulin regime` -> `Insulin regimen`). The synonym file
+      already absorbs these.
+    - the rest: the canonical column itself changes. Either a column was added
+      or dropped mid-year and everything to its right shifted (2018 CDA's Apr18
+      has no `Insulin Regimen`, so BASAL dose sits where the regimen sits in the
+      other eleven sheets), or the header was edited over unchanged data (2020
+      CDA relabels `Baseline FBG` from `mmol/dL` to `mg/dL` in June while the
+      values stay 67-500, i.e. mg/dL throughout, so five months are filed under
+      the wrong unit).
+
+    A blank header on one sheet is not a change -- that is
+    `recover_blank_headers`' business.
+    """
+    if len(layouts_by_sheet) < 2:
+        return []
+
+    changes = []
+    width = max(len(headers) for headers in layouts_by_sheet.values())
+    for index in range(width):
+        names: set[str] = set()
+        for headers in layouts_by_sheet.values():
+            if index < len(headers):
+                header = headers[index]
+                if header:
+                    names.add(header)
+        if len(names) < 2:
+            continue
+        canonical = {mapper.get_standard_name(name) for name in names}
+        changes.append(
+            LayoutChange(
+                index=index,
+                headers=sorted(names),
+                canonical=sorted(canonical),
+                renames_only=len(canonical) == 1,
+            )
+        )
+    return changes
+
+
+@dataclass(frozen=True)
+class SheetLayout:
+    """Where a sheet's data starts and what its merged header row says."""
+
+    data_start_row: int
+    headers: list[str | None]
+
+
+def collect_sheet_layouts(
+    workbook, month_sheets: list[str], mapper: ColumnMapper | None = None
+) -> dict[str, SheetLayout]:
+    """Resolve every month sheet's layout once per tracker.
+
+    `recover_blank_headers` needs every *other* sheet's headers before any one
+    sheet can be finalized, so this pass has to happen up front. Its results are
+    then handed back to `extract_patient_data`, which would otherwise redo
+    `find_data_start_row` -- a full column-A scan per sheet, and the hot spot
+    ticket 10 rewrote to be linear. Reusing the layout keeps that pass off the
+    critical path instead of doubling it.
+    """
+    layouts: dict[str, SheetLayout] = {}
+    for sheet_name in month_sheets:
+        try:
+            worksheet = workbook[sheet_name]
+            data_start_row = find_data_start_row(worksheet)
+            header_1, header_2 = read_header_rows(worksheet, data_start_row)
+        except ValueError, KeyError:
+            # A sheet whose layout cannot be read simply donates nothing.
+            continue
+        layouts[sheet_name] = SheetLayout(
+            data_start_row=data_start_row,
+            headers=merge_headers(header_1, header_2, mapper=mapper),
+        )
+    return layouts
+
+
 def extract_patient_data(
     tracker_file: Path,
     sheet_name: str,
     year: int,
     mapper: ColumnMapper | None = None,
     workbook=None,
+    layout: SheetLayout | None = None,
+    sibling_headers: list[list[str | None]] | None = None,
 ) -> pl.DataFrame:
     """Extract patient data from a single sheet.
 
@@ -348,6 +539,10 @@ def extract_patient_data(
         year: Year of the tracker (currently unused, reserved for future use)
         mapper: Optional ColumnMapper for validating forward-filled headers
         workbook: Optional pre-loaded workbook for caching across sheets
+        layout: This sheet's already-resolved start row and headers, from
+            collect_sheet_layouts; recomputed here when not supplied
+        sibling_headers: Other month sheets' merged headers, used to name a
+            column whose own header cell is empty (see recover_blank_headers)
 
     Returns:
         Polars DataFrame with patient data (all columns as strings)
@@ -379,16 +574,18 @@ def extract_patient_data(
 
     ws = workbook[sheet_name]
 
-    data_start_row = find_data_start_row(ws)
+    if layout is None:
+        data_start_row = find_data_start_row(ws)
+        logger.info("Processing headers...")
+        header_1, header_2 = read_header_rows(ws, data_start_row)
+        # Use synonym-validated forward-fill instead of Excel merge metadata
+        headers = merge_headers(header_1, header_2, mapper=mapper)
+    else:
+        data_start_row, headers = layout.data_start_row, list(layout.headers)
+
     logger.debug(
         f"Sheet '{sheet_name}': Patient data found in rows {data_start_row} to {ws.max_row}"
     )
-
-    logger.info("Processing headers...")
-    header_1, header_2 = read_header_rows(ws, data_start_row)
-
-    # Use synonym-validated forward-fill instead of Excel merge metadata
-    headers = merge_headers(header_1, header_2, mapper=mapper)
 
     valid_cols = [(i, h) for i, h in enumerate(headers) if h]
 
@@ -404,6 +601,23 @@ def extract_patient_data(
 
     if close_wb:
         workbook.close()
+
+    if sibling_headers:
+        recovered = recover_blank_headers(headers, data, sibling_headers)
+        for i, (before, after) in enumerate(zip(headers, recovered, strict=True)):
+            if before != after:
+                logger.info(
+                    f"Sheet '{sheet_name}': column {get_column_letter(i + 1)} has an empty "
+                    f"header cell; recovered '{after}' from the sheets that label it."
+                )
+        headers = recovered
+
+    for column_index, value_count in find_dropped_data_columns(headers, data):
+        logger.bind(error_code="blank_header_with_data").warning(
+            f"Sheet '{sheet_name}': column {get_column_letter(column_index + 1)} holds "
+            f"{value_count} values but its header cell is empty and no other sheet names "
+            "it, so the column is dropped. Fix the header in the source tracker to recover it."
+        )
 
     valid_headers, filtered_data = filter_valid_columns(headers, data)
 
@@ -531,10 +745,38 @@ def read_all_patient_sheets(
 
     all_sheets_data = []
 
+    layouts = collect_sheet_layouts(wb, month_sheets, mapper=mapper)
+
+    if mapper is None:
+        mapper = load_patient_mapper()
+    headers_by_sheet = {sheet: layout.headers for sheet, layout in layouts.items()}
+    for change in find_layout_changes(headers_by_sheet, mapper):
+        column = get_column_letter(change.index + 1)
+        if change.renames_only:
+            logger.info(
+                f"Column {column} is spelled differently across month sheets "
+                f"({', '.join(change.headers)}); all map to '{change.canonical[0]}'."
+            )
+        else:
+            logger.bind(error_code="tracker_layout_changed").warning(
+                f"Column {column} does not mean the same thing in every month sheet: "
+                f"{', '.join(change.headers)} -> {', '.join(change.canonical)}. "
+                "A tracker should keep one layout for the whole year; check the workbook."
+            )
+
     for sheet_name in month_sheets:
         logger.info(f"Processing sheet: {sheet_name}")
 
-        df_sheet = extract_patient_data(tracker_file, sheet_name, year, mapper=mapper, workbook=wb)
+        siblings = [layout.headers for name, layout in layouts.items() if name != sheet_name]
+        df_sheet = extract_patient_data(
+            tracker_file,
+            sheet_name,
+            year,
+            mapper=mapper,
+            workbook=wb,
+            layout=layouts.get(sheet_name),
+            sibling_headers=siblings,
+        )
 
         if df_sheet.is_empty():
             logger.bind(error_code="invalid_tracker").warning(

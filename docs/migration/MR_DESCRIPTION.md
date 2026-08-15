@@ -31,21 +31,23 @@ flowchart TD
     I["Comparison harness<br/>4 stages, run-over-run deltas"]
   end
 
-  subgraph TRIAGE["R/Python triage - 28 of 39 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 29 of 41 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
     L["Patient cleaned: 6,652 unclassified<br/>down from 55,670"]
-    M["Patient raw: 14,844 unclassified<br/>ticket 30 + 31"]
+    M["Patient raw: 14,844 unclassified<br/>ticket 31"]
+    M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    N["30 - patient raw column divergence"]
     O["31 - patient raw mismatches r2"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
     S["39 - dates inside free text"]
     T["16 - per-file log drill-down"]
+    X["40 - source-defect findings Excel"]
+    Y["41 - 2026 new Patient List fields"]
   end
 
   subgraph BLOCKED["Blocked on the above"]
@@ -432,10 +434,28 @@ changed production output:
 | `find_data_start_row` was O(n^2) on read-only worksheets | 6.6x speedup, 145.8s -> 22.0s |
 | `clean_product_data` crashed on pre-product-tracking trackers | 4 trackers now yield empty schema-conformant output |
 | `run-pipeline` aborted the whole run on one patient tracker failure | soft-fail-and-continue, both arms |
+| Columns with data under an empty header cell were dropped silently | 17 sites recovered from the sheets that label them; 194 insulin-regimen rows back on one tracker |
+| A tracker changing shape mid-year was invisible | `tracker_layout_changed` flags it: 37 trackers, 284 positions, incl. one clinic's baseline FBG silently dropped for 5 months |
 
 Also added: a `balance_reconciliation` error code that fires when the computed
 closing stock contradicts the tracker's own recorded total (113 groups across
-21 files).
+21 files), and a `blank_header_with_data` error code for columns holding real
+values under an empty header cell — a clinician's slip that silently costs the
+column (26 trackers, the clearest being 194 insulin-regimen rows in
+`2021_Kantha Bopha`). Where the tracker's other month sheets unanimously label
+that column, `recover_blank_headers` takes the name from them and the data
+survives; where they don't, the site is reported for correction in the source
+workbook, which is what the planned source-defect report (ticket 40) exists to
+drive.
+
+Alongside it, `tracker_layout_changed` flags any position whose meaning is not
+stable across a tracker's month sheets — a tracker is one workbook for one
+clinic-year and should not change shape partway through. Of the 359 disagreeing
+positions, 75 are pure renames the synonym file already absorbs; the other 284
+(37 trackers) change the canonical column. This is also why deriving a single
+header set per tracker and applying it positionally was rejected: `2018_CDA`'s
+April sheet is missing the `Insulin Regimen` column entirely, shifting seven
+columns left for that month.
 
 ## Where verification stands
 
@@ -461,10 +481,6 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Frontier (takeable now)**
 
-- **30 — patient raw-stage column-existence divergence.** 18,783 rows across
-  245 files: hundreds of uniquely-numbered only-in-R junk columns (`na`,
-  `na1`, … `na10064`) and a large only-in-Python set of unmapped literal
-  source header text. Blocks retiring R.
 - **31 — patient raw-stage mismatches, round 2.** 14,844 unclassified,
   dominated by `complication_screening` (a probable multi-select extraction
   Python captures and R only partially does) plus ~50 smaller columns. Blocks
@@ -480,11 +496,19 @@ Nothing here blocks review of the code — it blocks the merge.
   of free text and Python does not. Open question: recover or discard.
 - **16 — per-file log drill-down.** Replaces `LogViewerA4D`'s job. Not yet
   decided whether it gates rollout or is a nice-to-have.
+- **40 — one Excel of every source-tracker defect** (file, sheet, patient, row,
+  finding), so the workbooks themselves get corrected rather than the pipeline
+  guessing. Inherits a backlog of already-verified findings; may turn out to be
+  the same deliverable as 16.
+- **41 — the 2026 template's five new Patient List fields** (`Phone Number`,
+  `Insurance Card Status`, `Current Insulin Regimen`, `BGM A4D`, `Insulin A4D`).
+  Neither pipeline carries them forward. Left for the data owner to decide
+  after looking at the new trackers.
 
 **Blocked**
 
 - **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
-  on 30 and 31: triage has repeatedly needed to read R's actual source to
+  on 31 alone now: triage has repeatedly needed to read R's actual source to
   root-cause a mismatch, not just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
