@@ -13,6 +13,7 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -811,6 +812,38 @@ class TestClassify:
         mismatch = _mismatch(r_value="9.3", py_value=None, column="bmi")
 
         assert classify(mismatch, EXCEL_FORMULA_ERROR_CLASSIFIERS) == "unclassified"
+
+    def test_r_na_unite_padding_when_r_pads_absent_sub_columns_with_na(self):
+        mismatch = _mismatch(
+            r_value="JAN,NA,NA,NA,NA", py_value="JAN", column="complication_screening"
+        )
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "r_na_unite_padding"
+
+    def test_r_na_unite_padding_when_every_sub_column_is_absent(self):
+        mismatch = _mismatch(
+            r_value="NA,NA,NA,NA,NA", py_value=None, column="complication_screening"
+        )
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "r_na_unite_padding"
+
+    def test_r_na_unite_padding_when_several_sub_columns_are_populated(self):
+        mismatch = _mismatch(
+            r_value="NA,JAN,NA,FEB,NA", py_value="JAN,FEB", column="complication_screening"
+        )
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "r_na_unite_padding"
+
+    def test_r_na_unite_padding_unclassified_when_the_surviving_values_differ(self):
+        """Stripping R's padding must still leave a real difference unexplained."""
+        mismatch = _mismatch(r_value="JAN,NA,NA", py_value="FEB", column="complication_screening")
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "unclassified"
+
+    def test_r_na_unite_padding_unclassified_when_r_carries_no_na_token(self):
+        mismatch = _mismatch(r_value="JAN", py_value="JAN,FEB", column="complication_screening")
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "unclassified"
 
     def test_buddhist_era_typo_when_r_is_sentinel_and_python_has_an_implausible_be_year(self):
         mismatch = _mismatch(

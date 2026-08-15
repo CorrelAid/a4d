@@ -2,12 +2,12 @@
 id: 31
 title: Triage the residual patient raw-stage column mismatches (round 2)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-15b
+claimed_at: 2026-08-15
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 27
 ---
@@ -137,3 +137,111 @@ rather than to the error sentinel. Current raw-stage figures: **27,893
 mismatches, 14,816 unclassified** (was 27,921 / 14,844); the baseline run is
 `output/comparison/2026-08-14T204031Z`. `complication_screening` remains the
 dominant single column and this ticket's main question is unchanged.
+
+## Resolution (session-2026-08-15b)
+
+### Decision
+
+**The dominant column is resolved, and it was a bug-fixing session, not a
+labelling one.** `complication_screening` (12,566 mismatches, 84% of the
+residual) had two entirely separate causes stacked on top of each other, and
+the ticket's own headline lead was neither of them.
+
+**Cause 1 -- a real Python data loss, now fixed.** `ColumnMapper.rename_columns`
+(`src/a4d/reference/synonyms.py`) handled several source columns mapping to one
+canonical name by keeping the first and dropping the rest, under a comment
+calling it "an edge case from discontinued 2023 format". It is not an edge
+case: the 2023 template splits complication screening across B.P./Kidney/Eye/
+Foot/Lipids sub-columns that all map to `complication_screening`, and each
+carries an independent value. Python kept B.P. and silently discarded the rest.
+Measured by instrumenting the real extraction over all 254 trackers:
+**2,489 recorded values dropped across 27 trackers** (2,457
+`complication_screening`, 32 `observations`). Concretely, `KH_KB023` in
+`2023 Kantha Bopha`'s `Jan'23` has `JAN` in the Kidney column and nothing
+else, and Python emitted `null` for that patient-month.
+
+The fix merges the group -- comma-joining non-empty values in column order --
+which is what R's `tidyr::unite()` does and what `merge_duplicate_columns_data`
+in the same pipeline already does for repeated *raw headers*. The
+keep-first branch's misleading `invalid_tracker` warning is replaced by a
+`duplicate_source_columns` warning naming the group, so a new duplicate group
+is visible rather than silent (ticket 30's `blank_header_with_data` precedent).
+Verified against the real files: `KH_KB023` now carries `JAN`.
+
+**Cause 2 -- an R rendering artifact, correctly a classifier.** R's
+`tidyr::unite(sep = ",")` leaves `na.rm` at its `FALSE` default, so every empty
+cell in the group becomes the literal string `NA`: a patient screened in
+January reads `JAN,NA,NA,NA,NA` and an unscreened patient reads
+`NA,NA,NA,NA,NA` rather than being null. 99.3% of the column's mismatches carry
+an `NA` token. This is R's rendering and carries no information --
+source-verified against `2023 Kantha Bopha`'s `Jan'23!AB98-AF98`, where the
+padded sub-columns are genuinely empty in the workbook. **Python is the correct
+side.** New `r_na_unite_padding` classifier
+(`PATIENT_NA_UNITE_PADDING_CLASSIFIERS`, `src/a4d/migration/compare.py`), wired
+to the three canonical columns that form a duplicate group anywhere in the
+254-tracker set -- derived by measurement, not hand-listed. It fires only when
+stripping the `NA` tokens leaves exactly Python's value, so a real disagreement
+inside a group stays unclassified.
+
+**The ticket's headline lead was a 2-row phenomenon.** Ticket 27 flagged
+`2021_NPH`'s "Python has a comma-joined multi-select where R has only the
+first selection" as the likely systematic cause. Measured: **2 rows out of
+12,566.** Do not re-propose it as the explanation for this column.
+
+### Numbers (real 254-tracker drive data, baseline run `2026-08-15T214447Z`)
+
+- Patient raw-stage **unclassified: 14,903 -> 1,879 (-87%)**.
+- Total raw-stage mismatches 28,092 -> 27,980; the count barely moves because
+  cause 1 recovers data on Python's side while cause 2's mismatches remain
+  mismatches until classified. The two must not be judged by the same number.
+- `complication_screening` 12,566 -> 2 unclassified;
+  `latest_complication_screenning` 308 -> 0; `observations` 325 -> 61.
+- Full suite 696 passed, 1 skipped; ruff and `ty check src/` clean.
+
+### Rejected
+
+- **Coalesce instead of concatenate** (take the first populated value per row).
+  Killed on measurement: 1,393 rows have two or more populated sub-columns, so
+  coalescing would still lose data.
+- **A declared config list of mergeable canonical columns.** Rejected as a
+  hand-maintained list that would drift; the merge rule is general, and the
+  measurement showing only three targets ever collide is what makes it safe.
+- **Keeping keep-first for identity columns as a guard.** No identity or scalar
+  column forms a duplicate group anywhere in the 254 real trackers -- only
+  `complication_screening`, `observations` and `latest_complication_screenning`
+  (the last never populated). The `patient_id` scenario in
+  `test_harmonize_patient_data_columns_multiple_synonyms` is synthetic, and its
+  stated rationale ("This matches R behavior") was factually wrong: R unites.
+  The test was updated rather than kept. What this gives up: if a future tracker
+  ever populates two spellings of an identity column, they will be concatenated
+  rather than one silently chosen. The new `duplicate_source_columns` warning is
+  what makes that visible if it happens.
+- **Chasing the long tail in the same session.** ~50 columns, largest 235, at
+  least three distinct shapes -- a different investigation. Split out rather
+  than sprawled, per the pattern tickets 18/27 set.
+
+### Evidence
+
+**Executed** for every load-bearing claim: the 2,489-value loss and the
+1,393-multi-populated-row count come from instrumenting `read_all_patient_sheets`
+over all 254 real trackers; the mechanism was read directly from
+`r-archive/R/script1_read_patient_data.R` (`tidyr::unite`) and
+`src/a4d/reference/synonyms.py`; the `KH_KB023` case was read cell-by-cell from
+the real source workbook and re-checked in Python's output after the fix; all
+before/after counts come from real pipeline and comparison runs against the
+drive, not from unit tests.
+
+**Tense:** every number above describes current behaviour after this session's
+commits, except the 2,489-value loss and the pre-fix per-column counts, which
+describe the behaviour this session removed.
+
+### Not fixed, deliberately
+
+The 1,879 remaining unclassified rows across ~50 columns, spawned as [ticket
+43](43-triage-patient-raw-residual-3.md). Three shapes are already visible and
+recorded there. In particular `insulin_regimen` (235) was **not** wired to
+`r_extraction_gap` even though its shape matches: 194 of its rows are ticket
+30's source-verified blank-header recovery, but the other 41 are not verified,
+and firing a whole-column classifier on an R-null/Python-present shape would
+label them without deciding them -- exactly what this map's standing bar
+forbids.

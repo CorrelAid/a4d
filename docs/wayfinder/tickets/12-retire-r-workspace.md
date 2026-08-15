@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 43]
 assignee: null
 claimed_at: null
 resolution: null
@@ -122,3 +122,14 @@ deliberately *not* wired as a blocker here: it asks what Python should do with
 a date buried in a clinical note, which is a question about Python's own
 behaviour and needs no reference to R's source, so it survives R's retirement
 intact.
+
+## Premise update (session-2026-08-15b, ticket 31's session)
+
+[Ticket 31](31-triage-patient-raw-residual-2.md) closed, but it spawned
+[ticket 43](43-triage-patient-raw-residual-3.md) -- 1,879 patient raw-stage
+mismatches still untriaged -- so `blocked_by` gains 43 rather than emptying.
+The reason is the one that corrected this ticket's premise before: ticket 31
+again had to read `r-archive/R/script1_read_patient_data.R` directly (R's
+`tidyr::unite` call) to root-cause a divergence, so R's source is still a live
+reference for the triage that remains. Ticket 43 is now this ticket's only
+open blocker.

@@ -131,3 +131,15 @@ changes to existing causes:
 
 All were verified against the real drive data or the source Excel when
 written, per the map's Notes.
+
+## Premise update (session-2026-08-15b, ticket 31's session)
+
+This audit now also inherits **`r_na_unite_padding`**
+(`PATIENT_NA_UNITE_PADDING_CLASSIFIERS`, `src/a4d/migration/compare.py`), added
+by [ticket 31](31-triage-patient-raw-residual-2.md). It is source-verified
+against the real 2023 Kantha Bopha workbook rather than sampled, and it is
+deliberately narrow: it fires only when stripping R's literal `NA` tokens
+leaves exactly Python's value. Ticket 31 is also worth reading as a worked
+example of what this audit is looking for -- the column it covers had a real
+Python data-loss bug sitting underneath a classifiable R artifact, and
+classifying first would have cemented the bug as "explained".

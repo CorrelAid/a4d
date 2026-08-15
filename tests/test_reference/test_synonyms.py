@@ -190,6 +190,48 @@ class TestColumnMapper:
         assert "UnknownColumn" in renamed.columns
         assert "AnotherUnmapped" in renamed.columns
 
+    def test_rename_columns_merges_duplicate_targets(self, simple_synonyms: Path):
+        """Several source columns mapping to one canonical name are merged, not dropped.
+
+        The 2023 template splits complication screening into B.P./Kidney/Eye/Foot/
+        Lipids sub-columns that all map to `complication_screening`; each carries an
+        independent value, so keeping only the first silently discards the rest.
+        """
+        mapper = ColumnMapper(simple_synonyms)
+
+        df = pl.DataFrame(
+            {
+                "Age": [25, 30, 35],
+                "Patient ID": ["P001", None, "P003"],
+                "ID": [None, "P002", "P003b"],
+            }
+        )
+
+        renamed = mapper.rename_columns(df)
+
+        assert list(renamed.columns) == ["age", "patient_id"]
+        assert renamed["patient_id"].to_list() == ["P001", "P002", "P003,P003b"]
+
+    def test_rename_columns_duplicate_targets_all_empty_gives_null(self, simple_synonyms: Path):
+        """A merged group with nothing populated is null, not an empty string."""
+        mapper = ColumnMapper(simple_synonyms)
+
+        df = pl.DataFrame({"Patient ID": [None, ""], "ID": ["", None]})
+
+        renamed = mapper.rename_columns(df)
+
+        assert renamed["patient_id"].to_list() == [None, None]
+
+    def test_rename_columns_merges_non_string_duplicate_targets(self, simple_synonyms: Path):
+        """Merging casts to string, so numeric source columns do not raise."""
+        mapper = ColumnMapper(simple_synonyms)
+
+        df = pl.DataFrame({"Age": [25, None], "Age*": [None, 30]})
+
+        renamed = mapper.rename_columns(df)
+
+        assert renamed["age"].to_list() == ["25", "30"]
+
     def test_rename_columns_strict_mode_raises_error(self, simple_synonyms: Path):
         """Test that strict mode raises error for unmapped columns."""
         mapper = ColumnMapper(simple_synonyms)

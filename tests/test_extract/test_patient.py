@@ -232,26 +232,25 @@ def test_harmonize_patient_data_columns_basic():
 
 
 def test_harmonize_patient_data_columns_multiple_synonyms():
-    """Test that multiple columns mapping to same name keeps first occurrence.
+    """Test that multiple columns mapping to same name are merged, not dropped.
 
-    When multiple columns in the input map to the same standardized name
-    (e.g., "Patient ID", "ID", "Patient ID*" all map to "patient_id"),
-    we keep the FIRST occurrence and drop the rest. This matches R behavior
-    and handles edge cases like 2023 complication screening columns.
+    The 2023 template's complication screening block splits one canonical column
+    across B.P./Kidney/Eye/Foot/Lipids sub-columns, each independently populated,
+    so keeping only the first discards real values. R's tidyr::unite() merges the
+    same group; Python matches it, minus R's literal "NA" padding.
     """
     raw_df = pl.DataFrame(
         {
-            "Patient ID": ["P001"],
-            "ID": ["P002"],
-            "Patient ID*": ["P003"],
+            "Patient ID": ["P001", None],
+            "ID": ["P002", None],
+            "Patient ID*": [None, "P003"],
         }
     )
 
-    # Should keep first occurrence ("Patient ID") and drop the rest
     harmonized = harmonize_patient_data_columns(raw_df)
 
     assert list(harmonized.columns) == ["patient_id"]
-    assert harmonized["patient_id"].to_list() == ["P001"]  # First occurrence kept
+    assert harmonized["patient_id"].to_list() == ["P001,P002", "P003"]
 
 
 def test_harmonize_patient_data_columns_unmapped_strict_false():

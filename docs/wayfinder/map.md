@@ -39,7 +39,6 @@ flowchart TD
   subgraph FRONTIER["Frontier · 9"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-    T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
@@ -47,6 +46,7 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
+    T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -54,7 +54,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 29"]
+  subgraph DECIDED["Decided · 30"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -81,6 +81,7 @@ flowchart TD
     T28["<b>28</b> · task<br/>Triage the patient<br/>cleaned-stage column<br/>mismatches"]
     T29["<b>29</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>column mismatches"]
     T30["<b>30</b> · task<br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
+    T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
@@ -126,13 +127,14 @@ flowchart TD
   T28 --> T12
   T30 --> T12
   T31 --> T12
+  T43 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T31,T32,T34,T35,T39,T40,T41,T42 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T42,T43 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T33,T36,T37,T38 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1385,7 +1387,89 @@ discarded](tickets/39-recover-dates-embedded-in-free-text.md), and the two new
 tickets 40 and 41 -- eight tickets. Ticket 31 is the one on the critical path;
 the rest are independently takeable.
 
+**Thirty tickets resolved.** [Triage the residual patient raw-stage column
+mismatches (round 2)](tickets/31-triage-patient-raw-residual-2.md) is done, and
+like ticket 30 before it, it was a bug-fixing session rather than a labelling
+one. Its dominant column `complication_screening` (12,566 mismatches, 84% of
+the stage's residual) had **two unrelated causes stacked on top of each other**,
+and the ticket's own headline lead was neither.
+
+Underneath sat **a Python data loss nobody had seen**:
+`ColumnMapper.rename_columns` kept only the *first* of several source columns
+mapping to one canonical name, under a comment calling it "an edge case from
+discontinued 2023 format". It is not an edge case -- the 2023 template splits
+complication screening across B.P./Kidney/Eye/Foot/Lipids sub-columns that all
+map to `complication_screening`, each independently populated. Measured by
+instrumenting the real extraction over all 254 trackers: **2,489 recorded
+values discarded across 27 trackers**. `KH_KB023` in `2023 Kantha Bopha`'s
+`Jan'23` has `JAN` in the Kidney column and nothing else, and Python emitted
+`null`. The fix merges the group instead -- comma-joining non-empty values,
+which is what R's `tidyr::unite()` does and what the pipeline's own
+`merge_duplicate_columns_data` already did for repeated *raw headers* -- and
+the old misleading `invalid_tracker` warning becomes a
+`duplicate_source_columns` one naming the group, so a new collision is visible
+rather than silent (ticket 30's `blank_header_with_data` precedent).
+
+On top of it sat an R rendering artifact that *is* correctly a classifier:
+R's `unite` leaves `na.rm` at `FALSE`, so an unscreened patient reads
+`NA,NA,NA,NA,NA` and a January screening reads `JAN,NA,NA,NA,NA`. That is
+`r_na_unite_padding`, source-verified against the real workbook and wired to
+the only three canonical columns that form a duplicate group anywhere in the
+254-tracker set -- derived by measurement, not hand-listed. **Patient
+raw-stage unclassified fell 14,903 -> 1,879 (-87%)**; total mismatches barely
+moved (28,092 -> 27,980), because the fix adds data on Python's side while the
+artifact stays a mismatch until classified. The two halves must not be judged
+by the same number.
+
+**Worth not re-proposing:** ticket 27's lead that this column was a Python
+multi-select extraction gap (`2021_NPH`, Python holding a comma-joined list
+where R holds only the first selection) is **2 rows out of 12,566**. And
+`insulin_regimen` (235 residual rows) was deliberately *not* wired to
+`r_extraction_gap` despite matching its shape: 194 rows are ticket 30's
+source-verified blank-header recovery, but the other 41 are unverified, and a
+whole-column classifier would have labelled them without deciding them.
+
+**Ticket 12 is still blocked, by one ticket.** The 1,879 remaining
+unclassified rows across ~50 columns became [ticket
+43](tickets/43-triage-patient-raw-residual-3.md), which replaces ticket 31 in
+[Retire R from the workspace](tickets/12-retire-r-workspace.md)'s `blocked_by`
+-- ticket 31 again had to read `r-archive/R/script1_read_patient_data.R`
+directly to root-cause the divergence, so R's source is still a live reference
+for the triage that remains. The current baseline run is
+`output/comparison/2026-08-15T214447Z`; every count on this map measured
+before it should be read as historical.
+
+**The frontier is [Build a drill-down log
+analyzer](tickets/16-log-analyzer-drill-down.md), [Re-audit every existing
+cause classifier](tickets/32-audit-classifiers-against-decision-bar.md), [Make
+the local pre-push check set actually match
+CI](tickets/34-local-ci-parity-guard.md), [Resolve the Polars 2.0 deprecation
+warnings](tickets/35-polars-2-deprecation-warnings.md), [Decide whether a date
+buried inside a clinical note should be recovered or
+discarded](tickets/39-recover-dates-embedded-in-free-text.md), [Produce one
+Excel of every source-tracker defect](tickets/40-source-defect-findings-report.md),
+[Decide whether the 2026 template's five new Patient List fields enter the
+pipeline](tickets/41-decide-2026-new-patient-list-columns.md), [Decide how FBG
+unit headers are resolved](tickets/42-fbg-unit-headers-and-implausible-values.md),
+and the new [round-3 patient raw
+triage](tickets/43-triage-patient-raw-residual-3.md) -- nine tickets. Ticket 43
+is the one on the critical path, as ticket 12's only open blocker. Ticket 42 is
+takeable but not workable: it waits on A4D's medical advisor's reply.**
+
 ## Decisions so far
+
+- [Triage the residual patient raw-stage column mismatches (round
+  2)](tickets/31-triage-patient-raw-residual-2.md) -- decided and implemented.
+  `complication_screening`'s 12,566 mismatches were two stacked causes. A real
+  Python data loss: `ColumnMapper.rename_columns` kept only the first of
+  several source columns sharing a canonical name, discarding 2,489 recorded
+  values across 27 trackers (the 2023 template's B.P./Kidney/Eye/Foot/Lipids
+  screening sub-columns); it now merges them like R's `tidyr::unite` and the
+  pipeline's own raw-header merge. And an R rendering artifact: R's `unite`
+  pads absent sub-columns with the literal string `NA`, now the
+  source-verified `r_na_unite_padding` classifier. Patient raw-stage
+  unclassified 14,903 -> 1,879 (-87%). Residual spawned as [ticket
+  43](tickets/43-triage-patient-raw-residual-3.md).
 
 - [Triage the patient pipeline's raw-stage column-existence
   divergence](tickets/30-triage-patient-raw-column-divergence.md) -- decided
@@ -2148,13 +2232,16 @@ flowchart TB
     direction LR
     U30["<b>30</b><br/>Triage the patient<br/>pipeline's raw-stage<br/>column-existence<br/>divergence"]
   end
+  subgraph S2026_08_15b["Session 2026-08-15b"]
+    direction LR
+    U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
-    U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
@@ -2162,6 +2249,7 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U42["<b>42</b><br/>Decide how FBG unit<br/>headers are resolved,<br/>and what to do about<br/>physiologically<br/>implausible mmol values"]
+    U43["<b>43</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2187,7 +2275,8 @@ flowchart TB
   S2026_08_13b ~~~ S2026_08_14
   S2026_08_14 ~~~ S2026_08_14b
   S2026_08_14b ~~~ S2026_08_15
-  S2026_08_15 ~~~ Sopen
+  S2026_08_15 ~~~ S2026_08_15b
+  S2026_08_15b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2225,6 +2314,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
+  U43 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -2254,13 +2344,14 @@ flowchart TB
   U30 -.->|spawned| U40
   U30 -.->|spawned| U41
   U30 -.->|spawned| U42
+  U31 -.->|spawned| U43
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U31,U32,U34,U35,U39,U40,U41,U42 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U42,U43 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U33,U36,U37,U38 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

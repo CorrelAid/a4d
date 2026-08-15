@@ -217,42 +217,36 @@ class ColumnMapper:
                     f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
                 )
 
-        # Handle duplicate mappings: multiple source columns mapping to same target
-        # Keep only first occurrence, drop the rest (edge case from discontinued 2023 format)
-        target_counts: dict[str, int] = {}
-        for target in rename_map.values():
-            target_counts[target] = target_counts.get(target, 0) + 1
+        # Several source columns can map to one canonical name: the 2023 template
+        # splits complication screening into B.P./Kidney/Eye/Foot/Lipids sub-columns,
+        # each carrying an independent value. Merge them the way R's tidyr::unite()
+        # does -- and the way merge_duplicate_columns_data() already merges repeated
+        # raw headers -- rather than keeping the first, which silently discarded
+        # 2,489 recorded values across 27 trackers.
+        sources_by_target: dict[str, list[str]] = {}
+        for source_col, target_col in rename_map.items():
+            sources_by_target.setdefault(target_col, []).append(source_col)
 
-        if any(count > 1 for count in target_counts.values()):
-            duplicates = {t: c for t, c in target_counts.items() if c > 1}
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Multiple source columns map to same target name: {duplicates}. "
-                "Keeping first occurrence only. "
-                "This is an edge case from discontinued 2023 format."
+        merge_groups = {t: cols for t, cols in sources_by_target.items() if len(cols) > 1}
+
+        if merge_groups:
+            logger.bind(error_code="duplicate_source_columns").warning(
+                f"Merging source columns that share a target name: {merge_groups}. "
+                "Values are comma-joined in column order; empty cells are skipped."
             )
 
-            # Keep only first occurrence of each target
-            seen_targets: set[str] = set()
-            columns_to_drop = []
-
-            for source_col, target_col in rename_map.items():
-                if target_col in duplicates:
-                    if target_col in seen_targets:
-                        # Duplicate - drop it
-                        columns_to_drop.append(source_col)
-                        logger.debug(
-                            f"Dropping duplicate source column '{source_col}' "
-                            f"(maps to '{target_col}')"
-                        )
-                    else:
-                        # First occurrence - keep it
-                        seen_targets.add(target_col)
-
-            # Drop duplicates before renaming
-            if columns_to_drop:
-                df = df.drop(columns_to_drop)
-                # Remove dropped columns from rename_map
-                for col in columns_to_drop:
+            for source_cols in merge_groups.values():
+                parts = [
+                    pl.when(pl.col(col).cast(pl.String, strict=False).str.strip_chars() != "")
+                    .then(pl.col(col).cast(pl.String, strict=False).str.strip_chars())
+                    .otherwise(None)
+                    for col in source_cols
+                ]
+                merged = pl.concat_str(parts, separator=",", ignore_nulls=True)
+                # concat_str yields "" when every part is null; an absent value is null.
+                merged = pl.when(merged != "").then(merged).otherwise(None)
+                df = df.with_columns(merged.alias(source_cols[0])).drop(source_cols[1:])
+                for col in source_cols[1:]:
                     del rename_map[col]
 
         # Log successful mappings
