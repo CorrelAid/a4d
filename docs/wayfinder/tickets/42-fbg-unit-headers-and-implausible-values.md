@@ -2,12 +2,12 @@
 id: 42
 title: Decide how FBG unit headers are resolved, and what to do about physiologically implausible mmol values
 labels: [wayfinder:grilling]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-17
+claimed_at: 2026-08-17
+resolution: decided
+evidence: read
 closed_by: null
 spawned_by: 30
 ---
@@ -121,3 +121,123 @@ Note that a unit rule cannot be decided from R's behaviour -- R has the same
 headers and the same synonym source -- so this is a Python-forward decision,
 not an R/Python divergence question, and it does not block [ticket
 12](12-retire-r-workspace.md).
+
+## Resolution (session-2026-08-17)
+
+### Decision
+
+**The advisor's reply did not confirm this ticket's central premise, and the
+decision was rebuilt on what it did establish.** The ticket asked whether a
+reading below 30 mg/dL is impossible; the answer came back as *analytical*
+limits -- mg/dL readable from ~2-5 to ~720-800, mmol/L from ~0.1-0.3 to ~40-45
+-- which makes 5-30 mg/dL **possible but severe, not impossible**. The
+"9,264 readings with the unit mixed up" figure is therefore not, on the
+advisor's word, clearly wrong-unit. What he authorised is narrower and
+conditional: *"if it is clearly a wrong unit mixed up, then correct it"*, plus
+*"advise the data input staff"*. Defining "clearly" was the real decision.
+
+**"Clearly" was settled by measurement, not by a threshold.** Across 372
+file-column groups and 110,007 readings, the confusion is overwhelmingly *per
+column* rather than per row, and it clusters by clinic:
+
+| share of the column below 30 mg/dL | groups | reading |
+|---|---|---|
+| >=90% | 29 | the column is mmol under an mg/dL header |
+| 50-90% | 7 | per-patient mixing, all baseline at two clinics |
+| 10-50% | 10 | mostly one clinic (Preah Kossamak) |
+| <10% | 26 | scattered single rows |
+| none | 300 | clean |
+
+`2025_Kantha Bopha II`'s updated FBG is 99.8% of 951 readings below 30, which
+cannot be a run of severe hypoglycaemia. A single low reading in an otherwise
+ordinary column is the opposite case: a genuine severe hypo and a mis-entered
+unit are indistinguishable, and converting one would multiply the clinically
+most important reading in the file by 18 and hide it.
+
+**Implemented (option B, chosen by the user):**
+
+- `src/a4d/clean/glucose.py`, new. `resolve_glucose_units` runs as step 5.8 of
+  patient cleaning -- before range validation so the limits judge corrected
+  values, and before the existing mg/mmol cross-derivation so it sees a column
+  whose unit matches its name.
+- **Column-level correction.** Where a column has >=10 readings and >=90% sit
+  below 30 mg/dL, its values move to the mmol sibling (never overwriting a
+  reading already recorded there) and the mg column is rescaled by 18. Reported
+  as `glucose_unit_swapped` **once per column, not once per row** -- the defect
+  is the header, so the source fix is file-level. **29 columns across 21 files.**
+- **Row-level flagging, no conversion.** A sub-30 reading in a column that was
+  not swapped is reported as `glucose_unit_suspect` and left exactly as
+  recorded. **5,673 rows across 34 files.** This is where the 50-90% and 10-50%
+  bands land, per the user's instruction that the ambiguous middle goes with
+  the flagged side.
+- **Zero is not a reading.** It sits below the analytical floor of both units,
+  so it becomes null rather than being read as profound hypoglycaemia.
+- **Analytical limits enforced.** `cut_numeric_value` now bounds all four FBG
+  columns at the permissive end of the advisor's ranges (mg/dL 2-800, mmol/L
+  0.1-45). This replaces an inherited 0-150 mmol/L bound from R's
+  `script2_process_patient_data.R` -- more than three times his ceiling -- and
+  covers the three columns that had **no bound at all**. **832 readings
+  rejected**, including 383 above the mg/dL ceiling (max 2,013) that nobody had
+  ever looked for: the original analysis only examined the low end.
+
+### Numbers (real 254-tracker run, comparison `2026-08-16T231826Z`)
+
+Every FBG value now sits inside the advisor's limits: mg max 800.0 (was 2,013),
+mmol max 44.9 (was 600). Medians moved as expected -- baseline mg 190 -> 216
+(the mmol readings that were dragging it down have left), baseline mmol
+19.3 -> 15.7 (it gained ~1,700 lower readings from the swap). Both remain
+consistent with the presentation hyperglycaemia the advisor confirmed.
+
+### Rejected
+
+- **Converting every sub-30 reading** (~12,000). The advisor's limits do not
+  make them impossible, and it would silently rewrite real severe hypos.
+- **Converting nothing but the analytically impossible.** Defensible, but
+  knowingly leaves 29 wholly mislabelled columns wrong in the data.
+- **A row-level record for a swapped column.** The same finding repeated
+  hundreds of times; the workbook fix is one header.
+- **Stretching the new comparison classifier to cover R-null cells** -- see
+  below. Ticket 31's precedent: a shape-matching label is not a decision.
+
+### Evidence
+
+**Executed** throughout: the file-column distribution, the 5-30 vs 2-5 vs 0
+banding, the mg upper-limit breach, and every before/after figure come from
+real pipeline and comparison runs over the 254-tracker set on the drive, not
+from unit tests. The advisor's limits are **read** -- an expert statement, not
+something this repo can verify -- which is what `evidence: read` records.
+
+**One inconsistency in the reply, noted and immaterial:** he says readings
+below 0.1 mmol/L are possible while his own table puts the analytical floor at
+0.1-0.3. No reading in the dataset sits in that gap.
+
+**Tense:** all figures describe behaviour after this session's commit.
+
+### Questions 3 and 4 of the ticket's own list
+
+- **`Baseline FBG (mmol/L or mg/dL)` stays unmapped.** The only tracker
+  carrying it is from 2018, and the latest-template rule settles it: a template
+  should never offer the reader a choice of unit, so this is a source defect to
+  record, not a synonym to add.
+- **A general per-column unit check was not built.** The mechanism here is
+  specific to a column pair that exists in both units; HbA1c has no such pair.
+  Revisit only if a second column turns out to need it.
+
+### Not fixed, deliberately
+
+The correction is a deliberate divergence from R, which has no unit resolution,
+so patient cleaned-stage mismatches rose 98,274 -> 114,509, entirely in the four
+FBG columns. `python_glucose_unit_corrected`
+(`PATIENT_GLUCOSE_UNIT_CLASSIFIERS`) explains 11,189 of them on the three shapes
+the correction provably produces: an exact 18x ratio either way, a null against
+R's literal 0, and Python's sentinel against a reading outside the analytical
+range.
+
+It deliberately never fires on an R-null cell, which leaves **2,842 cells on
+`fbg_updated_mmol` unclassified** -- cleaned-stage unclassified 6,587 -> 9,427.
+Measured, **2,794 of those 2,842 (98.3%) are in files whose column was
+swapped**, so the population is understood: the swap populated a column R never
+had. It is not classified because the per-cell classifier has no file context,
+and a blanket R-null rule would also swallow the ~193 cells on that column that
+predate this change -- exactly the labelling-without-deciding this map forbids.
+Spawned as [ticket 44](44-triage-cleaned-fbg-r-null-residual.md).

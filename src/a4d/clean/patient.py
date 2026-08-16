@@ -23,6 +23,13 @@ from a4d.clean.converters import (
     parse_date_column,
     safe_convert_column,
 )
+from a4d.clean.glucose import (
+    MG_ANALYTICAL_MAX,
+    MG_ANALYTICAL_MIN,
+    MMOL_ANALYTICAL_MAX,
+    MMOL_ANALYTICAL_MIN,
+    resolve_glucose_units,
+)
 from a4d.clean.schema import (
     apply_schema,
     get_date_columns,
@@ -111,6 +118,11 @@ def clean_patient_data(
     # Step 5.7: Calculate BMI from weight and height (like R does)
     # Must happen after type conversions and before range validation
     df = _calculate_bmi(df)
+
+    # Step 5.8: Resolve glucose readings recorded under the wrong unit's header.
+    # Before range validation so the analytical limits judge corrected values,
+    # and before step 8 so the mg/mmol cross-derivation sees matching units.
+    df = resolve_glucose_units(df, error_collector)
 
     # Step 6: Range validation and cleanup
     df = _apply_range_validation(df, error_collector)
@@ -581,9 +593,22 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     if "hba1c_updated" in df.columns:
         df = cut_numeric_value(df, "hba1c_updated", 0, 25, error_collector)
 
-    # FBG updated mmol: 0-136.5 (world record)
-    if "fbg_updated_mmol" in df.columns:
-        df = cut_numeric_value(df, "fbg_updated_mmol", 0, 150, error_collector)
+    # FBG: the analytical limits of the machines in use, given by A4D's medical
+    # advisor 2026-08-17 (ticket 42). The permissive end of each range he gave is
+    # used, so only a reading no machine could have produced is rejected. This
+    # replaces an inherited 0-150 mmol/L bound (R's script2_process_patient_data.R)
+    # that was more than three times his ceiling, and covers the three columns
+    # that carried no bound at all.
+    for column in ("fbg_baseline_mg", "fbg_updated_mg"):
+        if column in df.columns:
+            df = cut_numeric_value(
+                df, column, MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX, error_collector
+            )
+    for column in ("fbg_baseline_mmol", "fbg_updated_mmol"):
+        if column in df.columns:
+            df = cut_numeric_value(
+                df, column, MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX, error_collector
+            )
 
     return df
 

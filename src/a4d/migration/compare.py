@@ -21,6 +21,16 @@ from typing import Any
 import polars as pl
 
 from a4d.clean.date_parser import parse_date_flexible
+from a4d.clean.glucose import (
+    GLUCOSE_COLUMNS as GLUCOSE_UNIT_COLUMNS,
+)
+from a4d.clean.glucose import (
+    MG_ANALYTICAL_MAX,
+    MG_ANALYTICAL_MIN,
+    MMOL_ANALYTICAL_MAX,
+    MMOL_ANALYTICAL_MIN,
+    MMOL_TO_MG_FACTOR,
+)
 from a4d.clean.validators import load_validation_rules, sanitize_str
 from a4d.config import settings
 
@@ -1066,6 +1076,64 @@ def _is_r_na_unite_padding(m: CellMismatch) -> bool:
 
 PATIENT_NA_UNITE_PADDING_CLASSIFIERS: dict[str, Classifier] = {
     "r_na_unite_padding": _is_r_na_unite_padding,
+}
+
+
+def _glucose_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except TypeError, ValueError:
+        return None
+
+
+def _is_python_glucose_unit_corrected(m: CellMismatch) -> bool:
+    """Python resolves a glucose reading recorded under the wrong unit's header;
+    R carries the number through as written.
+
+    Ticket 42, on A4D's medical advisor's answer of 2026-08-17. Where a whole
+    column labelled mg/dL holds mmol/L readings (measured: 29 file-columns at 21
+    clinics, nine tenths or more of each column below 30 mg/dL),
+    ``resolve_glucose_units`` (src/a4d/clean/glucose.py) moves the values to the
+    mmol column and rescales the mg one by 18. It also blanks readings of exactly
+    0, which sit below the analytical floor of both units and mean "not
+    measured", and range validation then rejects readings outside the advisor's
+    analytical limits. R has no unit resolution at all, so each of those shows as
+    a divergence.
+
+    This is a **deliberate Python correction, not an R defect and not a
+    divergence either side could win** -- R was never asked the question. It
+    fires only on the three shapes the correction provably produces: an exact
+    18x ratio in either direction, a null against R's literal 0, and Python's
+    numeric sentinel against a reading outside the analytical range. R-null
+    cells are excluded, because that population predates this change and belongs
+    to the still-open baseline-FBG join question.
+    """
+    if m.column not in GLUCOSE_UNIT_COLUMNS:
+        return False
+    r = _glucose_float(m.r_value)
+    if r is None:
+        return False
+
+    py = _glucose_float(m.py_value)
+    if py is None:
+        return r == 0.0
+
+    if py == settings.error_val_numeric:
+        low, high = (
+            (MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
+            if m.column.endswith("_mg")
+            else (MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX)
+        )
+        return r < low or r > high
+
+    for expected in (r * MMOL_TO_MG_FACTOR, r / MMOL_TO_MG_FACTOR):
+        if abs(py - expected) <= max(1e-6, abs(expected) * 1e-4):
+            return True
+    return False
+
+
+PATIENT_GLUCOSE_UNIT_CLASSIFIERS: dict[str, Classifier] = {
+    "python_glucose_unit_corrected": _is_python_glucose_unit_corrected,
 }
 
 

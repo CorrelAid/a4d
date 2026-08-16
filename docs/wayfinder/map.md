@@ -45,8 +45,8 @@ flowchart TD
     T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
+    T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -54,7 +54,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 30"]
+  subgraph DECIDED["Decided · 31"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -86,6 +86,7 @@ flowchart TD
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
+    T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -130,11 +131,11 @@ flowchart TD
   T43 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T42,T43 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T43,T44 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1456,7 +1457,91 @@ triage](tickets/43-triage-patient-raw-residual-3.md) -- nine tickets. Ticket 43
 is the one on the critical path, as ticket 12's only open blocker. Ticket 42 is
 takeable but not workable: it waits on A4D's medical advisor's reply.**
 
+**Thirty-one tickets resolved.** [Decide how FBG unit headers are resolved, and
+what to do about physiologically implausible mmol values](tickets/42-fbg-unit-headers-and-implausible-values.md)
+is decided and implemented. **A4D's medical advisor replied 2026-08-17, and his
+answer did not confirm the premise the ticket was built on.** The ticket asked
+whether a reading below 30 mg/dL is impossible; he answered with *analytical*
+limits (mg/dL ~2-5 to ~720-800, mmol/L ~0.1-0.3 to ~40-45), which make 5-30
+mg/dL possible but severe. So the headline "9,264 readings with the unit mixed
+up" was never established. What he authorised is narrower: *"if it is clearly a
+wrong unit mixed up, then correct it"* -- and defining "clearly" was the real
+decision.
+
+It was settled by measurement, not a threshold. Across 372 file-column groups
+the confusion is overwhelmingly **per column, and clusters by clinic**: 29
+groups have nine tenths or more of their readings in mmol territory under an
+mg/dL header (`2025_Kantha Bopha II`: 99.8% of 951), while 300 groups are
+clean. The user chose the split that follows: **correct at column level, flag
+at row level**. `src/a4d/clean/glucose.py` moves a wholly mmol-recorded
+column into its mmol sibling and rescales by 18 (29 columns, 21 files, reported
+once per column because the defect is the header); a stray sub-30 reading in an
+otherwise ordinary column is reported and **left exactly as recorded** (5,673
+rows, 34 files), because a genuine severe hypo and a mis-entered unit are
+indistinguishable and converting one would hide it. Zero became null in both
+units -- it is below both analytical floors, so it means "not measured".
+
+**The analytical limits are now enforced, and the top end had never been
+looked at.** All four FBG columns are bounded at the permissive end of the
+advisor's ranges, replacing an inherited 0-150 mmol/L bound from R that was
+three times his ceiling and covering the three columns that had **no bound at
+all**. 832 readings rejected -- including 383 above the mg/dL ceiling (max
+2,013), which the original analysis never searched for because it only looked
+downward. Every FBG value now sits inside the limits (mg max 800, mmol max
+44.9).
+
+**The cost, recorded rather than hidden:** this is a deliberate divergence from
+R, which has no unit resolution, so patient cleaned-stage mismatches rose
+98,274 -> 114,509. The new `python_glucose_unit_corrected` classifier explains
+11,189 of them on the three shapes the correction provably produces, but
+deliberately never fires on an R-null cell, leaving 2,842 unclassified
+(cleaned-stage unclassified 6,587 -> 9,427). 98.3% of those are measured to sit
+in files whose column was swapped, so they are understood -- they are not
+classified because the per-cell classifier has no file context and a blanket
+rule would swallow ~193 unrelated cells. That is [ticket
+44](tickets/44-triage-cleaned-fbg-r-null-residual.md), and it is the same
+refusal ticket 31 made on `insulin_regimen`.
+
+Two of the ticket's own questions closed with it: `Baseline FBG (mmol/L or
+mg/dL)` **stays unmapped** (2018 tracker; a template should never offer the
+reader a choice of unit, so it is a source defect, not a synonym), and a
+general per-column unit check was **not** built (the mechanism needs a column
+pair in two units; HbA1c has none).
+
+**The frontier is [Build a drill-down log
+analyzer](tickets/16-log-analyzer-drill-down.md), [Re-audit every existing cause
+classifier](tickets/32-audit-classifiers-against-decision-bar.md), [Make the
+local pre-push check set actually match CI](tickets/34-local-ci-parity-guard.md),
+[Resolve the Polars 2.0 deprecation
+warnings](tickets/35-polars-2-deprecation-warnings.md), [Decide whether a date
+buried inside a clinical note should be recovered or
+discarded](tickets/39-recover-dates-embedded-in-free-text.md), [Produce one
+Excel of every source-tracker
+defect](tickets/40-source-defect-findings-report.md), [Decide whether the 2026
+template's five new Patient List
+fields enter the pipeline](tickets/41-decide-2026-new-patient-list-columns.md),
+[round-3 patient raw triage](tickets/43-triage-patient-raw-residual-3.md), and
+the new [cleaned-stage FBG
+residual](tickets/44-triage-cleaned-fbg-r-null-residual.md) -- nine tickets.
+Ticket 43 remains the one on the critical path, as [ticket 12](tickets/12-retire-r-workspace.md)'s
+only open blocker. Ticket 40 now inherits a large, concrete backlog from this
+session: 29 mislabelled columns and 5,673 suspect readings, each already
+carrying the file, patient and value needed to correct the workbook -- and the
+advisor's own closing instruction was to advise the data-entry staff.**
+
 ## Decisions so far
+
+- [Decide how FBG unit headers are resolved, and what to do about
+  physiologically implausible mmol values](tickets/42-fbg-unit-headers-and-implausible-values.md)
+  -- decided and implemented on A4D's medical advisor's reply (2026-08-17),
+  which gave analytical limits rather than confirming the ticket's "below 30
+  mg/dL is impossible" premise. Unit confusion is per column, not per row, so
+  the pipeline corrects a wholly mmol-recorded column (29 columns, 21 files) and
+  only flags a stray low reading (5,673 rows), since a severe hypo and a
+  mis-entered unit look identical. All four FBG columns now carry the advisor's
+  analytical bounds; 832 readings rejected. Divergence from R classified by
+  `python_glucose_unit_corrected`; the R-null residual is [ticket
+  44](tickets/44-triage-cleaned-fbg-r-null-residual.md).
 
 - [Triage the residual patient raw-stage column mismatches (round
   2)](tickets/31-triage-patient-raw-residual-2.md) -- decided and implemented.
@@ -2056,6 +2141,29 @@ takeable but not workable: it waits on A4D's medical advisor's reply.**
 
 ## Assumptions in force
 
+- **The glucose limits the pipeline enforces are the right ones.** A4D's
+  medical advisor gave the analytical limits of the machines in use (mg/dL
+  ~2-5 to ~720-800, mmol/L ~0.1-0.3 to ~40-45) and confirmed above 100 mmol/L
+  is impossible; the permissive end of each is now a hard bound on all four FBG
+  columns, and 832 readings are rejected on it. This is an expert statement,
+  not something this repo can verify, and his reply carried one internal
+  inconsistency (readings below 0.1 mmol/L described as possible while his own
+  floor is 0.1-0.3 -- immaterial, since no reading sits there). Resting on
+  [ticket 42](tickets/42-fbg-unit-headers-and-implausible-values.md); overturned
+  by a clinic confirming its meters read outside these ranges, which would make
+  the rejections data loss rather than data cleaning.
+
+- **A column that is >=90% sub-30 mg/dL was recorded in mmol.** The threshold
+  is not the advisor's -- he only authorised correcting what is "clearly" a unit
+  mix-up. It rests on the measured distribution being strongly bimodal (29
+  groups above 0.9, 300 at 0.0) and on 951 consecutive sub-30 readings at one
+  clinic being clinically impossible. Resting on [ticket
+  42](tickets/42-fbg-unit-headers-and-implausible-values.md); overturned by a
+  clinic that genuinely records in mg/dL and whose patients really do run that
+  low, or by a swapped column whose source workbook turns out to say mmol in
+  the header after all -- which is why every swap is reported for source
+  correction rather than silently applied.
+
 - **Python's baseline-FBG copy is the right one to keep.** Where a tracker
   records baseline FBG on both the monthly sheet and the Patient List,
   Python keeps the monthly value and R keeps neither (its join suffixes both
@@ -2236,6 +2344,10 @@ flowchart TB
     direction LR
     U31["<b>31</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
   end
+  subgraph S2026_08_17["Session 2026-08-17"]
+    direction LR
+    U42["<b>42</b><br/>Decide how FBG unit<br/>headers are resolved,<br/>and what to do about<br/>physiologically<br/>implausible mmol values"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2248,8 +2360,8 @@ flowchart TB
     U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U42["<b>42</b><br/>Decide how FBG unit<br/>headers are resolved,<br/>and what to do about<br/>physiologically<br/>implausible mmol values"]
     U43["<b>43</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
+    U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2276,7 +2388,8 @@ flowchart TB
   S2026_08_14 ~~~ S2026_08_14b
   S2026_08_14b ~~~ S2026_08_15
   S2026_08_15 ~~~ S2026_08_15b
-  S2026_08_15b ~~~ Sopen
+  S2026_08_15b ~~~ S2026_08_17
+  S2026_08_17 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2345,13 +2458,14 @@ flowchart TB
   U30 -.->|spawned| U41
   U30 -.->|spawned| U42
   U31 -.->|spawned| U43
+  U42 -.->|spawned| U44
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U42,U43 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U43,U44 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
