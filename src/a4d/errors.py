@@ -28,6 +28,10 @@ ErrorCode = Literal[
     # input it depended on was never recorded, so no value could be computed (informational)
     "balance_reconciliation",  # Recomputed closing stock disagrees with the balance the
     # tracker itself recorded -- the transactions and the recorded total do not add up
+    "glucose_unit_swapped",  # A whole column labelled mg/dL holds mmol/L readings; values
+    # moved to the mmol column and rescaled. Reported once per column, not per row
+    "glucose_unit_suspect",  # A single reading sits where the other unit's values land;
+    # kept as recorded, because a severe hypoglycaemic reading is indistinguishable
 ]
 
 

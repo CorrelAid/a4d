@@ -45,6 +45,7 @@ from a4d.migration.compare import (
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
+    PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_INSULIN_TYPE_CLASSIFIERS,
@@ -225,6 +226,13 @@ CLASSIFIERS_BY_COLUMN = {
     # already documented as a deliberate Python correction in
     # _derive_insulin_fields's docstring (src/a4d/clean/patient.py).
     "insulin_subtype": PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
+    # ticket 42: Python resolves glucose readings recorded under the wrong
+    # unit's header (a decision taken on A4D's medical advisor's answer); R has
+    # no unit resolution, so every correction shows as a divergence. The
+    # baseline-mg join question is a separate, still-open population, which is
+    # why the classifier never fires on an R-null cell.
+    "fbg_updated_mg": PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
+    "fbg_updated_mmol": PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
     # ticket 31: the three canonical columns whose source sub-columns both
     # pipelines unite into one value. R's tidyr::unite pads absent
     # sub-columns with the literal string "NA"; Python skips them. Derived,
@@ -326,8 +334,14 @@ CLASSIFIERS_BY_COLUMN = {
     # ticket 29: R's Patient List join suffixes both sides on a name
     # collision, so R's cleaning finds no unsuffixed column and leaves these
     # null for the whole file (21 files / 3 files respectively).
-    "fbg_baseline_mg": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
-    "fbg_baseline_mmol": PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    # ticket 42 is checked first and is disjoint from the join question: it
+    # never fires on an R-null cell, which is the whole of the join shape.
+    "fbg_baseline_mg": (
+        PATIENT_GLUCOSE_UNIT_CLASSIFIERS | PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS
+    ),
+    "fbg_baseline_mmol": (
+        PATIENT_GLUCOSE_UNIT_CLASSIFIERS | PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS
+    ),
 }
 
 # ticket 29: every column whose validation rules declare canonical-label
