@@ -117,6 +117,10 @@ flowchart TB
     direction LR
     U45["<b>45</b><br/>Give the patient<br/>comparison an ordinal<br/>row key, so duplicated<br/>patient IDs stop faking<br/>mismatches"]
   end
+  subgraph S2026_08_17d["Session 2026-08-17d"]
+    direction LR
+    U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -130,8 +134,9 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+    U48["<b>48</b><br/>Python drops<br/>complication-screening<br/>results and dates where<br/>a merged header spans<br/>the block"]
+    U49["<b>49</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -161,7 +166,8 @@ flowchart TB
   S2026_08_15b ~~~ S2026_08_17
   S2026_08_17 ~~~ S2026_08_17b
   S2026_08_17b ~~~ S2026_08_17c
-  S2026_08_17c ~~~ Sopen
+  S2026_08_17c ~~~ S2026_08_17d
+  S2026_08_17d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -199,7 +205,8 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U46 --->|blocked| U12
+  U48 --->|blocked| U12
+  U49 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -235,12 +242,14 @@ flowchart TB
   U43 -.->|spawned| U46
   U45 --->|blocked| U46
   U45 -.->|spawned| U47
+  U46 -.->|spawned| U48
+  U46 -.->|spawned| U49
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U46,U47 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U48,U49 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

@@ -2,12 +2,12 @@
 id: 46
 title: Triage the residual patient raw-stage column mismatches (round 4)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: [45]
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-17d
+claimed_at: 2026-08-17T22:00:00+02:00
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 43
 ---
@@ -88,3 +88,106 @@ itself is wrong, that is a legitimate conclusion and a finding for [ticket
 40](40-source-defect-findings-report.md). A cause genuinely undecidable on
 the available evidence is recorded as an open question, not closed with a
 label.
+
+## Resolution
+
+**Decision.** Four of the residual's causes are settled; the rest split into
+[round 5](49-triage-patient-raw-residual-5.md) and, separately, into a
+newly-found Python data loss, [ticket
+48](48-putrajaya-screening-columns-lost.md). Patient raw-stage unclassified
+fell **601 -> 278 (-54%)**, cleaned **8,383 -> 8,148**. The new baseline run
+is `output/comparison/2026-08-17T212151Z`.
+
+1. **A number typed into a date-formatted cell -- a Python bug, fixed.**
+   `read_patient_rows` (`src/a4d/extract/patient.py`) now converts a datetime
+   before 1903 back to its Excel serial. Excel's epoch is 1899-12-30, so such
+   a "date" is a small number that inherited a date format from a neighbouring
+   cell; readxl reads the number because it guesses the column's type, while
+   openpyxl honours each cell's own format and hands back a datetime, which
+   the numeric conversion then rejected into the 999999 sentinel. 38 raw cells
+   across 5 files; **in production this was destroying 24 real systolic
+   readings** (`2025_Hat Yai` TH_HY035 and `2025_YGH` MM_YC023_YG, one per
+   monthly sheet). Verdict: Python was wrong, R was right by accident.
+2. **R drops a whitespace-only rich-text run -- classifier
+   `r_drops_richtext_space` (89 rows).** Ticket 43 left this "verified but
+   unexplained"; the mechanism was found in the workbooks' own XML. Where a
+   cell carries mixed formatting, xlsx stores it as a sequence of runs, and a
+   space between two differently-formatted fragments becomes a run holding
+   only that space (`<t xml:space="preserve"> </t>`). openpyxl concatenates
+   every run; readxl drops the whitespace-only one. Verified in two unrelated
+   workbooks -- `2017_Yangon` (`8.8 (20.9.16)`, three runs) and `2022_Mahosot`
+   (`Unable to contact`, the middle run recoloured). The same text also exists
+   as a plain shared string elsewhere in the same column, which is why only
+   some cells diverge. Python reproduces the workbook; R loses a character.
+3. **Python trims each sub-value before a merge -- classifier
+   `python_trims_merged_subvalue` (2 rows).** The opposite direction of the
+   same shape: ticket 31's merge strips each fragment, `tidyr::unite` does
+   not, so a source cell with trailing padding reaches R as `Normal ,Insulin`.
+   Direction-scoped so the two classifiers cannot shadow each other.
+4. **`insulin_regimen` in `2021_Kantha Bopha` -- `r_extraction_gap` (194
+   rows).** Re-verified at source rather than taken from ticket 30: `Mar21`
+   column Q has *both* header rows empty and holds `Self-mixed BD`. R has no
+   header, so it drops the column; Python recovers the name from the sibling
+   sheets that label it. All 194 of the column's residual sit in that one
+   verified file, which is what ticket 31's refusal was waiting for.
+
+**Because.** Each cause was taken to a verdict on which pipeline is right, not
+to a label. The one that turned out to be a Python defect was fixed in the
+pipeline; the three where Python reproduces the source became classifiers.
+
+**Rejected.**
+
+- *Recovering every date-typed cell in a numeric column.* This would also
+  convert `2023_Chiang Mai`'s `t1d_diagnosis_age` (Excel serial 20668,
+  1956-08-01, against a D.O.B. of 2009) into a bogus age of 20668 -- exactly
+  what R does. Only the impossible range is recovered; a date that could
+  plausibly have been typed stays a date, which is the cause the product arm
+  already settled as `openpyxl_date_typed_stray_cell`.
+- *A cell-count or magnitude threshold* ("recover if the number looks like a
+  blood pressure"). A guess about the column's semantics; the Excel-epoch
+  argument is a fact about the file format.
+- *Extending `normalize_whitespace_column` to interior whitespace.* It would
+  have silenced both space causes with one rule and hidden the fact that they
+  run in opposite directions and have different mechanisms -- and it would
+  have been applied before the mechanism was known.
+- *Wiring `r_extraction_gap` across every R-null column at once.* ~125 of the
+  remaining 278 share that shape, but only `insulin_regimen`'s file has been
+  source-verified. That is ticket 31's precedent, kept.
+- *Fixing the Putrajaya screening-column loss in the same session.* It is a
+  second, unrelated header-handling bug needing its own sweep across all 254
+  trackers; chasing it here would have been the sprawl the map's rule forbids.
+
+**Evidence: executed.** The four causes were measured against the real
+248-tracker drive data and verified at source: the Hat Yai systolic cell read
+directly from `Annual!H` (`datetime(1900, 4, 29)`, number format
+`dd-mmm-yyyy`, diastolic 74 beside it); the rich-text runs read out of
+`xl/sharedStrings.xml` in both workbooks; the Kantha Bopha blank header read
+from `Mar21` rows 85-87. The pipeline was re-run over all 254 trackers
+(`a4d run patient --force`) and the comparison re-run twice, so every count
+here is a measured before/after, not a projection. R's `sanitize_str` was
+re-read to confirm independently of ticket 43 that it touches only column
+names and validator lookups. Full suite 735 passed, ruff and `ty check src/`
+clean.
+
+**Tense.** Every count above describes current behaviour after this session's
+changes. The 999999 systolic readings describe production output *before* the
+fix; the drive's `output_python` and BigQuery's contents now differ until the
+next production run.
+
+## Addendum: what this leaves open
+
+- The 278 remaining raw-stage cells: [ticket
+  49](49-triage-patient-raw-residual-5.md).
+- The Putrajaya merged-header data loss: [ticket
+  48](48-putrajaya-screening-columns-lost.md).
+- **Product's own sub-1903 cells were measured but deliberately not touched**:
+  18 `product_units_received` and 2 `product_entry_date` cells carry the same
+  impossible-date shape (e.g. `1900-03-15`, i.e. 74 units). They currently
+  land on `openpyxl_date_typed_stray_cell`, whose verdict is "Python is
+  faithful" -- which this session's evidence says is wrong for that sub-range.
+  Product raw is separate extraction code and separate, already-closed triage
+  scope, so it belongs to [ticket
+  32](32-audit-classifiers-against-decision-bar.md)'s re-audit rather than
+  here.
+- Three new source-defect findings were added to [ticket
+  40](40-source-defect-findings-report.md).

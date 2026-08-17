@@ -14,8 +14,10 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -1019,6 +1021,52 @@ class TestClassify:
         mismatch = _mismatch(r_value="JAN", py_value="JAN,FEB", column="complication_screening")
 
         assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "unclassified"
+
+    def test_r_richtext_space_dropped_on_a_value_split_across_formatting_runs(self):
+        """2017 Yangon Feb17!L: the cell is a rich-text shared string whose
+        middle run is the space alone."""
+        mismatch = _mismatch(
+            r_value="8.8(20.9.16)", py_value="8.8 (20.9.16)", column="hba1c_updated"
+        )
+
+        assert classify(mismatch, PATIENT_RICHTEXT_SPACE_CLASSIFIERS) == "r_drops_richtext_space"
+
+    def test_r_richtext_space_dropped_in_free_text(self):
+        mismatch = _mismatch(
+            r_value="Unable tocontact since June'21",
+            py_value="Unable to contact since June'21",
+            column="observations",
+        )
+
+        assert classify(mismatch, PATIENT_RICHTEXT_SPACE_CLASSIFIERS) == "r_drops_richtext_space"
+
+    def test_r_richtext_space_unclassified_when_r_is_the_side_with_more_spaces(self):
+        """The opposite direction is Python's own sub-value trimming, not this."""
+        mismatch = _mismatch(r_value="Normal ,No", py_value="Normal,No", column="observations")
+
+        assert classify(mismatch, PATIENT_RICHTEXT_SPACE_CLASSIFIERS) == "unclassified"
+
+    def test_r_richtext_space_unclassified_when_the_text_itself_differs(self):
+        mismatch = _mismatch(
+            r_value="8.8(20.9.16)", py_value="9.8 (20.9.16)", column="hba1c_updated"
+        )
+
+        assert classify(mismatch, PATIENT_RICHTEXT_SPACE_CLASSIFIERS) == "unclassified"
+
+    def test_python_trims_merged_subvalue_when_r_keeps_the_source_trailing_space(self):
+        mismatch = _mismatch(
+            r_value="Normal ,Insulin", py_value="Normal,Insulin", column="observations"
+        )
+
+        assert (
+            classify(mismatch, PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS)
+            == "python_trims_merged_subvalue"
+        )
+
+    def test_python_trims_merged_subvalue_unclassified_without_a_merge_separator(self):
+        mismatch = _mismatch(r_value="Normal ", py_value="Normal", column="observations")
+
+        assert classify(mismatch, PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS) == "unclassified"
 
     def test_buddhist_era_typo_when_r_is_sentinel_and_python_has_an_implausible_be_year(self):
         mismatch = _mismatch(

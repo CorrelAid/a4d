@@ -61,6 +61,25 @@ Concrete findings already waiting for such a report, all source-verified:
   `2026_Preah Kossamak` `May26`, 5 in `2026_Quirino` `Jan26` (ticket 45). A
   broken Excel reference in the source, visible because R preserves it where
   Python drops the rows.
+- **Numeric entries typed into date-formatted cells** ([ticket
+  46](46-triage-patient-raw-residual-4.md)), 26 patient cells: `2025_Hat Yai`
+  `Annual!H` (12 sheets x systolic 120), `2025_YGH` (systolic 80),
+  `2020_Mahosot` (`testing_frequency` 2). Excel stored each as a 1900 date, so
+  the cell displays a date where a reading belongs -- the format is what needs
+  correcting, not the value. The pipeline now recovers the number, so this is
+  a workbook-tidiness finding rather than data loss.
+- **Dates typed into numeric columns** ([ticket
+  46](46-triage-patient-raw-residual-4.md)): `2023_Chiang Mai Maharaj Nakorn`,
+  `Patient List!H` for `TH_CP005`, "Age at Diagnosis" holds a
+  Buddhist-formatted date (Excel serial 20668) against a D.O.B. of 2009 -- 16
+  rows. Neither pipeline can recover an age from it; the cell needs a human.
+  `2020_Mahosot` and `2022_Mahosot` `blood_pressure_mmhg` carry the same shape.
+- **Rich-text cells whose space sits in its own formatting run** ([ticket
+  46](46-triage-patient-raw-residual-4.md)): `2017_Yangon`'s
+  `hba1c_updated`/`fbg_updated_mg` ("8.8 (20.9.16)") and `2022_Mahosot`'s
+  `observations`. Python reads them correctly, so this is cosmetic for the
+  pipeline -- but it is also why the same value exists in two forms in one
+  column, which is worth flagging to whoever maintains the workbooks.
 - **113 product groups across 21 files where the computed closing balance
   contradicts the tracker's own recorded total** (`balance_reconciliation`,
   [ticket 36](36-triage-product-cleaned-unclassified-residual.md)).

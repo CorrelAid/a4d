@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 10"]
+  subgraph FRONTIER["Frontier · 11"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -46,8 +46,9 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
-    T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
+    T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
+    T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +56,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 33"]
+  subgraph DECIDED["Decided · 34"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -90,6 +91,7 @@ flowchart TD
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
+    T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -132,14 +134,15 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T46 --> T12
+  T48 --> T12
+  T49 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T46,T47 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T48,T49 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1659,10 +1662,111 @@ twice on one monthly sheet, and two trackers whose R output carries
 Tickets 28, 29, 37 and 38 measured under the old key; their causes stand but
 their numbers do not, and [ticket
 44](tickets/44-triage-cleaned-fbg-r-null-residual.md) should re-measure against
-`2026-08-17T202809Z`.
+the current baseline.
+
+**Thirty-four tickets resolved.** [Triage the residual patient raw-stage column
+mismatches (round 4)](tickets/46-triage-patient-raw-residual-4.md) is done for
+four of its causes, and like rounds 3, 2 and 1 before it, one of them was a
+Python bug rather than a label. Patient raw-stage unclassified fell **601 ->
+278 (-54%)**, cleaned **8,383 -> 8,148**; the new baseline run is
+`output/comparison/2026-08-17T212151Z` and every count on this map measured
+before it should be read as historical.
+
+**The bug was in production, not in the comparison.** A cell whose number
+format is a date but whose content is a plain number -- a systolic 120 typed
+into a `dd-mmm-yyyy`-formatted cell in `2025_Hat Yai`'s `Annual` sheet -- comes
+back from openpyxl as `datetime(1900, 4, 29)`, because Excel's serial epoch is
+1899-12-30 and 120 is simply the 120th day after it. R's readxl guesses a
+column's type from its majority values and so reads the number, correctly, by
+accident. Python's numeric conversion rejected the datetime and stamped 999999,
+so **24 real blood-pressure readings were reaching BigQuery as the error
+sentinel**. `read_patient_rows` now converts any pre-1903 datetime back to its
+serial. The cut is a fact about the file format, not a threshold: a date
+anyone could actually have typed stays a date, which is why
+`2023_Chiang Mai`'s "Age at Diagnosis" cell (serial 20668, a 1956 date against
+a 2009 D.O.B.) is left alone as a source defect rather than "recovered" into a
+bogus age of 20668, which is exactly what R does with it.
+
+**The space ticket 43 could not explain is explained.** Its 86 rows of R
+holding `8.8(20.9.16)` where Python and the source hold `8.8 (20.9.16)` were
+about to become a classifier that recorded a verified fact with no mechanism.
+The mechanism is in the workbook's own XML: where a cell carries mixed
+formatting, xlsx stores it as a run sequence, and a space between two
+differently-formatted fragments becomes a run holding nothing but that space.
+openpyxl concatenates every run; readxl drops the whitespace-only one. Verified
+in `xl/sharedStrings.xml` for two unrelated workbooks -- `2017_Yangon`'s glucose
+column and `2022_Mahosot`'s free-text `observations` ("Unable to contact") --
+and the same text also exists as a plain shared string in the same column,
+which is why only some cells diverge. That is `r_drops_richtext_space` (89
+rows); the two rows running the other way are `python_trims_merged_subvalue`,
+ticket 31's merge trimming each fragment where `tidyr::unite` does not.
+
+**Worth not re-proposing:** a single "spaces-only difference" normalization
+would have silenced both at once and hidden that they run in opposite
+directions with different mechanisms. And `insulin_regimen` was finally wired
+to `r_extraction_gap` (194 rows) only after re-reading `2021_Kantha Bopha`'s
+`Mar21` column Q at source and confirming *both* header rows are empty --
+ticket 31's refusal was waiting for exactly that, and the ~40 unverified rows
+it was protecting turned out to have been ticket 45's fan-out, now gone.
+
+**A second Python data loss was found and deliberately not fixed here.** In
+`2021_Putrajaya`, the complication-screening block's row-1 header is merged
+across columns 32-36, so Python maps neither `Results` nor `Date (mmm-yy)` and
+files a screening selection under `observations`; R reads all three correctly.
+~25 cells in one file, but the sweep it needs across all 254 trackers is a
+session of its own -- [ticket
+48](tickets/48-putrajaya-screening-columns-lost.md).
+
+**Also measured and left alone: product's own sub-1903 cells.** 18
+`product_units_received` and 2 `product_entry_date` cells carry the identical
+shape (e.g. `1900-03-15`, i.e. 74 units) and currently land on
+`openpyxl_date_typed_stray_cell`, whose verdict is "Python is faithful" --
+which this session's evidence contradicts for that sub-range. Product raw is
+separate extraction code and already-closed triage scope, so it is [ticket
+32](tickets/32-audit-classifiers-against-decision-bar.md)'s to re-audit. That
+is the first concrete case ticket 32 was written for.
+
+**Ticket 12 is still blocked, by two tickets.** Its `blocked_by` swaps `46` for
+`48, 49`: the round-5 residual still needs R as a live reference, and ticket
+48's diagnosis will need R's header-merge code to establish how R gets the
+block right.
+
+**The frontier is [Build a drill-down log
+analyzer](tickets/16-log-analyzer-drill-down.md), [Re-audit every existing
+cause classifier](tickets/32-audit-classifiers-against-decision-bar.md), [Make
+the local pre-push check set actually match
+CI](tickets/34-local-ci-parity-guard.md), [Resolve the Polars 2.0 deprecation
+warnings](tickets/35-polars-2-deprecation-warnings.md), [Decide whether a date
+buried inside a clinical note should be recovered or
+discarded](tickets/39-recover-dates-embedded-in-free-text.md), [Produce one
+Excel of every source-tracker
+defect](tickets/40-source-defect-findings-report.md), [Decide whether the 2026
+template's five new Patient List
+fields enter the pipeline](tickets/41-decide-2026-new-patient-list-columns.md),
+[cleaned-stage FBG residual](tickets/44-triage-cleaned-fbg-r-null-residual.md),
+[merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md), and the two
+new tickets 48 and 49 -- eleven tickets. Ticket 49 is on the critical path as
+one of ticket 12's two blockers; ticket 48 is the other, and is also the most
+serious in its own right after ticket 47, since both lose real recorded data.
+Ticket 40 gained three more findings this session.**
 
 ## Decisions so far
 
+- [Triage the residual patient raw-stage column mismatches (round
+  4)](tickets/46-triage-patient-raw-residual-4.md) -- four causes settled, one
+  of them a Python bug that was destroying real readings in production:
+  `read_patient_rows` now converts a pre-1903 datetime back to its Excel
+  serial, because Excel's 1899-12-30 epoch makes such a "date" a small number
+  that inherited a date format (24 systolic readings were reaching BigQuery as
+  999999). The `8.8(20.9.16)` space ticket 43 left unexplained is explained:
+  readxl drops a whitespace-only **rich-text run**, found in two workbooks'
+  own `sharedStrings.xml`, so it is now `r_drops_richtext_space` (89) with
+  `python_trims_merged_subvalue` (2) for the opposite direction. Kantha
+  Bopha's blank-header `insulin_regimen` is wired to `r_extraction_gap` (194)
+  after re-verifying the header at source. Raw unclassified 601 -> 278,
+  cleaned 8,383 -> 8,148. Spawned [ticket
+  48](tickets/48-putrajaya-screening-columns-lost.md) (a second, unrelated
+  Python data loss) and [round 5](tickets/49-triage-patient-raw-residual-5.md).
 - [Give the patient comparison an ordinal row
   key](tickets/45-patient-row-alignment-duplicate-keys.md) -- patient keeps
   `patient_id` + `sheet_name` as its identity key and gains a tie-break inside
@@ -2516,6 +2620,10 @@ flowchart TB
     direction LR
     U45["<b>45</b><br/>Give the patient<br/>comparison an ordinal<br/>row key, so duplicated<br/>patient IDs stop faking<br/>mismatches"]
   end
+  subgraph S2026_08_17d["Session 2026-08-17d"]
+    direction LR
+    U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2529,8 +2637,9 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+    U48["<b>48</b><br/>Python drops<br/>complication-screening<br/>results and dates where<br/>a merged header spans<br/>the block"]
+    U49["<b>49</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2560,7 +2669,8 @@ flowchart TB
   S2026_08_15b ~~~ S2026_08_17
   S2026_08_17 ~~~ S2026_08_17b
   S2026_08_17b ~~~ S2026_08_17c
-  S2026_08_17c ~~~ Sopen
+  S2026_08_17c ~~~ S2026_08_17d
+  S2026_08_17d ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2598,7 +2708,8 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U46 --->|blocked| U12
+  U48 --->|blocked| U12
+  U49 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -2634,13 +2745,15 @@ flowchart TB
   U43 -.->|spawned| U46
   U45 --->|blocked| U46
   U45 -.->|spawned| U47
+  U46 -.->|spawned| U48
+  U46 -.->|spawned| U49
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U46,U47 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U48,U49 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

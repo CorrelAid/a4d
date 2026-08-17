@@ -1171,6 +1171,75 @@ PATIENT_NA_UNITE_PADDING_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _spaces_differ_only(m: CellMismatch) -> bool:
+    if m.r_value is None or m.py_value is None:
+        return False
+    r_text, py_text = str(m.r_value), str(m.py_value)
+    return r_text != py_text and r_text.replace(" ", "") == py_text.replace(" ", "")
+
+
+def _is_r_drops_richtext_space(m: CellMismatch) -> bool:
+    """R loses a space that Excel stores as a formatting run of its own.
+
+    Where a cell's text carries mixed formatting, xlsx stores it as a
+    rich-text shared string: a sequence of runs, each with its own font, and
+    a space between two differently-formatted fragments becomes a run holding
+    nothing but that space. openpyxl concatenates every run and reproduces the
+    cell as Excel displays it; readxl drops the whitespace-only run.
+
+    Verified in the source XML of two unrelated workbooks (ticket 46):
+
+    - 2017 Yangon Children's Hospital, ``hba1c_updated``/``fbg_updated_mg``:
+      ``<si><r>..<t>8.8</t></r><r>..<t xml:space="preserve"> </t></r><r>..
+      <t>(20.9.16)</t></r></si>``. The same workbook also stores the identical
+      text as a plain ``<si><t>8.8 (20.9.16)</t></si>`` for other patients,
+      which R reads correctly -- which is why only some cells of the column
+      diverge.
+    - 2022 Mahosot, ``observations``: the same three-run shape around the
+      space in "Unable to contact", the middle run recoloured.
+
+    Python is the correct side: it reproduces the workbook. Fires only when
+    the two values are identical once every space is removed *and* Python is
+    the side holding more of them -- the opposite direction is a different
+    cause (see ``python_trims_merged_subvalue``).
+    """
+    if not _spaces_differ_only(m):
+        return False
+    return str(m.py_value).count(" ") > str(m.r_value).count(" ")
+
+
+PATIENT_RICHTEXT_SPACE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_drops_richtext_space": _is_r_drops_richtext_space,
+}
+
+
+def _is_python_trims_merged_subvalue(m: CellMismatch) -> bool:
+    """Python trims each sub-value before joining a duplicate column group.
+
+    Ticket 31 gave ``ColumnMapper.rename_columns`` a comma-join over the
+    source columns that share one canonical name; it strips each fragment
+    first, while R's ``tidyr::unite`` concatenates them exactly as read. So a
+    source cell carrying a trailing space reaches R's output as
+    "Normal ,Insulin" and Python's as "Normal,Insulin".
+
+    Python is the correct side -- the space is inside the workbook's cell
+    padding, not part of the recorded value, and the pipeline trims every
+    string cell elsewhere. Requires the comma both sides carry, so an
+    ordinary leading/trailing space (already handled by
+    ``normalize_whitespace_column``) does not land here.
+    """
+    if not _spaces_differ_only(m):
+        return False
+    if "," not in str(m.py_value):
+        return False
+    return str(m.r_value).count(" ") > str(m.py_value).count(" ")
+
+
+PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS: dict[str, Classifier] = {
+    "python_trims_merged_subvalue": _is_python_trims_merged_subvalue,
+}
+
+
 def _glucose_float(value: Any) -> float | None:
     try:
         return float(value)
