@@ -61,9 +61,7 @@ flowchart TD
   B --> C
   C --> D --> F
   C --> I --> TRIAGE
-  M --> N
   M --> O
-  N --> U
   O --> U
   U --> V --> W
 
@@ -73,7 +71,7 @@ flowchart TD
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
   class A,B,C,D,E,F,G,H,I,J,K done
   class L,M partial
-  class N,O,O2,P,Q,R,S,T open
+  class O,O2,P,Q,R,S,T open
   class U,V,W blocked
 ```
 
