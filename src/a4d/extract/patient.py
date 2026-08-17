@@ -208,6 +208,20 @@ def merge_headers(
     return headers
 
 
+def _carries_data_beyond_identifier(row: tuple) -> bool:
+    """Does a row hold anything past a repeat of its own patient identifier?
+
+    Deliberately not a count threshold: the trackers repeat the identifier in
+    a second column, so "more than n non-empty cells" would be a guess about
+    layout, while "a value that isn't the identifier" is what actually
+    distinguishes a record from a leftover ID.
+    """
+    identifier = row[1]
+    return any(
+        cell is not None and str(cell).strip() != "" and cell != identifier for cell in row[2:]
+    )
+
+
 def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     """Read patient data rows from the worksheet.
 
@@ -215,6 +229,16 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     empty row. Skips rows where both the row number (column A) and patient_id
     (column B) are None, but accepts rows where patient_id exists even if row
     number is missing (handles data quality issues in Excel files).
+
+    An unnumbered row must additionally carry a value that is not just a
+    repeat of its own identifier. R bounds the data block by the row-number
+    column alone, so it never sees these rows at all; keeping every one of
+    them instead turned a bare list of patient IDs left below the data block
+    into invented monthly records (2024_Vietnam National Children's Jul24,
+    24 rows of nothing but the ID twice), which then picked up real-looking
+    demographics from the Patient List join. Requiring actual data keeps the
+    case the "or" was written for -- 2024_Mahosot's Jun24 LA-QA088 is a
+    complete record that simply lost its row number, and R does lose it.
 
     Args:
         ws: openpyxl worksheet object
@@ -242,6 +266,8 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
         # Skip rows where both row number (col A) AND patient_id (col B) are missing
         # This handles cases where Excel has missing row numbers but valid patient data
         if row[0] is None and (len(row) < 2 or row[1] is None):
+            continue
+        if row[0] is None and not _carries_data_beyond_identifier(row):
             continue
         data.append(row)
 
