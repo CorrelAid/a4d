@@ -49,6 +49,18 @@ Concrete findings already waiting for such a report, all source-verified:
 - **Excel formula errors cached in source cells** (`r_formula_error`, ticket 27).
 - **Stray date/time-formatted cells in numeric columns** ([ticket
   24](24-triage-remaining-raw-column-residual.md)).
+- **23 patients listed twice on the same monthly sheet** ([ticket
+  45](45-patient-row-alignment-duplicate-keys.md)), with different data in each
+  copy: 21 on `2024_Vietnam National Children`'s `Jul24` (two lists spliced
+  together -- the numbered column runs 1..78 while the IDs repeat), one on
+  `2023_Vietnam National Children's` `Jun23` (`VN_VC026`), one on `2018_Penang
+  General Hospital_DC` `Oct18` (`MY_PN004`). Derived from the pipeline's own
+  raw output, so this one is already machine-derivable per file, sheet and
+  `patient_id`.
+- **Two trackers whose R output carries `patient_id = "#REF!"`** -- 98 rows in
+  `2026_Preah Kossamak` `May26`, 5 in `2026_Quirino` `Jan26` (ticket 45). A
+  broken Excel reference in the source, visible because R preserves it where
+  Python drops the rows.
 - **113 product groups across 21 files where the computed closing balance
   contradicts the tracker's own recorded total** (`balance_reconciliation`,
   [ticket 36](36-triage-product-cleaned-unclassified-residual.md)).

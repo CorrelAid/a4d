@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 10"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -46,16 +46,16 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
-    T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
+    T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+    T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
   end
-  subgraph BLOCKED["Blocked · 4"]
+  subgraph BLOCKED["Blocked · 3"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
-    T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
   end
-  subgraph DECIDED["Decided · 32"]
+  subgraph DECIDED["Decided · 33"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -89,6 +89,7 @@ flowchart TD
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
+    T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -130,16 +131,15 @@ flowchart TD
   T28 --> T12
   T30 --> T12
   T31 --> T12
-  T45 --> T12
   T45 --> T46
   T46 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T45 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T46,T47 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9,T12,T46 blocked
+  class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1591,6 +1591,48 @@ workspace](tickets/12-retire-r-workspace.md)'s `blocked_by` swaps `43` for
 again had to read `script1_helper_read_patient_data.R` to establish how R
 bounds a data block, so R's source is still a live reference.
 
+**Thirty-three tickets resolved.** [Give the patient comparison an ordinal row
+key](tickets/45-patient-row-alignment-duplicate-keys.md) is done, and its open
+question -- how widely to adopt positional alignment -- resolved to **nowhere**.
+Product needed a positional key because it had no usable natural key; patient's
+`(patient_id, sheet_name)` is unique in 249 of 254 files, so the same
+`add_row_ordinal` mechanism is grouped by the *identity key itself* and only
+breaks ties inside it. Identity is still checked everywhere, and in the files
+whose key is unique every ordinal is 0, so nothing changes for them. The user
+set the rule: `patient_id` is the main key -- if it does not match, something
+is very wrong -- and `sheet_name` stays because monthly is the data's
+granularity.
+
+Two things the ticket asserted turned out to need correcting, both caught by
+measuring rather than trusting. **The three-file list is raw-only**: at the
+cleaned stage there are five duplicate-key files, adding `2023_NPH` and
+`2026_Surat Thani`, so the fix was applied to both patient stages rather than
+raw alone. And **position is the wrong tie-break at the cleaned stage**:
+brute-forcing every two-sided duplicate group showed occurrence order is
+already optimal at raw (both pipelines emit source order) but pairs the wrong
+copies in 9 cleaned groups, so duplicates are paired by minimum differing cells
+instead -- with raw as the control proving that content matching reproduces
+known-correct ordering exactly rather than merely minimising counts. Patient
+raw unclassified fell **1,409 -> 601**, cleaned **9,392 -> 8,383**, with
+`row_key_overlap` byte-identical before and after (no pairing gained or lost)
+and product unchanged to the cell. Full detail: [ticket
+45](tickets/45-patient-row-alignment-duplicate-keys.md).
+
+**A production bug surfaced that no comparison ticket could have found.**
+Chasing the two extra cleaned-stage duplicate files found that in `2023_NPH`,
+four distinct raw identities (`KH_NPH026`-`029`) arrive at the cleaned stage as
+one `KH_NPH02`; across all 254 trackers, 4 files lose 9 identities this way,
+with row counts preserved. **R does the same thing**, so it is not an R/Python
+divergence at all -- agreement is precisely what the comparison tool is built
+to stay quiet about. Spawned as [Four trackers where cleaning merges several
+patients into one patient ID](tickets/47-patient-ids-merged-at-cleaning.md); it
+needs no R, so it is not wired as a blocker of ticket 12.
+
+**Ticket 12 is now blocked by one ticket.** Its `blocked_by` drops `45`,
+leaving [round-4 patient raw triage](tickets/46-triage-patient-raw-residual-4.md),
+whose premise now names the exact 601-row residual and the new baseline run
+`output/comparison/2026-08-17T202809Z`.
+
 **The frontier is [Build a drill-down log
 analyzer](tickets/16-log-analyzer-drill-down.md), [Re-audit every existing
 cause classifier](tickets/32-audit-classifiers-against-decision-bar.md), [Make
@@ -1604,16 +1646,36 @@ defect](tickets/40-source-defect-findings-report.md), [Decide whether the 2026
 template's five new Patient List
 fields enter the pipeline](tickets/41-decide-2026-new-patient-list-columns.md),
 [cleaned-stage FBG residual](tickets/44-triage-cleaned-fbg-r-null-residual.md),
-and the new [ordinal row
-key](tickets/45-patient-row-alignment-duplicate-keys.md) -- nine tickets.
-Ticket 45 is the one on the critical path, as the first of ticket 12's two
-open blockers and the gate on ticket 46. Ticket 40 gains another finding: the
-`Jul24` sheet genuinely lists 27 patients twice, two spliced lists in one
-workbook, which is a source defect for the clinic to correct rather than
-something the pipeline should reconcile.**
+[round-4 patient raw triage](tickets/46-triage-patient-raw-residual-4.md), and
+the new [merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md) --
+ten tickets. Ticket 46 is the one on the critical path, as ticket 12's last
+remaining blocker; ticket 47 is the most serious in its own right, since a
+merged identity attributes one patient's records to another in production
+output. Ticket 40 gained three findings this session: the 23 patients listed
+twice on one monthly sheet, and two trackers whose R output carries
+`patient_id = "#REF!"`.**
+
+**Cleaned-stage counts recorded before this session no longer reproduce.**
+Tickets 28, 29, 37 and 38 measured under the old key; their causes stand but
+their numbers do not, and [ticket
+44](tickets/44-triage-cleaned-fbg-r-null-residual.md) should re-measure against
+`2026-08-17T202809Z`.
 
 ## Decisions so far
 
+- [Give the patient comparison an ordinal row
+  key](tickets/45-patient-row-alignment-duplicate-keys.md) -- patient keeps
+  `patient_id` + `sheet_name` as its identity key and gains a tie-break inside
+  it, rather than adopting product's positional key anywhere: the key is unique
+  in 249 of 254 files, so `add_row_ordinal` is grouped by the identity key
+  itself. The tie is broken by **content, not position** -- measured, since
+  occurrence order is optimal at raw but pairs the wrong copies in 9 cleaned
+  groups. Both patient stages, since the duplicate files differ by stage (3 raw,
+  5 cleaned). Raw unclassified 1,409 -> 601, cleaned 9,392 -> 8,383,
+  `row_key_overlap` unchanged, product untouched. Surfaced a production bug
+  neither pipeline's disagreement could reveal ([ticket
+  47](tickets/47-patient-ids-merged-at-cleaning.md)) and two source-defect
+  findings for [ticket 40](tickets/40-source-defect-findings-report.md).
 - [Triage the residual patient raw-stage column mismatches (round
   3)](tickets/43-triage-patient-raw-residual-3.md) -- two causes settled,
   patient raw-stage unclassified 1,879 -> 1,409. 434 rows were a
@@ -2450,6 +2512,10 @@ flowchart TB
     direction LR
     U43["<b>43</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
   end
+  subgraph S2026_08_17c["Session 2026-08-17c"]
+    direction LR
+    U45["<b>45</b><br/>Give the patient<br/>comparison an ordinal<br/>row key, so duplicated<br/>patient IDs stop faking<br/>mismatches"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2463,8 +2529,8 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U45["<b>45</b><br/>Give the patient<br/>comparison an ordinal<br/>row key, so duplicated<br/>patient IDs stop faking<br/>mismatches"]
     U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+    U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2493,7 +2559,8 @@ flowchart TB
   S2026_08_15 ~~~ S2026_08_15b
   S2026_08_15b ~~~ S2026_08_17
   S2026_08_17 ~~~ S2026_08_17b
-  S2026_08_17b ~~~ Sopen
+  S2026_08_17b ~~~ S2026_08_17c
+  S2026_08_17c ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2531,7 +2598,6 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U45 --->|blocked| U12
   U46 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
@@ -2567,13 +2633,14 @@ flowchart TB
   U43 -.->|spawned| U45
   U43 -.->|spawned| U46
   U45 --->|blocked| U46
+  U45 -.->|spawned| U47
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U45 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U46,U47 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9,U12,U46 tblocked
+  class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

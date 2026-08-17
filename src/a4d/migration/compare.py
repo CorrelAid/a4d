@@ -12,6 +12,7 @@ defined end-of-life (R's retirement) -- deliberately not wired into
 """
 
 import datetime
+import itertools
 import re
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -270,6 +271,80 @@ def add_row_ordinal(
     df = df.with_columns(exprs)
     df = df.with_columns(pl.int_range(pl.len()).over(group_key_cols).alias(ordinal_col))
     return df, [*group_key_cols, ordinal_col]
+
+
+# A duplicate group is brute-forced over all pairings, so it is bounded. The
+# real data's largest two-sided patient duplicate group is 4 rows (2023_NPH);
+# anything beyond this keeps positional pairing rather than costing 5040+
+# permutations for a group that is almost certainly a source defect of a
+# different kind.
+MAX_DUPLICATE_GROUP_FOR_MATCHING = 6
+
+
+def _pairing_cost(
+    r_df: pl.DataFrame, py_df: pl.DataFrame, value_cols: list[str], pairs: Sequence[tuple[int, int]]
+) -> int:
+    return sum(
+        1
+        for r_index, py_index in pairs
+        for col in value_cols
+        if _values_differ(r_df[col][r_index], py_df[col][py_index])
+    )
+
+
+def align_duplicate_rows(
+    r_df: pl.DataFrame, py_df: pl.DataFrame, group_cols: list[str]
+) -> tuple[pl.DataFrame, pl.DataFrame, list[str]]:
+    """Align two frames on an identity key, breaking ties by content (ticket 45).
+
+    ``add_row_ordinal`` alone makes a repeated identity key unique again, but
+    it does so by *position*, which assumes both sides emit a duplicated
+    patient's rows in the same order. They do at the raw stage and demonstrably
+    do not at the cleaned stage, where a positional tie-break pairs the wrong
+    two copies of the same patient and reports every differing column twice
+    over.
+
+    Within a patient-and-sheet group the row order carries no meaning, so
+    duplicates are paired to minimise the number of differing cells --
+    brute-forced, since such groups are tiny and rare (24 groups in 5 of 250+
+    files). Position is kept unless some other pairing is *strictly* better, so
+    a group whose rows genuinely both changed is never permuted into looking
+    like agreement. Groups present on only one side, or larger than
+    ``MAX_DUPLICATE_GROUP_FOR_MATCHING``, keep positional order.
+    """
+    r_keyed, key_cols = add_row_ordinal(r_df, group_cols)
+    py_keyed, _ = add_row_ordinal(py_df, group_cols)
+    group_key_cols = key_cols[:-1]
+    value_cols = [c for c in r_df.columns if c in py_df.columns and c not in group_cols]
+
+    def _rows_by_group(df: pl.DataFrame) -> dict[tuple[Any, ...], list[int]]:
+        groups: dict[tuple[Any, ...], list[int]] = {}
+        for index, row in enumerate(df.select(group_key_cols).iter_rows()):
+            groups.setdefault(row, []).append(index)
+        return groups
+
+    r_groups, py_groups = _rows_by_group(r_keyed), _rows_by_group(py_keyed)
+    py_ordinals = py_keyed[ROW_ORDINAL_COL].to_list()
+
+    for group, r_indices in r_groups.items():
+        py_indices = py_groups.get(group, [])
+        if len(r_indices) < 2 or len(r_indices) != len(py_indices):
+            continue
+        if len(r_indices) > MAX_DUPLICATE_GROUP_FOR_MATCHING:
+            continue
+        positional = list(zip(r_indices, py_indices, strict=True))
+        best_cost = _pairing_cost(r_keyed, py_keyed, value_cols, positional)
+        best: Sequence[tuple[int, int]] = positional
+        for permutation in itertools.permutations(py_indices):
+            candidate = list(zip(r_indices, permutation, strict=True))
+            cost = _pairing_cost(r_keyed, py_keyed, value_cols, candidate)
+            if cost < best_cost:
+                best_cost, best = cost, candidate
+        for ordinal, (_, py_index) in enumerate(best):
+            py_ordinals[py_index] = ordinal
+
+    py_keyed = py_keyed.with_columns(pl.Series(ROW_ORDINAL_COL, py_ordinals))
+    return r_keyed, py_keyed, key_cols
 
 
 @dataclass(frozen=True)

@@ -27,6 +27,15 @@ deliberately: 808 of the 1,409 are join fan-out in three duplicate-key files,
 so triaging the tail before that lands would mean characterizing noise. What
 this ticket inherits is the **~600 rows outside those three files**.
 
+**Ticket 45 is now closed, and the inherited residual is exactly 601** --
+measured on baseline run `output/comparison/2026-08-17T202809Z`, which is the
+run to triage against (not `2026-08-17T192144Z`, whose numbers this ticket's
+question section quotes). All three duplicate-key files now hold **zero**
+unclassified raw mismatches. Patient rows are now aligned on `patient_id` +
+`sheet_name` with a content-matched tie-break inside duplicate groups, so a
+remaining mismatch is between two rows that genuinely describe the same patient
+on the same monthly sheet.
+
 Also rests on the map's standing scoping rule that the current tracker
 template is the golden rule, and on ticket 43's own warning that early
 sampling of these columns predates three extraction changes (ticket 30's

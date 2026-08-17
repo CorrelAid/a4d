@@ -1,6 +1,7 @@
 """Tests for the R-vs-Python output comparison (ticket 15)."""
 
 import datetime
+import functools
 
 import polars as pl
 
@@ -38,6 +39,7 @@ from a4d.migration.compare import (
     ShapeResult,
     TotalsMismatch,
     add_row_ordinal,
+    align_duplicate_rows,
     build_mismatch_rows,
     build_summary_rows,
     classify,
@@ -272,6 +274,150 @@ class TestAddRowOrdinal:
 
         assert key_cols == ["__key_clinic_id", "__row_ordinal"]
         assert result.height == 0
+
+
+class TestPatientOccurrenceOrdinalKey:
+    """Ticket 45: patient keeps `patient_id` + `sheet_name` as its identity key
+    and uses `add_row_ordinal` only to break ties within it.
+
+    Product groups by `(clinic_id, product_sheet_name)`, so its ordinal is a
+    purely positional key. Patient's natural key is sound in all but a handful
+    of files, so grouping by the identity key itself keeps the identity check
+    everywhere and disambiguates only where a source sheet lists the same
+    patient twice.
+    """
+
+    PATIENT_KEY = ["patient_id", "sheet_name"]
+
+    def _spliced_sheet(self) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """`2024_Vietnam National Children`'s `Jul24` shape: two lists spliced
+        together, so a patient appears twice on one sheet with different data.
+        """
+        rows = {
+            "patient_id": ["VN001", "VN002", "VN001"],
+            "sheet_name": ["Jul24", "Jul24", "Jul24"],
+            "weight": [30.0, 41.0, 55.0],
+        }
+        return pl.DataFrame(rows), pl.DataFrame(rows)
+
+    def test_duplicate_identity_key_fans_out_without_the_ordinal(self):
+        r_df, py_df = self._spliced_sheet()
+
+        mismatches = compare_cells(r_df, py_df, key_cols=self.PATIENT_KEY)
+
+        # VN001's two rows pair every way round; the two cross pairings compare
+        # unrelated physical rows and report a difference that does not exist.
+        assert sorted((m.r_value, m.py_value) for m in mismatches) == [(30.0, 55.0), (55.0, 30.0)]
+
+    def test_ordinal_within_the_identity_key_pairs_duplicates_one_to_one(self):
+        r_df, py_df = self._spliced_sheet()
+
+        r_keyed, key_cols = add_row_ordinal(r_df, self.PATIENT_KEY)
+        py_keyed, _ = add_row_ordinal(py_df, self.PATIENT_KEY)
+
+        assert key_cols == ["__key_patient_id", "__key_sheet_name", ROW_ORDINAL_COL]
+        assert compare_row_key_overlap(r_keyed, py_keyed, key_cols) == RowKeyOverlap(
+            matched=3, r_unmatched=0, py_unmatched=0
+        )
+        assert compare_cells(r_keyed, py_keyed, key_cols=key_cols) == []
+
+    def test_unique_keys_are_unaffected_by_the_ordinal(self):
+        r_df = pl.DataFrame(
+            {"patient_id": ["A", "B"], "sheet_name": ["Jan24", "Jan24"], "weight": [10.0, 20.0]}
+        )
+        py_df = pl.DataFrame(
+            {"patient_id": ["B", "A"], "sheet_name": ["Jan24", "Jan24"], "weight": [20.0, 11.0]}
+        )
+
+        r_keyed, key_cols = add_row_ordinal(r_df, self.PATIENT_KEY)
+        py_keyed, _ = add_row_ordinal(py_df, self.PATIENT_KEY)
+
+        # Every ordinal is 0, so pairing is by identity exactly as before -- and
+        # row order across the two sides still does not matter.
+        assert r_keyed[ROW_ORDINAL_COL].to_list() == [0, 0]
+        assert [
+            (m.key["__key_patient_id"], m.r_value, m.py_value)
+            for m in compare_cells(r_keyed, py_keyed, key_cols=key_cols)
+        ] == [("A", 10.0, 11.0)]
+
+    def test_duplicates_pair_by_content_not_by_position(self):
+        """Within one patient-and-sheet group the row order carries no meaning,
+        and the cleaned stage demonstrably reorders: R and Python emit
+        `VN_VC007`'s two `Jul24` rows the other way round. Pairing by position
+        there compares the wrong two copies.
+        """
+        r_df = pl.DataFrame(
+            {
+                "patient_id": ["VN007", "VN007"],
+                "sheet_name": ["Jul24", "Jul24"],
+                "weight": [30.0, 55.0],
+                "hba1c": [7.0, 9.0],
+            }
+        )
+        py_df = pl.DataFrame(
+            {
+                "patient_id": ["VN007", "VN007"],
+                "sheet_name": ["Jul24", "Jul24"],
+                "weight": [55.0, 30.0],
+                "hba1c": [9.0, 7.1],
+            }
+        )
+
+        r_keyed, py_keyed, key_cols = align_duplicate_rows(r_df, py_df, self.PATIENT_KEY)
+
+        # Only the genuine hba1c difference survives; the swap does not become
+        # four false mismatches.
+        assert [
+            (m.column, m.r_value, m.py_value)
+            for m in compare_cells(r_keyed, py_keyed, key_cols=key_cols)
+        ] == [("hba1c", 7.0, 7.1)]
+
+    def test_position_is_kept_when_no_pairing_beats_it(self):
+        """The tie-break only moves a row when the alternative is strictly
+        better, so a group whose rows genuinely both changed is not permuted
+        into looking like agreement."""
+        r_df = pl.DataFrame(
+            {"patient_id": ["A", "A"], "sheet_name": ["Jan24"] * 2, "weight": [30.0, 40.0]}
+        )
+        py_df = pl.DataFrame(
+            {"patient_id": ["A", "A"], "sheet_name": ["Jan24"] * 2, "weight": [31.0, 41.0]}
+        )
+
+        r_keyed, py_keyed, key_cols = align_duplicate_rows(r_df, py_df, self.PATIENT_KEY)
+
+        assert sorted(
+            (m.r_value, m.py_value) for m in compare_cells(r_keyed, py_keyed, key_cols=key_cols)
+        ) == [
+            (30.0, 31.0),
+            (40.0, 41.0),
+        ]
+
+    def test_unique_keys_and_uneven_groups_fall_back_to_position(self):
+        r_df = pl.DataFrame(
+            {"patient_id": ["A", "A", "B"], "sheet_name": ["Jan24"] * 3, "weight": [1.0, 2.0, 3.0]}
+        )
+        py_df = pl.DataFrame(
+            {"patient_id": ["A", "B"], "sheet_name": ["Jan24"] * 2, "weight": [1.0, 3.0]}
+        )
+
+        r_keyed, py_keyed, key_cols = align_duplicate_rows(r_df, py_df, self.PATIENT_KEY)
+
+        assert compare_row_key_overlap(r_keyed, py_keyed, key_cols) == RowKeyOverlap(
+            matched=2, r_unmatched=1, py_unmatched=0
+        )
+
+    def test_a_patient_on_another_sheet_never_pairs(self):
+        """Sheet is the data's monthly granularity, so it stays part of the key:
+        the same patient's June and July rows must not be compared."""
+        r_df = pl.DataFrame({"patient_id": ["A"], "sheet_name": ["Jun24"], "weight": [10.0]})
+        py_df = pl.DataFrame({"patient_id": ["A"], "sheet_name": ["Jul24"], "weight": [10.0]})
+
+        r_keyed, key_cols = add_row_ordinal(r_df, self.PATIENT_KEY)
+        py_keyed, _ = add_row_ordinal(py_df, self.PATIENT_KEY)
+
+        assert compare_row_key_overlap(r_keyed, py_keyed, key_cols) == RowKeyOverlap(
+            matched=0, r_unmatched=1, py_unmatched=1
+        )
 
 
 class TestCompareShape:
@@ -1330,6 +1476,61 @@ class TestSummarizeDirectory:
         assert summary.row_key_divergence == (0, 0)
 
 
+@functools.cache
+def _compare_outputs_module():
+    """Cached: each exec of the script defines its own RowAlignment class, so
+    two loads would make `is` comparisons between their members fail."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "compare_outputs.py"
+    spec = importlib.util.spec_from_file_location("_compare_outputs_under_test", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestStageWiring:
+    """Ticket 45: which columns a stage groups its row-alignment ordinal by
+    decides whether the key still checks identity, so it is named per stage
+    rather than inferred."""
+
+    @staticmethod
+    def _stages():
+        return {stage.label: stage for stage in _compare_outputs_module().STAGES}
+
+    def test_patient_stages_align_on_identity_with_the_ordinal_as_tiebreak(self):
+        alignment = _compare_outputs_module().RowAlignment
+        for label in ("Patient (raw)", "Patient (cleaned)"):
+            stage = self._stages()[label]
+            assert stage.ordinal_group_cols == ["patient_id", "sheet_name"]
+            assert stage.alignment is alignment.IDENTITY
+
+    def test_product_stages_align_positionally_within_a_sheet(self):
+        alignment = _compare_outputs_module().RowAlignment
+        for label in ("Product (raw)", "Product (cleaned)"):
+            stage = self._stages()[label]
+            assert stage.ordinal_group_cols == ["clinic_id", "product_sheet_name"]
+            assert stage.alignment is alignment.POSITIONAL
+
+    def test_row_order_divergence_detection_is_product_only(self):
+        """`compare_cells`'s order_group_cols diagnostic asks whether a
+        mismatched value appears elsewhere in its group -- meaningful for
+        product, whose group is a whole sheet ordered differently by R
+        (ticket 21), and noise for patient, whose group is one patient on one
+        sheet."""
+        stages = self._stages()
+
+        assert [label for label, stage in stages.items() if stage.detect_row_order_divergence] == [
+            "Product (raw)",
+            "Product (cleaned)",
+        ]
+
+
 class TestClassifiersByColumnWiring:
     """Ticket 25: the script's column -> registry map is the single place a
     column can be silently under-classified.
@@ -1343,18 +1544,7 @@ class TestClassifiersByColumnWiring:
 
     @staticmethod
     def _classifiers_by_column():
-        import importlib.util
-        import sys
-        from pathlib import Path
-
-        path = Path(__file__).resolve().parents[2] / "scripts" / "compare_outputs.py"
-        spec = importlib.util.spec_from_file_location("_compare_outputs_under_test", path)
-        assert spec is not None
-        assert spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        return module.CLASSIFIERS_BY_COLUMN
+        return _compare_outputs_module().CLASSIFIERS_BY_COLUMN
 
     def test_every_positional_key_product_column_carries_row_order_classifier(self):
         """Product columns are aligned by ordinal position, so any within-group

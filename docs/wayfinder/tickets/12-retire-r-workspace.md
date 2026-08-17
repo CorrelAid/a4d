@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 45, 46]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 46]
 assignee: null
 claimed_at: null
 resolution: null
@@ -87,6 +87,14 @@ mismatches. Those split into [ticket
 `script1_helper_read_patient_data.R` to establish how R bounds a sheet's
 data block, so R's source remains a live reference for the triage that
 remains -- the same reason this ticket has waited each time.
+
+**2026-08-17c:** [Ticket 45](45-patient-row-alignment-duplicate-keys.md) closed
+-- patient rows now align on `patient_id` + `sheet_name` with a content-matched
+tie-break, and the duplicate-key fan-out is gone (raw unclassified 1,409 ->
+601). `blocked_by` drops `45`, leaving **ticket 46 alone**. Ticket 45 also
+spawned [ticket 47](47-patient-ids-merged-at-cleaning.md), deliberately *not*
+added here: both pipelines merge those identities identically, so it is a
+Python-only question that needs no R reference.
 
 **Conflict on record, not resolved here:** `CLAUDE.md` currently states
 `r-archive/` is "preserved for reference. Do not modify." — that instruction
