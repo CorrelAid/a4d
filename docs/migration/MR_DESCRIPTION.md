@@ -31,16 +31,16 @@ flowchart TD
     I["Comparison harness<br/>4 stages, run-over-run deltas"]
   end
 
-  subgraph TRIAGE["R/Python triage - 29 of 41 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 30 of 43 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
     L["Patient cleaned: 9,427 unclassified<br/>tickets 42, 44"]
-    M["Patient raw: 1,879 unclassified<br/>ticket 43"]
+    M["Patient raw: 1,409 unclassified<br/>tickets 45, 46"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["31 - patient raw mismatches r2"]
+    O["45 - patient ordinal row key"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
@@ -336,7 +336,10 @@ everything else. Three normalisers run per stage, on columns declared in the
   `parse_date_flexible`. *Product raw `product_entry_date`: 65,743 -> 91.
   Patient raw overall: 564,096 -> 46,788.*
 - `normalize_numeric_column` — R and Python round float-to-string differently.
-  Parse both back to `float` so the tolerance applies.
+  Parse both back to `float` so the tolerance applies. On the patient raw
+  stage the target columns come from each frame itself, not the cleaned
+  schema, which cannot name the Patient List join's `.static` copies or a
+  measurement column typed as a string. *434 mismatches -> 0.*
 - `normalize_whitespace_column` — readxl's `trim_ws=TRUE` strips what openpyxl
   keeps, and represents an embedded line break as `\r\n` vs `\n`.
 
@@ -430,6 +433,7 @@ changed production output:
 | `extract_regimen` lowercased every unmatched value (`NPH` -> `nph`) | live data corruption |
 | `validate_allowed_values` picked the last of two identically-sanitising spellings | now a loud config error; canonical labels declared in config |
 | `remove_header_rows` missed rows blank except one formula-emptied cell | row insertion/shift across product raw |
+| `read_patient_rows` accepted a row on its ID alone, turning a stray list of patient IDs below the data block into records | 24 invented patient-months, now 0 |
 | Inconsistent whitespace trimming across both arms | recovered 72 rows of patient `sex` |
 | `find_data_start_row` was O(n^2) on read-only worksheets | 6.6x speedup, 145.8s -> 22.0s |
 | `clean_product_data` crashed on pre-product-tracking trackers | 4 trackers now yield empty schema-conformant output |
@@ -486,9 +490,11 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **43 — patient raw-stage mismatches, round 3.** 1,879 unclassified across
-  ~50 columns, none larger than 235, after round 2 resolved the stage's
-  dominant column. Blocks retiring R — it is ticket 12's only open blocker.
+- **45 — give the patient comparison an ordinal row key.** 808 of the 1,409
+  remaining patient raw-stage mismatches (57%) are join fan-out in three files
+  where (patient_id, sheet_name) is not unique — one Jul24 sheet lists 27
+  patients twice. Ticket 17 solved the same problem for the product arm. Blocks
+  retiring R, together with ticket 46.
 - **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
   when written, but the decision bar was tightened partway through; this
   re-checks that none merely labels a diff it never explained.
