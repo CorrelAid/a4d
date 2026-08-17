@@ -13,6 +13,7 @@ from a4d.extract.patient import (
     find_layout_changes,
     merge_headers,
     read_header_rows,
+    read_patient_rows,
     recover_blank_headers,
 )
 
@@ -154,6 +155,66 @@ class TestFindDataStartRow:
         assert spy.call_count == 1
 
         wb2.close()
+
+
+class TestReadPatientRows:
+    """Tests for read_patient_rows() row-acceptance rules."""
+
+    @staticmethod
+    def _sheet(rows):
+        wb = Workbook()
+        ws = wb.active
+        for r, values in enumerate(rows, start=1):
+            for c, value in enumerate(values, start=1):
+                if value is not None:
+                    ws.cell(row=r, column=c, value=value)
+        return wb, ws
+
+    def test_keeps_a_numbered_row(self):
+        wb, ws = self._sheet([[1, "VN_VC001", "VN_VC001", "Y"]])
+
+        assert len(read_patient_rows(ws, 1, 4)) == 1
+
+        wb.close()
+
+    def test_keeps_an_unnumbered_row_that_carries_data(self):
+        """2024_Mahosot Jun24 row 380: a real patient record whose row number
+        was never filled in. R drops it -- its data block is the span of the
+        row-number column alone -- so Python keeping it is a deliberate
+        divergence, not an accident."""
+        wb, ws = self._sheet([[None, "LA-MH088", "LA-MH088", "Y", "2024-06-19"]])
+
+        assert len(read_patient_rows(ws, 1, 5)) == 1
+
+        wb.close()
+
+    def test_drops_an_unnumbered_row_that_only_repeats_its_own_identifier(self):
+        """2024_Vietnam National Children Jul24 rows 165-188: a bare list of
+        patient IDs left below the data block, two non-empty cells per row and
+        nothing else. Treating those as monthly records invented 24 patients."""
+        wb, ws = self._sheet([[None, "VN_VC052", "VN_VC052", None, None]])
+
+        assert read_patient_rows(ws, 1, 5) == []
+
+        wb.close()
+
+    def test_stops_at_the_first_completely_empty_row(self):
+        wb, ws = self._sheet(
+            [[1, "VN_VC001", "VN_VC001"], [None, None, None], [2, "VN_VC002", "VN_VC002"]]
+        )
+
+        assert len(read_patient_rows(ws, 1, 3)) == 1
+
+        wb.close()
+
+    def test_skips_a_row_with_neither_number_nor_identifier(self):
+        wb, ws = self._sheet([[None, None, "stray note"], [1, "VN_VC001", "VN_VC001"]])
+
+        rows = read_patient_rows(ws, 1, 3)
+
+        assert [r[1] for r in rows] == ["VN_VC001"]
+
+        wb.close()
 
 
 class TestReadHeaderRows:

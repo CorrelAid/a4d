@@ -54,6 +54,7 @@ from a4d.migration.compare import (
     normalize_date_column,
     normalize_numeric_column,
     normalize_whitespace_column,
+    numeric_normalize_targets,
     snapshot_from_summary,
     summarize_directory,
 )
@@ -142,6 +143,34 @@ class TestNormalizeNumericColumn:
         result = normalize_numeric_column(df, "product_balance")
 
         assert result.columns == ["other"]
+
+
+class TestNumericNormalizeTargets:
+    def test_includes_a_patient_list_join_suffix_copy(self):
+        df = pl.DataFrame({"patient_id": ["A"], "fbg_baseline_mg.static": ["93.6"]})
+
+        assert "fbg_baseline_mg.static" in numeric_normalize_targets(df, exclude=["patient_id"])
+
+    def test_includes_a_column_the_cleaned_schema_types_as_string(self):
+        df = pl.DataFrame(
+            {"patient_id": ["A"], "complication_screening_kidney_test_value": ["9.2"]}
+        )
+
+        targets = numeric_normalize_targets(df, exclude=["patient_id"])
+
+        assert "complication_screening_kidney_test_value" in targets
+
+    def test_excludes_the_row_alignment_key_columns(self):
+        df = pl.DataFrame({"patient_id": ["A"], "sheet_name": ["Jul24"], "weight": ["31.5"]})
+
+        targets = numeric_normalize_targets(df, exclude=["patient_id", "sheet_name"])
+
+        assert targets == ["weight"]
+
+    def test_excludes_synthetic_join_helper_columns(self):
+        df = pl.DataFrame({"__row_ordinal": [1], "weight": ["31.5"]})
+
+        assert numeric_normalize_targets(df, exclude=[]) == ["weight"]
 
 
 class TestNormalizeWhitespaceColumn:

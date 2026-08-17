@@ -14,7 +14,7 @@ defined end-of-life (R's retirement) -- deliberately not wired into
 import datetime
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,6 +86,23 @@ def normalize_numeric_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
 
     parsed = [_try_float(v) for v in df[column]]
     return df.with_columns(pl.Series(column, parsed, dtype=pl.Object))
+
+
+def numeric_normalize_targets(df: pl.DataFrame, exclude: Sequence[str]) -> list[str]:
+    """Raw-stage columns to parse back to ``float`` before diffing.
+
+    The cleaned schema is the wrong source for this list even though it is
+    derived rather than hand-written: it has no entry at all for the Patient
+    List join's ``.static`` copies, and it types a screening measurement as a
+    string because the same column can also hold "normal". Both still carry
+    plain floats whose string forms R and Python round differently, so both
+    were reported as mismatches. Since the raw stage stores every value as
+    text and ``normalize_numeric_column`` leaves non-numeric text untouched,
+    the correct scope is every column except the ones the row-alignment join
+    must keep as text.
+    """
+    excluded = set(exclude)
+    return [c for c in df.columns if c not in excluded and not c.startswith("__")]
 
 
 def normalize_whitespace_column(df: pl.DataFrame, column: str) -> pl.DataFrame:

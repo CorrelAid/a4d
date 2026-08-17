@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 43]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 45, 46]
 assignee: null
 claimed_at: null
 resolution: null
@@ -74,6 +74,19 @@ whatever ticket 11 decides for the Python CLI's own observability.
 84% of what remains) and roughly 50 smaller columns untouched, spawning
 [ticket 31](31-triage-patient-raw-residual-2.md) to carry that forward.
 `blocked_by` swaps `27` for `31`.
+
+**Same precedent applied a third time (2026-08-17b):** [ticket
+43](43-triage-patient-raw-residual-3.md) closed for the two causes it
+settled -- a comparison-tool rounding gap and a real Python defect that
+invented 24 patient rows -- leaving 1,409 unclassified patient raw-stage
+mismatches. Those split into [ticket
+45](45-patient-row-alignment-duplicate-keys.md) (duplicate-key join fan-out,
+57% of the residual) and [ticket
+46](46-triage-patient-raw-residual-4.md) (the long tail). `blocked_by` swaps
+`43` for `45, 46`. Ticket 43 itself again had to read
+`script1_helper_read_patient_data.R` to establish how R bounds a sheet's
+data block, so R's source remains a live reference for the triage that
+remains -- the same reason this ticket has waited each time.
 
 **Conflict on record, not resolved here:** `CLAUDE.md` currently states
 `r-archive/` is "preserved for reference. Do not modify." — that instruction

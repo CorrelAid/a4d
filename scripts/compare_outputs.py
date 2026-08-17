@@ -21,6 +21,7 @@ import json
 import re
 import sys
 from datetime import UTC, datetime
+from enum import Enum, auto
 from pathlib import Path
 from typing import Annotated
 
@@ -73,6 +74,7 @@ from a4d.migration.compare import (
     normalize_date_column,
     normalize_numeric_column,
     normalize_whitespace_column,
+    numeric_normalize_targets,
     snapshot_from_summary,
     summarize_directory,
 )
@@ -97,6 +99,15 @@ logger.add(
 
 console = Console()
 app = typer.Typer()
+
+
+class Sentinel(Enum):
+    """Marks a normalization that resolves against each frame's own columns."""
+
+    ALL_RAW_COLUMNS = auto()
+
+
+ALL_RAW_COLUMNS = Sentinel.ALL_RAW_COLUMNS
 
 PATIENT_KEY_COLS = ["patient_id", "sheet_name"]
 PATIENT_ID_COL = "patient_id"
@@ -143,9 +154,19 @@ PATIENT_RAW_DATE_NORMALIZE_COLS = [*get_date_columns(), "meter_received_date"]
 # precedent to patient): R's own float-to-string conversion rounds a raw
 # numeric column's trailing digits differently than Python's -- a
 # representation difference cleaning's own type-casting already resolves.
-# Derived from the cleaned schema's numeric columns rather than hand-listed,
-# mirroring PATIENT_RAW_DATE_NORMALIZE_COLS's own precedent.
-PATIENT_RAW_NUMERIC_NORMALIZE_COLS = get_numeric_columns()
+#
+# Ticket 43 widened this from get_numeric_columns() to every raw column: that
+# list
+# is derived, but from the wrong schema -- it cannot name the Patient List
+# join's ".static" copies (fbg_baseline_mg.static, fbg_baseline_mmol.static)
+# and it types a screening measurement as a string because the column can
+# also hold "normal" (complication_screening_*_value). All four hold plain
+# floats, and all four were reported as mismatches purely because R and
+# Python round a float's string form differently. Measured before widening:
+# across all 27,980 raw-stage mismatches, exactly 434 have both sides parsing
+# to the same float, and all 434 sit in those four columns -- so this widens
+# equality without changing anything else. See numeric_normalize_targets.
+PATIENT_RAW_NUMERIC_NORMALIZE_COLS = ALL_RAW_COLUMNS
 
 # Ordinal position within (clinic_id, product_sheet_name) -- see
 # add_row_ordinal's docstring. Replaces the old equi-join key (clinic_id,
@@ -461,7 +482,7 @@ def _compare_arm(
     categorical_cols: list[str],
     ordinal_group_cols: list[str] | None = None,
     date_normalize_cols: list[str] | None = None,
-    numeric_normalize_cols: list[str] | None = None,
+    numeric_normalize_cols: list[str] | Sentinel | None = None,
     whitespace_normalize_cols: list[str] | None = None,
 ) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
@@ -479,10 +500,14 @@ def _compare_arm(
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_whitespace_column(df, column)
-    for column in numeric_normalize_cols or []:
-        for frames in (r_frames, py_frames):
-            for name, df in frames.items():
-                frames[name] = normalize_numeric_column(df, column)
+    for frames in (r_frames, py_frames):
+        for name, df in frames.items():
+            if numeric_normalize_cols is ALL_RAW_COLUMNS:
+                columns = numeric_normalize_targets(df, exclude=key_cols or [])
+            else:
+                columns = numeric_normalize_cols or []
+            for column in columns:
+                frames[name] = normalize_numeric_column(frames[name], column)
     order_group_cols = None
     if ordinal_group_cols is not None:
         resolved_key_cols = None
