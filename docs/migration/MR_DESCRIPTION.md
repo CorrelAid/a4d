@@ -31,16 +31,17 @@ flowchart TD
     I["Comparison harness<br/>4 stages, run-over-run deltas"]
   end
 
-  subgraph TRIAGE["R/Python triage - 33 of 47 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 34 of 49 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 8,383 unclassified<br/>ticket 44"]
-    M["Patient raw: 601 unclassified<br/>ticket 46"]
+    L["Patient cleaned: 8,148 unclassified<br/>ticket 44"]
+    M["Patient raw: 278 unclassified<br/>ticket 49"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["46 - patient raw triage, round 4"]
+    O["49 - patient raw triage, round 5"]
+    O3["48 - screening columns lost to a merged header"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -63,6 +64,7 @@ flowchart TD
   C --> I --> TRIAGE
   M --> O
   O --> U
+  O3 --> U
   U --> V --> W
 
   classDef done fill:#1a7f37,stroke:#116329,color:#fff
@@ -71,7 +73,7 @@ flowchart TD
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
   class A,B,C,D,E,F,G,H,I,J,K done
   class L,M partial
-  class O,O2,P,Q,R,S,T open
+  class O,O2,O3,P,Q,R,S,T open
   class U,V,W blocked
 ```
 
@@ -359,7 +361,8 @@ cause, or left `unclassified`. ~20 classifiers exist, each named after the
 `r_numeric_error_sentinel`, `row_order_divergence`,
 `derived_running_total_row_order`, `buddhist_era_typo`,
 `python_canonical_label`, `python_future_date_sentinel`,
-`stray_date_zeroed`, `wide_format_fragment`.
+`stray_date_zeroed`, `wide_format_fragment`, `r_drops_richtext_space`,
+`python_trims_merged_subvalue`.
 
 **`unclassified` is the number that matters.** A classifier records that a
 difference is *understood*, not that Python won. Where a difference is
@@ -447,6 +450,7 @@ changed production output:
 | `rename_columns` kept only the first of several source columns sharing a canonical name | 2,489 recorded screening values recovered across 27 trackers |
 | Glucose recorded in mmol/L under an mg/dL header, and no analytical bounds on any FBG column | 29 columns corrected, 5,673 readings flagged, 832 impossible readings rejected |
 | A tracker changing shape mid-year was invisible | `tracker_layout_changed` flags it: 37 trackers, 284 positions, incl. one clinic's baseline FBG silently dropped for 5 months |
+| `read_patient_rows` returned openpyxl's datetime for a number typed into a date-formatted cell, which the numeric conversion then sentinelled | 24 real systolic readings were reaching BigQuery as 999999; now recovered from the Excel serial |
 
 Also added: a `balance_reconciliation` error code that fires when the computed
 closing stock contradicts the tracker's own recorded total (113 groups across
@@ -470,7 +474,7 @@ columns left for that month.
 
 ## Where verification stands
 
-Current baseline: `output/comparison/2026-08-17T202809Z`, 254 trackers.
+Current baseline: `output/comparison/2026-08-17T212151Z`, 254 trackers.
 Earlier counts on the wayfinder map were measured against smaller tracker sets
 and should be read as historical.
 
@@ -478,8 +482,8 @@ and should be read as historical.
 |---|---|---|
 | Product (raw) | 112 | **0** |
 | Product (cleaned) | 22,716 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 113,421 | 8,383 |
-| Patient (raw) | 26,697 | 601 (from 14,844) |
+| Patient (cleaned) | 113,385 | 8,148 |
+| Patient (raw) | 26,659 | 278 (from 14,844) |
 
 The product arm is fully triaged on both stages. Patient's cleaned stage is
 down 88%; patient's raw stage is the remaining body of work.
@@ -495,9 +499,16 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **46 — patient raw triage, round 4.** The 601 remaining unclassified
-  raw-stage mismatches, a long tail of ~50 columns none larger than ~90 now
-  that the duplicate-key fan-out is gone. The last thing blocking R's retirement.
+- **49 — patient raw triage, round 5.** The 278 remaining unclassified
+  raw-stage mismatches across 23 columns, none larger than 40. Roughly half are
+  R-null-Python-has-a-value, which needs per-column source verification rather
+  than one blanket classifier.
+- **48 — screening results and dates lost to a merged header.** In
+  `2021_Putrajaya` the complication-screening block's header is merged across
+  five columns, so Python maps neither `Results` nor `Date` and files a
+  screening selection under `observations`; R reads all three. A Python data
+  loss, needing a sweep across all 254 trackers before the fix's shape is
+  decided.
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
   9 identities in total, row counts preserved. R does the same, so the
@@ -526,7 +537,7 @@ Nothing here blocks review of the code — it blocks the merge.
 **Blocked**
 
 - **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
-  on 46 alone now: triage has repeatedly needed to read R's actual source to
+  on 48 and 49: triage has repeatedly needed to read R's actual source to
   root-cause a mismatch, not just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until

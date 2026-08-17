@@ -1,5 +1,6 @@
 """Unit tests for patient extraction helper functions."""
 
+import datetime
 import random
 from unittest.mock import Mock
 
@@ -213,6 +214,32 @@ class TestReadPatientRows:
         rows = read_patient_rows(ws, 1, 3)
 
         assert [r[1] for r in rows] == ["VN_QC001"]
+
+        wb.close()
+
+    def test_recovers_a_number_typed_into_a_date_formatted_cell(self):
+        """2025 Hat Yai Annual!H, TH_QC035: the systolic cell carries a
+        dd-mmm-yyyy format, so Excel stored the typed 120 as 29-Apr-1900 and
+        openpyxl hands back that datetime. The datum is the number."""
+        wb, ws = self._sheet([[1, "TH_QC035", "TH_QC035", None]])
+        ws.cell(row=1, column=4, value=datetime.datetime(1900, 4, 29))
+
+        rows = read_patient_rows(ws, 1, 4)
+
+        assert rows[0][3] == 120
+
+        wb.close()
+
+    def test_keeps_a_date_that_could_plausibly_have_been_typed(self):
+        """The inverse case, already settled for product as
+        openpyxl_date_typed_stray_cell: a real date landing in the wrong
+        column stays a date."""
+        wb, ws = self._sheet([[1, "TH_QB005", "TH_QB005", None]])
+        ws.cell(row=1, column=4, value=datetime.datetime(1956, 8, 1))
+
+        rows = read_patient_rows(ws, 1, 4)
+
+        assert rows[0][3] == datetime.datetime(1956, 8, 1)
 
         wb.close()
 

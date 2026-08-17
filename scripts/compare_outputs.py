@@ -52,8 +52,10 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_INSULIN_TYPE_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
+    PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -255,7 +257,9 @@ CLASSIFIERS_BY_COLUMN = {
     # no unit resolution, so every correction shows as a divergence. The
     # baseline-mg join question is a separate, still-open population, which is
     # why the classifier never fires on an R-null cell.
-    "fbg_updated_mg": PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
+    # ticket 46 adds the rich-text space cause; it is disjoint from the unit
+    # correction, which only fires where both sides parse as numbers.
+    "fbg_updated_mg": PATIENT_GLUCOSE_UNIT_CLASSIFIERS | PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     "fbg_updated_mmol": PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
     # ticket 31: the three canonical columns whose source sub-columns both
     # pipelines unite into one value. R's tidyr::unite pads absent
@@ -264,7 +268,24 @@ CLASSIFIERS_BY_COLUMN = {
     # anywhere in the 254-tracker set.
     "complication_screening": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     "latest_complication_screenning": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
-    "observations": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    # ticket 46: two whitespace causes in opposite directions -- readxl
+    # dropping a whitespace-only rich-text run (verified in the source XML of
+    # 2017 Yangon and 2022 Mahosot) and Python's own trimming of each
+    # sub-value before the merge ticket 31 added. Both are direction-scoped,
+    # so their order relative to each other does not matter.
+    "observations": (
+        PATIENT_NA_UNITE_PADDING_CLASSIFIERS
+        | PATIENT_RICHTEXT_SPACE_CLASSIFIERS
+        | PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS
+    ),
+    "hba1c_updated": PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
+    # ticket 46: R reads no header at all for the 2021 Kantha Bopha column
+    # holding the regimen (verified: Mar21!Q, both header rows empty, data
+    # "Self-mixed BD"), so it drops the column; Python recovers the name from
+    # the sibling sheets that label it (ticket 30). Scoped here rather than
+    # left to the generic gap classifier because that one file is the whole
+    # of the column's residual.
+    "insulin_regimen": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     # ticket 37: the sibling insulin_type column has a different cause --
     # R's ifelse propagates NA from a blank human-insulin column and loses
     # a type the analog columns plainly state.

@@ -4,6 +4,7 @@ This module handles reading patient data from Excel trackers, which have
 evolved over the years with different formats and structures.
 """
 
+import datetime
 import re
 import warnings
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ import polars as pl
 from loguru import logger
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.datetime import to_excel
 
 from a4d.errors import ErrorCollector
 from a4d.extract.common import (
@@ -222,6 +224,36 @@ def _carries_data_beyond_identifier(row: tuple) -> bool:
     )
 
 
+# Excel's serial epoch starts at 1899-12-30, so a "date" in the first years
+# of the 1900s is a small number that inherited a date number format from a
+# neighbouring cell, not a date anyone could have entered. 1903 leaves room
+# for the largest such number observed (serial 120, a systolic reading) with
+# no real date anywhere near it -- the earliest genuine date in the
+# 254-tracker set is a 1956 D.O.B.
+_IMPOSSIBLE_DATE_BEFORE = datetime.datetime(1903, 1, 1)
+
+
+def _recover_number_typed_as_date(value: object) -> object:
+    """Undo Excel's date formatting of a plainly numeric entry.
+
+    R's readxl guesses a column's type from its majority values and so reads
+    the underlying number; openpyxl honors each cell's own format and returns
+    a datetime, which the numeric conversion then rejects into a 999999
+    sentinel. Verified against the real source Excel (2025 Hat Yai, Annual!H
+    for TH_QC035: a dd-mmm-yyyy-formatted cell holding datetime(1900, 4, 29),
+    i.e. the systolic 120 the neighbouring diastolic 74 belongs with).
+
+    Only the impossible range is recovered. A date that could plausibly have
+    been typed stays a date even in a numeric column -- that is a different
+    cause, already settled on the product arm as
+    ``openpyxl_date_typed_stray_cell``.
+    """
+    if not isinstance(value, datetime.datetime) or value >= _IMPOSSIBLE_DATE_BEFORE:
+        return value
+    serial = to_excel(value)
+    return int(serial) if float(serial).is_integer() else serial
+
+
 def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     """Read patient data rows from the worksheet.
 
@@ -269,7 +301,7 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
             continue
         if row[0] is None and not _carries_data_beyond_identifier(row):
             continue
-        data.append(row)
+        data.append(tuple(_recover_number_typed_as_date(cell) for cell in row))
 
     return data
 
