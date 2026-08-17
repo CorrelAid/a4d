@@ -20,6 +20,7 @@ Usage:
 import json
 import re
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum, auto
 from pathlib import Path
@@ -60,6 +61,7 @@ from a4d.migration.compare import (
     PYTHON_CANONICAL_LABEL_CLASSIFIERS,
     R_DATE_ERROR_SENTINEL_CLASSIFIERS,
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
+    ROW_ORDINAL_COL,
     STRAY_DATE_CLASSIFIERS,
     STRAY_DATE_ZEROED_CLASSIFIERS,
     WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
@@ -67,6 +69,7 @@ from a4d.migration.compare import (
     DirectoryComparison,
     FileComparison,
     add_row_ordinal,
+    align_duplicate_rows,
     build_mismatch_rows,
     build_summary_rows,
     compare_directory,
@@ -397,12 +400,58 @@ CLASSIFIERS_BY_COLUMN |= {
     for col in get_date_columns()
 }
 
-# (label, output subdir, row-alignment key or ordinal-group cols, identity
-# column, categorical columns, ordinal_group_cols, date_normalize_cols,
-# numeric_normalize_cols, whitespace_normalize_cols). Raw and cleaned are
-# compared separately so a divergence can be localized to extraction vs.
-# cleaning; categorical columns listed here that don't exist yet at the raw
-# stage are silently skipped by compare_categorical_overlap.
+
+class RowAlignment(Enum):
+    """How an arm's R and Python rows are paired for cell-by-cell comparison."""
+
+    # Product (ticket 17): no usable natural key -- product_entry_date is null
+    # on many rows -- so a row is identified purely by its position within its
+    # sheet. Nothing checks that the two paired rows describe the same thing.
+    POSITIONAL = auto()
+    # Patient (ticket 45): patient_id is the real key and sheet_name is the
+    # data's monthly granularity, so rows pair only when both agree. The
+    # ordinal breaks ties in the handful of sheets that list a patient twice,
+    # and the tie is broken by content rather than position, because within
+    # one patient-and-sheet group the row order carries no meaning.
+    IDENTITY = auto()
+
+
+@dataclass(frozen=True)
+class Stage:
+    """One comparable output directory and how its rows are aligned.
+
+    Every field is named rather than positional (ticket 45): how an arm aligns
+    its rows decides whether the comparison still checks identity at all, and
+    that is too load-bearing to read off tuple position.
+    """
+
+    label: str
+    subdir: str
+    id_col: str
+    categorical_cols: list[str]
+    alignment: RowAlignment
+    # The columns add_row_ordinal groups by before appending a within-group
+    # ordinal: a whole sheet for POSITIONAL, the identity key itself for
+    # IDENTITY.
+    ordinal_group_cols: list[str]
+    date_normalize_cols: list[str] | None = None
+    numeric_normalize_cols: list[str] | Sentinel | None = None
+    whitespace_normalize_cols: list[str] | None = None
+
+    @property
+    def detect_row_order_divergence(self) -> bool:
+        """compare_cells' order_group_cols diagnostic (ticket 21): does a
+        mismatched value appear elsewhere in its group -- i.e. are R and Python
+        ordering the same rows differently rather than holding different data?
+        Only meaningful for a positional key over a whole sheet; under IDENTITY
+        a group is one patient on one sheet, where the same test would label
+        noise as understood."""
+        return self.alignment is RowAlignment.POSITIONAL
+
+
+# Raw and cleaned are compared separately so a divergence can be localized to
+# extraction vs. cleaning; categorical columns listed here that don't exist yet
+# at the raw stage are silently skipped by compare_categorical_overlap.
 # date_normalize_cols is raw-stage-only (ticket 20): R's raw extraction
 # stores unparsed source date text (an Excel serial for date-formatted
 # cells) while Python's raw extraction already ISO-formats parsed dates --
@@ -416,49 +465,45 @@ CLASSIFIERS_BY_COLUMN |= {
 # embedded \r\n-vs-\n line break isn't touched by cleaning's end-trim-only
 # str.strip_chars and survives into `product` at the cleaned stage (ticket 21).
 STAGES = [
-    (
-        "Patient (raw)",
-        "patient_data_raw",
-        PATIENT_KEY_COLS,
-        PATIENT_ID_COL,
-        PATIENT_CATEGORICAL_COLS,
-        None,
-        PATIENT_RAW_DATE_NORMALIZE_COLS,
-        PATIENT_RAW_NUMERIC_NORMALIZE_COLS,
-        PATIENT_WHITESPACE_NORMALIZE_COLS,
+    Stage(
+        label="Patient (raw)",
+        subdir="patient_data_raw",
+        id_col=PATIENT_ID_COL,
+        categorical_cols=PATIENT_CATEGORICAL_COLS,
+        alignment=RowAlignment.IDENTITY,
+        ordinal_group_cols=PATIENT_KEY_COLS,
+        date_normalize_cols=PATIENT_RAW_DATE_NORMALIZE_COLS,
+        numeric_normalize_cols=PATIENT_RAW_NUMERIC_NORMALIZE_COLS,
+        whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
     ),
-    (
-        "Patient (cleaned)",
-        "patient_data_cleaned",
-        PATIENT_KEY_COLS,
-        PATIENT_ID_COL,
-        PATIENT_CATEGORICAL_COLS,
-        None,
-        None,
-        None,
-        PATIENT_WHITESPACE_NORMALIZE_COLS,
+    Stage(
+        label="Patient (cleaned)",
+        subdir="patient_data_cleaned",
+        id_col=PATIENT_ID_COL,
+        categorical_cols=PATIENT_CATEGORICAL_COLS,
+        alignment=RowAlignment.IDENTITY,
+        ordinal_group_cols=PATIENT_KEY_COLS,
+        whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
     ),
-    (
-        "Product (raw)",
-        "product_data_raw",
-        None,
-        PRODUCT_ID_COL,
-        PRODUCT_CATEGORICAL_COLS,
-        PRODUCT_ORDINAL_GROUP_COLS,
-        ["product_entry_date"],
-        PRODUCT_RAW_NUMERIC_NORMALIZE_COLS,
-        PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS,
+    Stage(
+        label="Product (raw)",
+        subdir="product_data_raw",
+        id_col=PRODUCT_ID_COL,
+        categorical_cols=PRODUCT_CATEGORICAL_COLS,
+        alignment=RowAlignment.POSITIONAL,
+        ordinal_group_cols=PRODUCT_ORDINAL_GROUP_COLS,
+        date_normalize_cols=["product_entry_date"],
+        numeric_normalize_cols=PRODUCT_RAW_NUMERIC_NORMALIZE_COLS,
+        whitespace_normalize_cols=PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS,
     ),
-    (
-        "Product (cleaned)",
-        "product_data_cleaned",
-        None,
-        PRODUCT_ID_COL,
-        PRODUCT_CATEGORICAL_COLS,
-        PRODUCT_ORDINAL_GROUP_COLS,
-        None,
-        None,
-        PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS,
+    Stage(
+        label="Product (cleaned)",
+        subdir="product_data_cleaned",
+        id_col=PRODUCT_ID_COL,
+        categorical_cols=PRODUCT_CATEGORICAL_COLS,
+        alignment=RowAlignment.POSITIONAL,
+        ordinal_group_cols=PRODUCT_ORDINAL_GROUP_COLS,
+        whitespace_normalize_cols=PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS,
     ),
 ]
 
@@ -474,20 +519,10 @@ def _numeric_cols(frames: dict[str, pl.DataFrame]) -> list[str]:
     return [name for name, dtype in sample.schema.items() if dtype.is_numeric()]
 
 
-def _compare_arm(
-    r_dir: Path,
-    py_dir: Path,
-    key_cols: list[str] | None,
-    id_col: str,
-    categorical_cols: list[str],
-    ordinal_group_cols: list[str] | None = None,
-    date_normalize_cols: list[str] | None = None,
-    numeric_normalize_cols: list[str] | Sentinel | None = None,
-    whitespace_normalize_cols: list[str] | None = None,
-) -> DirectoryComparison:
+def _compare_arm(r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
-    for column in date_normalize_cols or []:
+    for column in stage.date_normalize_cols or []:
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_date_column(df, column)
@@ -496,30 +531,40 @@ def _compare_arm(
     # which breaks normalize_whitespace_column's `.str.*` expressions on the
     # non-numeric residual if applied after -- stripping first keeps the
     # column `pl.String` for numeric normalization to then act on.
-    for column in whitespace_normalize_cols or []:
+    for column in stage.whitespace_normalize_cols or []:
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
                 frames[name] = normalize_whitespace_column(df, column)
     for frames in (r_frames, py_frames):
         for name, df in frames.items():
-            if numeric_normalize_cols is ALL_RAW_COLUMNS:
-                columns = numeric_normalize_targets(df, exclude=key_cols or [])
+            if stage.numeric_normalize_cols is ALL_RAW_COLUMNS:
+                # The ordinal's group columns are excluded because
+                # normalize_numeric_column widens a column to pl.Object the
+                # moment any value parses, which would stop add_row_ordinal
+                # whitespace-normalizing it as a string.
+                columns = numeric_normalize_targets(df, exclude=stage.ordinal_group_cols)
             else:
-                columns = numeric_normalize_cols or []
+                columns = stage.numeric_normalize_cols or []
             for column in columns:
                 frames[name] = normalize_numeric_column(frames[name], column)
-    order_group_cols = None
-    if ordinal_group_cols is not None:
-        resolved_key_cols = None
-        for frames in (r_frames, py_frames):
-            for name, df in frames.items():
-                frames[name], resolved_key_cols = add_row_ordinal(df, ordinal_group_cols)
-        key_cols = resolved_key_cols
-        # Everything add_row_ordinal returned except the trailing ordinal
-        # itself -- the group a within-group sort-order divergence (ticket
-        # 21) is scoped to.
-        order_group_cols = resolved_key_cols[:-1]
+    key_cols = None
+    if stage.alignment is RowAlignment.IDENTITY:
+        # Both sides at once: the tie-break between two rows sharing an
+        # identity key is decided by which pairing agrees best, which cannot be
+        # computed from one frame alone.
+        for name in r_frames.keys() & py_frames.keys():
+            r_frames[name], py_frames[name], key_cols = align_duplicate_rows(
+                r_frames[name], py_frames[name], stage.ordinal_group_cols
+            )
+    for frames in (r_frames, py_frames):
+        for name, df in frames.items():
+            if ROW_ORDINAL_COL in df.columns:
+                continue
+            frames[name], key_cols = add_row_ordinal(df, stage.ordinal_group_cols)
     assert key_cols is not None
+    # Everything add_row_ordinal returned except the trailing ordinal itself --
+    # the group a within-group sort-order divergence (ticket 21) is scoped to.
+    order_group_cols = key_cols[:-1] if stage.detect_row_order_divergence else None
     # __-prefixed helper columns from add_row_ordinal are join-key-only synthetic
     # data (an ordinal counter, normalized group values) -- summing/diffing them
     # as if they were real output columns would be noise, not signal.
@@ -532,8 +577,8 @@ def _compare_arm(
         py_frames,
         key_cols=key_cols,
         numeric_cols=numeric_cols,
-        id_col=id_col,
-        categorical_cols=categorical_cols,
+        id_col=stage.id_col,
+        categorical_cols=stage.categorical_cols,
         order_group_cols=order_group_cols,
     )
 
@@ -807,28 +852,9 @@ def compare(
     run_dir = output_dir / datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    for (
-        label,
-        subdir,
-        key_cols,
-        id_col,
-        categorical_cols,
-        ordinal_group_cols,
-        date_normalize_cols,
-        numeric_normalize_cols,
-        whitespace_normalize_cols,
-    ) in STAGES:
-        comparison = _compare_arm(
-            r_dir / subdir,
-            py_dir / subdir,
-            key_cols,
-            id_col,
-            categorical_cols,
-            ordinal_group_cols,
-            date_normalize_cols,
-            numeric_normalize_cols,
-            whitespace_normalize_cols,
-        )
+    for stage in STAGES:
+        label, subdir = stage.label, stage.subdir
+        comparison = _compare_arm(r_dir / subdir, py_dir / subdir, stage)
         _print_summary(label, comparison, only_mismatches)
 
         # One workbook per stage -- combining raw and cleaned into one per-column
