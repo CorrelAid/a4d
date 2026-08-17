@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 11"]
+  subgraph FRONTIER["Frontier · 10"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -47,7 +47,6 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
     T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
   end
   subgraph BLOCKED["Blocked · 3"]
@@ -56,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 34"]
+  subgraph DECIDED["Decided · 35"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -92,6 +91,7 @@ flowchart TD
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
     T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+    T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -134,15 +134,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T48 --> T12
   T49 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T48,T49 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T49 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1726,10 +1725,37 @@ separate extraction code and already-closed triage scope, so it is [ticket
 32](tickets/32-audit-classifiers-against-decision-bar.md)'s to re-audit. That
 is the first concrete case ticket 32 was written for.
 
-**Ticket 12 is still blocked, by two tickets.** Its `blocked_by` swaps `46` for
-`48, 49`: the round-5 residual still needs R as a live reference, and ticket
-48's diagnosis will need R's header-merge code to establish how R gets the
-block right.
+**Thirty-five tickets resolved.** [Python drops complication-screening results
+and dates where a merged header spans the
+block](tickets/48-putrajaya-screening-columns-lost.md) is done, and like the
+four triage rounds before it the ticket's one-file framing was too small: the
+sweep found **693 sheets across 64 trackers** carrying a merged upper header.
+Two independent mechanisms were damaging the same block -- forward-fill
+resetting at a column blank in both header rows, and ticket 30's blank-header
+recovery filing a screening selection under `observations` from a sibling sheet
+laid out differently -- so a synonym entry could never have fixed it.
+
+**The sweep is what shaped the fix, twice.** Naive propagation of the merged
+title looked obviously right and was measurably wrong: giving the bare title to
+a column blank in both header rows would have put **290 sheets** into a state
+where two columns compete for `complication_screening`, and would have
+comma-joined **3,659** near-duplicate `Insulin Regimen` cells across 10
+trackers into single worse values -- on data where R and Python already agree.
+The rule adopted instead is that a merged title *qualifies a sub-header* and
+never names a column outright, which drops the collision count to 0 at no
+measured cost. Verified against the real 248-tracker drive data:
+`complication_screening_results` **11 -> 0**, `complication_screening_date`
+**31 -> 0**, `observations` 8 unclassified -> **1**, patient raw unclassified
+**278 -> 229**, cleaned **8,148 -> 8,141**, product byte-identical. The new
+baseline run is `output/comparison/2026-08-17T222225Z`; counts measured before
+it are historical. `2023_Chiang Mai`'s R output carries the same propagated
+column names, confirming the fix reproduces R's own behaviour rather than
+inventing one.
+
+**Ticket 12 is now blocked by one ticket.** Its `blocked_by` drops `48`,
+leaving [round-5 patient raw triage](tickets/49-triage-patient-raw-residual-5.md),
+whose premise and per-shape counts were refreshed against the new baseline --
+ticket 48 removed 49 of its 278, not the ~25 first estimated.
 
 **The frontier is [Build a drill-down log
 analyzer](tickets/16-log-analyzer-drill-down.md), [Re-audit every existing
@@ -1744,14 +1770,32 @@ defect](tickets/40-source-defect-findings-report.md), [Decide whether the 2026
 template's five new Patient List
 fields enter the pipeline](tickets/41-decide-2026-new-patient-list-columns.md),
 [cleaned-stage FBG residual](tickets/44-triage-cleaned-fbg-r-null-residual.md),
-[merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md), and the two
-new tickets 48 and 49 -- eleven tickets. Ticket 49 is on the critical path as
-one of ticket 12's two blockers; ticket 48 is the other, and is also the most
-serious in its own right after ticket 47, since both lose real recorded data.
-Ticket 40 gained three more findings this session.**
+[merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md), and
+[round-5 patient raw triage](tickets/49-triage-patient-raw-residual-5.md) --
+**ten tickets**, down from eleven. Ticket 49 is on the critical path as ticket
+12's last remaining blocker; ticket 47 is the most serious in its own right,
+since a merged identity attributes one patient's records to another in
+production output. The rest are independent triage residuals and a separate
+feature (ticket 16), takeable in any order.**
 
 ## Decisions so far
 
+- [Python drops complication-screening results and dates where a merged header
+  spans the block](tickets/48-putrajaya-screening-columns-lost.md) -- a merged
+  upper header now names every column its span covers, but **only where that
+  column has a sub-header of its own to qualify**. Two independent mechanisms
+  were damaging the same block: forward-fill resets on a column blank in both
+  header rows, so a merged title never reached the sub-headers past the gap
+  (leaving `Results`/`Date (mmm-yy)` bare, though the synonym map already knew
+  their qualified names); and ticket 30's sibling-donor recovery then filed a
+  screening selection under `observations`, because Putrajaya's month sheets do
+  **not** share one layout. The sweep that sized it (693 sheets, 64 files)
+  killed the naive version twice: propagating the bare title into columns with
+  no sub-header would have created 290 sheets' worth of standard-name
+  collisions on `complication_screening`, and comma-joined 3,659 near-duplicate
+  `Insulin Regimen` cells that R and Python already agree on. Measured against
+  the real drive data: `complication_screening_results` 11 -> 0,
+  `complication_screening_date` 31 -> 0, patient raw unclassified **278 -> 229**.
 - [Triage the residual patient raw-stage column mismatches (round
   4)](tickets/46-triage-patient-raw-residual-4.md) -- four causes settled, one
   of them a Python bug that was destroying real readings in production:
@@ -2467,6 +2511,16 @@ folded into Decisions so far above.)
   `r_numeric_error_sentinel`, so it was deliberately not reopened in the same
   session that depended on it. Not sharp enough to ticket until someone has
   measured how many numeric cells it actually moves.
+- Whether a **multi-select screening block should keep more than its first
+  selection**. `2021_Putrajaya` records four complication-screening selections
+  per row in four adjacent columns under one merged header; both pipelines keep
+  only the first, so the comparison stays silent (R parks the rest in unmapped
+  suffixed columns, Python drops them, neither reaches mapped output). Found
+  while closing [ticket 48](tickets/48-putrajaya-screening-columns-lost.md) and
+  deliberately not fixed there -- it is a shared limitation, not a divergence,
+  and nobody has yet said whether the extra selections are wanted. Not sharp
+  enough to ticket until someone has measured how many trackers lay a block out
+  this way and what the downstream consumer expects.
 - Whether the R pipeline (`r-archive/`) gets formally retired/archived-further
   once `migration` reaches `dev`/`main`, and what "official migration"
   communication or cutover steps that implies — out of this map's current
@@ -2624,6 +2678,10 @@ flowchart TB
     direction LR
     U46["<b>46</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
   end
+  subgraph S2026_08_17e["Session 2026-08-17e"]
+    direction LR
+    U48["<b>48</b><br/>Python drops<br/>complication-screening<br/>results and dates where<br/>a merged header spans<br/>the block"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2638,7 +2696,6 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U48["<b>48</b><br/>Python drops<br/>complication-screening<br/>results and dates where<br/>a merged header spans<br/>the block"]
     U49["<b>49</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
   end
 
@@ -2670,7 +2727,8 @@ flowchart TB
   S2026_08_17 ~~~ S2026_08_17b
   S2026_08_17b ~~~ S2026_08_17c
   S2026_08_17c ~~~ S2026_08_17d
-  S2026_08_17d ~~~ Sopen
+  S2026_08_17d ~~~ S2026_08_17e
+  S2026_08_17e ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2708,7 +2766,6 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U48 --->|blocked| U12
   U49 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
@@ -2749,11 +2806,11 @@ flowchart TB
   U46 -.->|spawned| U49
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U48,U49 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U49 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

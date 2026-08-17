@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 48, 49]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 49]
 assignee: null
 claimed_at: null
 resolution: null
@@ -154,3 +154,10 @@ again had to read `r-archive/R/script1_read_patient_data.R` directly (R's
 `tidyr::unite` call) to root-cause a divergence, so R's source is still a live
 reference for the triage that remains. Ticket 43 is now this ticket's only
 open blocker.
+
+**2026-08-17 (ticket 48 closed).** `blocked_by` drops `48`: the merged-header
+data loss is fixed, and its diagnosis needed R only as a reference for what the
+right answer looks like -- confirmed by `2023_Chiang Mai`'s R output carrying
+the same propagated column names. [Round-5 patient raw
+triage](49-triage-patient-raw-residual-5.md) is now the single remaining
+blocker.

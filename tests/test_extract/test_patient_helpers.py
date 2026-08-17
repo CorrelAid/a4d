@@ -579,6 +579,118 @@ class TestMergeHeaders:
         assert result == ["Patient ID"]
 
 
+class TestMergeHeadersWithMergedSpans:
+    """A merged upper header names every column its span covers.
+
+    The 2021 Putrajaya layout: "Complication Screening (Current Month Testing)"
+    is merged across five columns, so the sub-headers "Results" and
+    "Date (mmm-yy)" further along the block have no upper header of their own.
+    Forward-fill alone cannot reach them -- it resets at the blank columns
+    between -- and the bare names map nowhere.
+    """
+
+    def test_merged_span_names_a_sub_header_beyond_a_blank_gap(self):
+        h1 = ["Select for Drop Down", None, None, "Results", "Date (mmm-yy)"]
+        h2 = ["Complication Screening", None, None, None, None]
+        mapper = create_mock_mapper(
+            {"Complication Screening Results", "Complication Screening Date (mmm-yy)"}
+        )
+
+        result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 5)])
+
+        assert result[3] == "Complication Screening Results"
+        assert result[4] == "Complication Screening Date (mmm-yy)"
+
+    def test_a_column_with_no_sub_header_is_not_named_by_the_title(self):
+        """A second column under one merged title is not the same field.
+
+        The 2022 template merges "Insulin Regimen" across two columns whose
+        second holds a near-duplicate of the first ("Basal-bolus MDI (AN/HI)"
+        against "Basal-bolus (AN/HI)"). Naming both would comma-join them into
+        one value, which is worse data than the first column alone -- and is
+        what R already declines to do.
+        """
+        h1 = [None, None]
+        h2 = ["Insulin Regimen", None]
+
+        result = merge_headers(h1, h2, merged_spans=[(1, 2)])
+
+        assert result == ["Insulin Regimen", None]
+
+    def test_bare_title_does_not_claim_a_column_another_already_maps_to(self):
+        """The 2022 complication-screening block, which collided on 290 sheets.
+
+        The block's own column already carries the screening selection; a blank
+        column inside the same merge would take the bare title, which maps to
+        the same standard column and silently competes with it.
+        """
+        h1 = ["Drop Down", None, "Results"]
+        h2 = ["Current Month Complication Screening", None, None]
+        mapper = create_mock_mapper(
+            {
+                "Current Month Complication Screening Drop Down",
+                "Current Month Complication Screening Results",
+            }
+        )
+
+        result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 3)])
+
+        assert result == [
+            "Current Month Complication Screening Drop Down",
+            None,
+            "Current Month Complication Screening Results",
+        ]
+
+    def test_two_sub_headers_qualifying_alike_do_not_merge(self):
+        h1 = ["Date", None, "Date"]
+        h2 = ["Screening", None, None]
+        mapper = create_mock_mapper({"Screening Date"})
+
+        result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 3)])
+
+        assert result == ["Screening Date", None, "Date"]
+
+    def test_without_spans_behaviour_is_unchanged(self):
+        h1 = ["Select for Drop Down", None, "Results"]
+        h2 = ["Complication Screening", None, None]
+
+        assert merge_headers(h1, h2) == [
+            "Complication Screening Select for Drop Down",
+            None,
+            "Results",
+        ]
+
+
+class TestRecoverBlankHeadersInsideMergedSpan:
+    """A merged header outranks a sibling sheet's guess.
+
+    Putrajaya's month sheets do not share one layout: Jul21 has "Patient
+    Observations" at the position Dec21 uses for a complication-screening
+    selection. Recovering by position files a screening result under
+    observations. The merged span is the workbook's own statement about what
+    the column belongs to, so it wins.
+    """
+
+    def test_abstains_for_a_position_inside_a_merged_span(self):
+        headers = ["ID", "Complication Screening", None]
+        data = [("1", "Kidneys", "Foot Examination (Nerves)")]
+        siblings = [["ID", "Complication Screening", "Patient Observations"]]
+
+        result = recover_blank_headers(headers, data, siblings, merged_spans=[(2, 3)])
+
+        assert result == ["ID", "Complication Screening", None]
+
+    def test_recovery_outside_any_span_still_works(self):
+        """2021 Kantha Bopha's insulin-regimen recovery must survive."""
+        headers = ["ID", None]
+        data = [("1", "Self-mixed BD")]
+        siblings = [["ID", "Insulin Regime"]]
+
+        result = recover_blank_headers(headers, data, siblings, merged_spans=[(5, 7)])
+
+        assert result == ["ID", "Insulin Regime"]
+
+
 class TestFilterValidColumns:
     """Tests for filter_valid_columns() function."""
 

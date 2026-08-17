@@ -153,7 +153,16 @@ PATIENT_CATEGORICAL_COLS = [
 # equivalent), so get_date_columns() can't see it, but it carries the same
 # raw-serial-vs-parsed representation gap -- verified against real drive
 # data (1,761 mismatches collapsed to the same shape as the derived columns).
-PATIENT_RAW_DATE_NORMALIZE_COLS = [*get_date_columns(), "meter_received_date"]
+# complication_screening_date (ticket 48) is appended for the same reason: the
+# cleaned schema splits screening dates per test (eye/foot/kidney/...), so the
+# generic raw column has no cleaned-stage equivalent for get_date_columns() to
+# find. It only became visible once ticket 48's merged-header fix started
+# extracting the column at all.
+PATIENT_RAW_DATE_NORMALIZE_COLS = [
+    *get_date_columns(),
+    "meter_received_date",
+    "complication_screening_date",
+]
 
 # Raw-stage-only (ticket 27, extending ticket 22's product_balance
 # precedent to patient): R's own float-to-string conversion rounds a raw

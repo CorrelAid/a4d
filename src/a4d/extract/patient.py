@@ -7,13 +7,13 @@ evolved over the years with different formats and structures.
 import datetime
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
 from loguru import logger
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.utils.datetime import to_excel
 
 from a4d.errors import ErrorCollector
@@ -132,7 +132,45 @@ def _is_updated_year_marker(header_cell: object) -> bool:
     return bool(_UPDATED_YEAR_MARKER.match(normalized))
 
 
-def merge_headers(
+_MERGE_CELLS_BLOCK = re.compile(rb"<mergeCells.*?</mergeCells>", re.S)
+_MERGE_REF = re.compile(rb'ref="([A-Z0-9:]+)"')
+
+
+def merged_header_spans(workbook, worksheet, upper_header_row: int) -> list[tuple[int, int]]:
+    """Horizontal cell merges covering the upper header row, as (first, last) columns.
+
+    A merged title is the workbook's own statement that the columns beneath it
+    are one block -- the only structural evidence available for a sub-header
+    whose own upper cell is empty. openpyxl drops merge metadata in read_only
+    mode, and loading a workbook read-write costs the 6.6x that ticket 10 won
+    back, so the ranges are read straight out of the sheet XML in the archive
+    openpyxl already has open.
+
+    Degrades to "no spans" -- i.e. the pre-existing forward-fill behaviour --
+    if the private attributes it leans on ever move.
+    """
+    try:
+        archive = workbook._archive
+        data = archive.read(worksheet._worksheet_path.lstrip("/"))
+    except AttributeError, KeyError, OSError:
+        return []
+
+    block = _MERGE_CELLS_BLOCK.search(data)
+    if not block:
+        return []
+
+    spans = []
+    for ref in _MERGE_REF.findall(block.group(0)):
+        try:
+            min_col, min_row, max_col, max_row = range_boundaries(ref.decode())
+        except ValueError:
+            continue
+        if max_col > min_col and min_row <= upper_header_row <= max_row:
+            spans.append((min_col, max_col))
+    return spans
+
+
+def _merge_header_pair(
     header_1: list,
     header_2: list,
     mapper: ColumnMapper | None = None,
@@ -207,6 +245,66 @@ def merge_headers(
 
     headers = [re.sub(r"\s+", " ", h.replace("\n", " ")) if h else None for h in headers]
 
+    return headers
+
+
+def merge_headers(
+    header_1: list,
+    header_2: list,
+    mapper: ColumnMapper | None = None,
+    merged_spans: list[tuple[int, int]] | None = None,
+) -> list[str | None]:
+    """Merge two header rows into one column name per column.
+
+    Forward-fill alone cannot cross a column whose *both* header cells are
+    empty -- it resets there, deliberately, so a title cannot leak into a block
+    it does not cover. Where the workbook says a title is merged across a span,
+    that reset throws away information the file actually carries: 2021
+    Putrajaya merges "Complication Screening (Current Month Testing)" over five
+    columns, and the "Results"/"Date (mmm-yy)" sub-headers past the gap were
+    left bare and mapped nowhere, losing the recorded screening results.
+
+    A merged title *qualifies a sub-header*; it never names a column outright.
+    A column blank in both header rows has no name for the title to qualify, so
+    calling it by the bare block title would be a guess -- and a harmful one:
+    in the 2022 template that guess maps a second column onto
+    `complication_screening`, which one already claims (290 sheets), and in the
+    2022 "Insulin Regimen" merge it would comma-join two columns holding
+    near-duplicate values ("Basal-bolus MDI (AN/HI)" against "Basal-bolus
+    (AN/HI)") into one worse value. R keeps the first column alone in both
+    cases, and so do we. Two sub-headers that would qualify to the same name
+    are refused for the same reason.
+
+    Args:
+        header_1: First header row (closer to data), 0-indexed
+        header_2: Second header row (further from data), 0-indexed
+        mapper: Optional ColumnMapper for validating forward-filled headers
+        merged_spans: (first, last) 1-indexed column pairs the upper header row
+            is merged across, from `merged_header_spans`
+    """
+    headers = _merge_header_pair(header_1, header_2, mapper)
+    if not merged_spans:
+        return headers
+
+    filled = list(header_2)
+    for first, last in merged_spans:
+        if first - 1 >= len(filled):
+            continue
+        title = header_2[first - 1]
+        if title is None:
+            continue
+        for col in range(first, min(last, len(filled)) + 1):
+            has_sub_header = col - 1 < len(header_1) and header_1[col - 1] is not None
+            if filled[col - 1] is None and has_sub_header:
+                filled[col - 1] = title
+
+    propagated = _merge_header_pair(header_1, filled, mapper)
+    taken = {h for h in headers if h}
+    for index, name in enumerate(propagated):
+        if name is None or name == headers[index] or name in taken:
+            continue
+        headers[index] = name
+        taken.add(name)
     return headers
 
 
@@ -431,7 +529,10 @@ def find_dropped_data_columns(
 
 
 def recover_blank_headers(
-    headers: list[str | None], data: list[tuple], sibling_headers: list[list[str | None]]
+    headers: list[str | None],
+    data: list[tuple],
+    sibling_headers: list[list[str | None]],
+    merged_spans: list[tuple[int, int]] | None = None,
 ) -> list[str | None]:
     """Name a headerless data column from the month sheets that do label it.
 
@@ -450,6 +551,12 @@ def recover_blank_headers(
       template's hidden merged-cell column, blank in every sheet and correctly
       dropped, out of reach of this rule,
     - a name this sheet already uses is refused, since it would collide,
+    - a position covered by a merged header is refused: the merge is this
+      sheet's own statement about what the column belongs to, and outranks a
+      sibling laid out differently. Putrajaya's Jul21 sheet carries "Patient
+      Observations" at the position Dec21 uses for a complication-screening
+      selection, so recovering by position filed a screening result under
+      observations,
     - and only columns `find_dropped_data_columns` reports are eligible, so
       spacer columns and the unlabelled row counter are untouched.
 
@@ -461,8 +568,13 @@ def recover_blank_headers(
 
     recovered = list(headers)
     taken = {h for h in headers if h}
+    covered = {
+        col - 1 for first, last in (merged_spans or []) for col in range(first + 1, last + 1)
+    }
 
     for index, _ in find_dropped_data_columns(headers, data):
+        if index in covered:
+            continue
         donors: set[str] = set()
         for sibling in sibling_headers:
             if index < len(sibling):
@@ -548,6 +660,7 @@ class SheetLayout:
 
     data_start_row: int
     headers: list[str | None]
+    merged_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 def collect_sheet_layouts(
@@ -571,9 +684,11 @@ def collect_sheet_layouts(
         except ValueError, KeyError:
             # A sheet whose layout cannot be read simply donates nothing.
             continue
+        spans = merged_header_spans(workbook, worksheet, data_start_row - 2)
         layouts[sheet_name] = SheetLayout(
             data_start_row=data_start_row,
-            headers=merge_headers(header_1, header_2, mapper=mapper),
+            headers=merge_headers(header_1, header_2, mapper=mapper, merged_spans=spans),
+            merged_spans=spans,
         )
     return layouts
 
@@ -636,10 +751,11 @@ def extract_patient_data(
         data_start_row = find_data_start_row(ws)
         logger.info("Processing headers...")
         header_1, header_2 = read_header_rows(ws, data_start_row)
-        # Use synonym-validated forward-fill instead of Excel merge metadata
-        headers = merge_headers(header_1, header_2, mapper=mapper)
+        merged_spans = merged_header_spans(workbook, ws, data_start_row - 2)
+        headers = merge_headers(header_1, header_2, mapper=mapper, merged_spans=merged_spans)
     else:
         data_start_row, headers = layout.data_start_row, list(layout.headers)
+        merged_spans = layout.merged_spans
 
     logger.debug(
         f"Sheet '{sheet_name}': Patient data found in rows {data_start_row} to {ws.max_row}"
@@ -661,7 +777,7 @@ def extract_patient_data(
         workbook.close()
 
     if sibling_headers:
-        recovered = recover_blank_headers(headers, data, sibling_headers)
+        recovered = recover_blank_headers(headers, data, sibling_headers, merged_spans=merged_spans)
         for i, (before, after) in enumerate(zip(headers, recovered, strict=True)):
             if before != after:
                 logger.info(

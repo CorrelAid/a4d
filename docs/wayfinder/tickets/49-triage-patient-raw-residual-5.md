@@ -21,14 +21,17 @@ date-formatted cell (pipeline fix, 38 rows), R's dropped rich-text space
 (classifier, 89), Python's trimming of merged sub-values (classifier, 2), and
 `insulin_regimen`'s blank header in `2021_Kantha Bopha` (classifier, 194).
 
-The **278 that remain** are measured on baseline run
-`output/comparison/2026-08-17T212151Z`, which is the run to triage against.
-Every count on the map measured before it is historical.
+**Updated 2026-08-17, after [ticket
+48](48-putrajaya-screening-columns-lost.md) closed.** The residual is now
+**229**, measured on baseline run `output/comparison/2026-08-17T222225Z`, which
+is the run to triage against. Every count measured before it -- including the
+278 below and every per-shape figure in the Question -- is historical.
 
-The Putrajaya screening-column loss found in the same session is **not** this
-ticket's -- it is [ticket 48](48-putrajaya-screening-columns-lost.md), and its
-~25 cells are part of the 278 counted here. Subtract them rather than
-re-diagnosing them.
+Ticket 48 removed **49** of the 278, not the ~25 first estimated: its
+merged-header fix took `complication_screening_results` 11 -> 0 and
+`complication_screening_date` 31 -> 0, and moved 7 `observations` rows from
+unclassified onto the existing `r_na_unite_padding` classifier. Three shapes
+listed below are therefore already gone -- see the Question's notes.
 
 Rests also on the map's standing scoping rule that the current tracker template
 is the golden rule, and on the standing bar that a classifier records
@@ -36,7 +39,11 @@ understanding, never a verdict by itself.
 
 ## Question
 
-Triage the 278. The shapes, by count, against the baseline run above:
+Triage the 229. The shapes below were counted against the *old* 278-row
+baseline; three of them are already resolved by ticket 48 and are struck
+through in place rather than deleted, so the arithmetic stays checkable.
+Re-measure the rest against `output/comparison/2026-08-17T222225Z` before
+working them -- do not trust these numbers.
 
 - **R null, Python has a value (~125 rows, ~12 columns)**:
   `last_clinic_visit_date` (40, one file), `fbg_updated_date` (25),
@@ -46,9 +53,9 @@ Triage the 278. The shapes, by count, against the baseline run above:
   ticket 31's refusal applies: verify per column against the source before
   wiring, or the classifier labels without deciding.
 - **A real date typed into a numeric column, or the reverse (51)**:
-  `complication_screening_date` (31, R serial vs Python parsed date -- check
-  first whether this is simply a date column the raw normalize list cannot
-  name, the same gap ticket 27 found for `meter_received_date`),
+  ~~`complication_screening_date` (31)~~ -- **resolved by ticket 48**: it was
+  exactly the predicted gap, a raw-only date column `get_date_columns()` cannot
+  derive, now appended to `PATIENT_RAW_DATE_NORMALIZE_COLS`. 31 -> 0.
   `t1d_diagnosis_age` (16, source defect -- see [ticket
   40](40-source-defect-findings-report.md)), `blood_pressure_mmhg` (3),
   `testing_frequency` (1).
@@ -63,11 +70,16 @@ Triage the 278. The shapes, by count, against the baseline run above:
   looks like a Python cleanliness defect worth fixing rather than classifying.
 - **`dm_complications` (15, two files)**: `Kidney \nDamage` on both sides,
   visually identical in the report. Inspect the bytes before assuming a cause.
-- **`observations` (8)**: R's `... January ,NA` against Python's `... January`
-  -- `r_na_unite_padding` did not fire; find out why (the trailing space before
-  the comma is the likely reason).
+- **`observations` (8 -> 1)**: mostly **resolved by ticket 48** -- 7 of the 8
+  were Putrajaya rows where Python had a screening selection misfiled into
+  `observations`; with Python now correctly null they match the existing
+  `r_na_unite_padding` classifier. **1 row remains**: R's `... January ,NA`
+  against Python's `... January`, where the classifier still does not fire (the
+  trailing space before the comma is the likely reason).
 - **`complication_screening` (2)**: Python holds two selections where R holds
-  one.
+  one. Ticket 48 established that both pipelines keep only the *first*
+  selection of a multi-select block, so re-measure this before assuming it
+  still says what it says.
 - **`hospitalisation_date` (5)**: Python's raw value is `2958352`, the Excel
   serial for 9999-12-31 -- the date sentinel appearing at the *raw* stage,
   which raw is not supposed to carry.
