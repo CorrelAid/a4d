@@ -31,16 +31,17 @@ flowchart TD
     I["Comparison harness<br/>4 stages, run-over-run deltas"]
   end
 
-  subgraph TRIAGE["R/Python triage - 30 of 43 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 33 of 47 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 9,427 unclassified<br/>tickets 42, 44"]
-    M["Patient raw: 1,409 unclassified<br/>tickets 45, 46"]
+    L["Patient cleaned: 8,383 unclassified<br/>ticket 44"]
+    M["Patient raw: 601 unclassified<br/>ticket 46"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["45 - patient ordinal row key"]
+    O["46 - patient raw triage, round 4"]
+    O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
@@ -72,7 +73,7 @@ flowchart TD
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
   class A,B,C,D,E,F,G,H,I,J,K done
   class L,M partial
-  class N,O,P,Q,R,S,T open
+  class N,O,O2,P,Q,R,S,T open
   class U,V,W blocked
 ```
 
@@ -303,8 +304,8 @@ to extraction vs. cleaning:
 
 | Stage | Directory | Row-alignment key |
 |---|---|---|
-| Patient (raw) | `patient_data_raw/` | `patient_id` + `sheet_name` |
-| Patient (cleaned) | `patient_data_cleaned/` | `patient_id` + `sheet_name` |
+| Patient (raw) | `patient_data_raw/` | `patient_id` + `sheet_name`, ordinal tie-break |
+| Patient (cleaned) | `patient_data_cleaned/` | `patient_id` + `sheet_name`, ordinal tie-break |
 | Product (raw) | `product_data_raw/` | ordinal position within `(clinic_id, sheet)` |
 | Product (cleaned) | `product_data_cleaned/` | ordinal position within `(clinic_id, sheet)` |
 
@@ -312,6 +313,12 @@ Product has no natural identity key — `product_entry_date` is null on many row
 and collapsed the join, so `add_row_ordinal()` computes a positional key at
 comparison time instead (never stored: the frozen R baseline cannot be re-run
 to pick up a new column).
+
+Patient does have one, and keeps it: rows pair only when they are the same
+patient on the same monthly sheet. The same ordinal breaks ties in the handful
+of sheets that list a patient twice — by **content, not position**, since
+cleaning reorders the copies. `RowAlignment.IDENTITY` vs
+`RowAlignment.POSITIONAL` names which arm does which.
 
 Seven measures per file, coarse to fine:
 
@@ -465,16 +472,16 @@ columns left for that month.
 
 ## Where verification stands
 
-Current baseline: `output/comparison/2026-08-14T204031Z`, 254 trackers.
+Current baseline: `output/comparison/2026-08-17T202809Z`, 254 trackers.
 Earlier counts on the wayfinder map were measured against smaller tracker sets
 and should be read as historical.
 
 | Stage | Mismatches | Unclassified |
 |---|---|---|
-| Product (raw) | 118 | **0** |
-| Product (cleaned) | 22,718 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 93,997 | 6,652 (from 55,670) |
-| Patient (raw) | 27,921 | 14,844 |
+| Product (raw) | 112 | **0** |
+| Product (cleaned) | 22,716 | **20** (kept on purpose as signals) |
+| Patient (cleaned) | 113,421 | 8,383 |
+| Patient (raw) | 26,697 | 601 (from 14,844) |
 
 The product arm is fully triaged on both stages. Patient's cleaned stage is
 down 88%; patient's raw stage is the remaining body of work.
@@ -490,11 +497,14 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **45 — give the patient comparison an ordinal row key.** 808 of the 1,409
-  remaining patient raw-stage mismatches (57%) are join fan-out in three files
-  where (patient_id, sheet_name) is not unique — one Jul24 sheet lists 27
-  patients twice. Ticket 17 solved the same problem for the product arm. Blocks
-  retiring R, together with ticket 46.
+- **46 — patient raw triage, round 4.** The 601 remaining unclassified
+  raw-stage mismatches, a long tail of ~50 columns none larger than ~90 now
+  that the duplicate-key fan-out is gone. The last thing blocking R's retirement.
+- **47 — four trackers where cleaning merges several patients into one ID.**
+  `KH_NPH026`–`029` all arrive at the cleaned stage as `KH_NPH02`; 4 files lose
+  9 identities in total, row counts preserved. R does the same, so the
+  comparison never flagged it — found while chasing why the cleaned stage had
+  two duplicate-key files the raw stage did not.
 - **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
   when written, but the decision bar was tightened partway through; this
   re-checks that none merely labels a diff it never explained.
@@ -518,7 +528,7 @@ Nothing here blocks review of the code — it blocks the merge.
 **Blocked**
 
 - **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
-  on 31 alone now: triage has repeatedly needed to read R's actual source to
+  on 46 alone now: triage has repeatedly needed to read R's actual source to
   root-cause a mismatch, not just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
