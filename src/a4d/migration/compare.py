@@ -1058,6 +1058,49 @@ PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_unicode_sanitizer_rejects_accent(m: CellMismatch) -> bool:
+    """A misaccented spelling misses R's allowed-value list but not Python's.
+
+    The two sanitizers were meant to be the same function and are not. R's
+    (r-archive/R/script2_sanitize_str.R) strips ``[^[:alnum:]]``, which under
+    ICU is Unicode-aware, so accented letters survive; Python's
+    (clean/validators.py) strips ``[^a-z0-9]`` and folds them away. Both sides
+    sanitize the value and the allowed list before matching, so the difference
+    only shows where a source spelling differs from its canonical form in the
+    accents alone.
+
+    The whole of this cause on the real 254-tracker set is one Vietnamese
+    province across five VNCH trackers: the source writes ``Thái Nguyễn`` (a
+    tilde on the second e) where the allowed list has ``Thái Nguyên``. R
+    sanitizes those to ``tháinguyễn`` and ``tháinguyên``, misses, and stamps
+    the "Undefined" character sentinel; Python sanitizes both to ``thinguyn``
+    and recovers the canonical name. Python is right -- the province is real
+    and the accent is a typo -- and this is the value-side twin of ticket 49's
+    ``r_non_latin_header_miss``, where the same ASCII folding was what let
+    Python match a header R could not.
+
+    The folding cannot silently merge two *different* provinces:
+    ``validate_allowed_values`` raises on any two allowed values that sanitize
+    alike, and the 209-entry province list has no such pair (executed). Note
+    what this does *not* fix: the same trackers also write ``Thai Nguyen``
+    with no accents at all, which sanitizes to ``thainguyen`` on both sides
+    and so is "Undefined" in both pipelines -- a shared limitation the
+    comparison cannot see, not a divergence.
+
+    The test is the mechanism: R sentinelled, and Python's canonical value
+    carries characters that only Python's sanitizer removes.
+    """
+    if m.r_value != "Undefined" or not isinstance(m.py_value, str):
+        return False
+    unicode_aware = m.py_value.lower().replace(" ", "")
+    return sanitize_str(m.py_value) != unicode_aware
+
+
+PATIENT_UNICODE_SANITIZER_CLASSIFIERS: dict[str, Classifier] = {
+    "r_unicode_sanitizer_rejects_accent": _is_r_unicode_sanitizer_rejects_accent,
+}
+
+
 PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
     "r_validator_rejects_multivalue": _is_r_validator_rejects_multivalue,
 }
@@ -1259,6 +1302,119 @@ def _is_buddhist_era_typo(m: CellMismatch) -> bool:
 
 PATIENT_BUDDHIST_ERA_CLASSIFIERS: dict[str, Classifier] = {
     "buddhist_era_typo": _is_buddhist_era_typo,
+}
+
+
+def _is_r_ymd_first_misparse(m: CellMismatch) -> bool:
+    """R reads a ``D.M.YY`` source string year-first, swapping day and year.
+
+    ``parse_date_string`` (r-archive/R/script2_helper_dates.R) calls
+    ``lubridate::parse_date_time`` with ``orders = c("ymd", "dmy", "my")``.
+    lubridate takes the first order that parses, and "30.1.18" parses fine as
+    ymd -- year 30 -> 2030 -- so the dmy order is never reached. Every
+    date the source writes with a two-digit year and a day that is not also a
+    plausible-looking year lands on the wrong reading.
+
+    Python is the correct side, on three independent grounds:
+
+    * **Source.** 2018 Yangon Children's Hospital writes these dates as text
+      inside the value cell -- ``Jan18!L92`` is ``10.3 (22.8.17)`` and
+      ``Jan18!N92`` is ``223(30.1.18)``, day-first, matching Python's
+      2017-08-22 and 2018-01-30 against R's 2022-08-17 and 2030-01-18.
+    * **Impossibility.** R's reading puts 1,236 of the 1,714 affected cells in
+      the *future* relative to the tracker's own year; Python's puts none
+      there and lands 1,713 of them within three years of it.
+    * **Out-of-range days.** Where the source day exceeds 12 (``31.5.16``),
+      only the day-first reading is even well-formed as a date the clinic
+      could have meant; R still produces 2031-05-16.
+
+    The test is the digit swap itself -- same month, R's day is Python's
+    two-digit year and vice versa -- and excludes the case where the two agree
+    on the day, since a date whose day and year read alike (18.1.18) is
+    parsed identically by both orders and so cannot be this cause.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None:
+        return False
+    if SENTINEL_DATE in (r_date, py_date):
+        return False
+    return (
+        r_date.month == py_date.month
+        and r_date.day == py_date.year % 100
+        and r_date.year % 100 == py_date.day
+        and r_date.day != py_date.day
+    )
+
+
+PATIENT_YMD_FIRST_CLASSIFIERS: dict[str, Classifier] = {
+    "r_ymd_first_misparse": _is_r_ymd_first_misparse,
+}
+
+# A month sheet is named "Jan22", "Sept22" or "Oct'22" -- the trailing two
+# digits are the tracker year, which is how the pipeline's own extraction
+# derives tracker_year in the first place (get_tracker_year, R; the sheet-name
+# year detection documented in docs/CLAUDE.md, Python).
+_SHEET_YEAR = re.compile(r"(\d{2})\s*$")
+
+
+def _sheet_year(m: CellMismatch) -> int | None:
+    """The tracker year the mismatched row sits in, read off its sheet name.
+
+    ``add_row_ordinal`` renames every key column to ``__key_<col>``, so the
+    lookup matches on the suffix rather than on the bare name -- keying on
+    ``sheet_name`` alone silently finds nothing and the cause never fires.
+    """
+    if not isinstance(m.key, dict):
+        return None
+    sheet = next(
+        (v for k, v in m.key.items() if str(k).endswith("sheet_name") and isinstance(v, str)),
+        None,
+    )
+    match = _SHEET_YEAR.search(sheet) if sheet else None
+    return 2000 + int(match.group(1)) if match else None
+
+
+def _is_python_rejects_beyond_tracker_year(m: CellMismatch) -> bool:
+    """Python sentinels a date later than its tracker year; R keeps it.
+
+    ``_validate_dates`` (clean/patient.py) replaces any date past 31 December
+    of ``tracker_year`` with the error sentinel and logs an ``invalid_value``
+    error against the patient. R has no equivalent guard -- ``grep`` over
+    ``r-archive/R`` finds no future-date or tracker-year bound on any date
+    column -- so R carries the impossible value into its output unchanged.
+    (The docstring on ``_validate_dates`` claiming this "matches R pipeline
+    behavior" is wrong, and is corrected as part of this ticket.)
+
+    Python is the correct side, and the source says the value is genuinely
+    impossible rather than merely surprising: 2022 Vietnam National Children's
+    Hospital writes every one of its 43 ``Date of T1D Diagnosis`` cells as a
+    2023 date (``Patient List!G13`` = 2023-07-16 for VN_VC001, born 2013-03,
+    recruited 2017-07), so the workbook has patients diagnosed a year after
+    the tracker was filled in and five years after they were recruited for
+    having the disease. That is a defect in the workbook -- reported for
+    [ticket 40] rather than inferred around -- and sentinelling it is the
+    pipeline recognizing an unusable value, the same verdict
+    ``buddhist_era_typo`` reached on an unusable year.
+
+    Deliberately narrower than "Python sentinelled and R did not": where the
+    raw cell holds free text Python's parser could not read at all (a
+    misspelled month, a date buried in a clinical note), the mechanism is a
+    parse failure rather than this guard, the verdict is not the same, and
+    part of that population is still open as its own question.
+    """
+    tracker_year = _sheet_year(m)
+    r_date = _as_date(m.r_value)
+    return (
+        tracker_year is not None
+        and _as_date(m.py_value) == SENTINEL_DATE
+        and r_date is not None
+        and r_date != SENTINEL_DATE
+        and r_date.year > tracker_year
+    )
+
+
+PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS: dict[str, Classifier] = {
+    "python_rejects_beyond_tracker_year": _is_python_rejects_beyond_tracker_year,
 }
 
 

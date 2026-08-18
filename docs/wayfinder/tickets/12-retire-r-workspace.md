@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 51]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 52]
 assignee: null
 claimed_at: null
 resolution: null
@@ -180,3 +180,14 @@ kind that has repeatedly had to read `r-archive/`'s own source to root-cause a
 difference. `blocked_by` swaps `50` for [ticket
 51](51-triage-patient-cleaned-residual-4.md), the cleaned-stage round the raw
 work spawned. Same precedent as every swap above.
+
+## Premise update (session-2026-08-19)
+
+[Round 4](51-triage-patient-cleaned-residual-4.md) closed, cutting the
+cleaned-stage in-scope residual from 5,031 to **2,538** and landing three named
+causes -- and its work again turned on reading `r-archive/`'s own source
+(`script2_helper_dates.R`'s `ymd`-before-`dmy` order, `script2_sanitize_str.R`'s
+Unicode-aware character class, and a grep proving R has no future-date guard at
+all). R cannot be retired while triage still needs to read it. `blocked_by`
+swaps `51` for [ticket 52](52-triage-patient-cleaned-residual-5.md), the round
+it spawned. Same precedent as every swap above.

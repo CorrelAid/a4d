@@ -47,7 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T51["<b>51</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
+    T52["<b>52</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 37"]
+  subgraph DECIDED["Decided · 38"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -94,6 +94,7 @@ flowchart TD
     T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
     T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
     T50["<b>50</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
+    T51["<b>51</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -136,14 +137,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T51 --> T12
+  T52 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T51 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T52 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1837,6 +1838,37 @@ columns) and became [ticket
 swaps `50` for `51` on the same standing precedent. Full detail: [ticket
 50](tickets/50-triage-patient-raw-residual-6.md).
 
+**Fifty-one tickets resolved; the cleaned stage is now half explained.**
+[Round 4](tickets/51-triage-patient-cleaned-residual-4.md) cut the patient
+cleaned-stage in-scope residual from 5,031 to **2,538** (whole-stage 7,967 ->
+5,474) on three causes, and for the first time the largest of them is squarely
+**R's bug rather than a header or extraction gap**: `parse_date_string`
+(`r-archive/R/script2_helper_dates.R`) asks lubridate for `ymd` before `dmy`,
+so every source date written `D.M.YY` is read year-first -- `30.1.18` becomes
+2030-01-18 -- and R's readings land 1,236 of the 1,714 affected cells in the
+*future* relative to the tracker's own year. Verified in 2018 Yangon's own
+cells, not inferred from shape. The second cause runs the other way and is a
+deliberate Python divergence rather than a defect: Python's `_validate_dates`
+sentinels a date past its tracker year and R has no future-date guard at all,
+which surfaced a whole corrupt source column (2022 VNCH records every diagnosis
+date as a 2023 one, for patients recruited in 2017) and one false docstring
+claiming the guard "matches R pipeline behavior". The third closed a standing
+fog patch: Python's accent-folding `sanitize_str` turns out to be *safer* than
+suspected, not riskier -- it recovers the province `Thái Nguyễn` that R
+discards, and cannot silently merge two provinces because
+`validate_allowed_values` raises on any two allowed values that sanitize alike
+(the 209-entry list has zero such pairs).
+
+What is left of the cleaned stage became [round
+5](tickets/52-triage-patient-cleaned-residual-5.md): `t1d_diagnosis_age` (558)
+and the numeric long tail, blood pressure (491), and ~533 date cells where
+Python could not parse the source at all and R guessed badly. That last group
+is deliberately not decided yet -- part of it is dates buried in clinical notes,
+which is [ticket 39](tickets/39-recover-dates-embedded-in-free-text.md)'s open
+HITL question. Ticket 12's `blocked_by` swaps `51` for `52` on the same standing
+precedent: R cannot be retired while triage still has to read `r-archive/` to
+root-cause a difference, which is exactly what this round did three times.
+
 ## Decisions so far
 
 - [Triage the residual patient raw-stage column mismatches (round
@@ -2540,6 +2572,25 @@ swaps `50` for `51` on the same standing precedent. Full detail: [ticket
   column, 44 rows; and ticket 37's 2026 Annual-sheet gap reaching five more
   columns, 41). Residual split into [ticket 50](tickets/50-triage-patient-raw-residual-6.md).
 
+- [Triage the residual patient cleaned-stage mismatches (round 4)](tickets/51-triage-patient-cleaned-residual-4.md)
+  — cleaned-stage in-scope unclassified 5,031 -> 2,538 (whole-stage 7,967 ->
+  5,474), on three causes each with an explicit verdict that **Python is
+  right**. `r_ymd_first_misparse` (1,714): R's `parse_date_string` orders
+  `ymd` before `dmy`, so a source date written `30.1.18` is read year-first as
+  2030-01-18 — verified against 2018 Yangon's own cells (`Jan18!N92` =
+  `223(30.1.18)`), and R's reading puts 1,236 of the 1,714 in the future
+  relative to the tracker's own year while Python's puts none there.
+  `python_rejects_beyond_tracker_year` (722): Python's `_validate_dates`
+  sentinels a date past its tracker year and R has no such guard at all — the
+  triggering data is a real source defect, 2022 VNCH recording every diagnosis
+  date as a 2023 one for patients recruited in 2017. `r_unicode_sanitizer_rejects_accent`
+  (57): R's `[^[:alnum:]]` keeps accents and Python's `[^a-z0-9]` folds them,
+  so Python recovers the province `Thái Nguyễn` -> `Thái Nguyên` that R
+  discards as "Undefined". **A false docstring claim was corrected**:
+  `_validate_dates` said its future-date guard "matches R pipeline behavior";
+  it does not, and now says so. Residual split into [ticket
+  52](tickets/52-triage-patient-cleaned-residual-5.md).
+
 ## Assumptions in force
 
 - **The glucose limits the pipeline enforces are the right ones.** A4D's
@@ -2596,20 +2647,19 @@ folded into Decisions so far above.)
 
 ## Not yet specified
 
-- Whether **Python's header/value sanitizer stripping non-Latin script** is
-  right everywhere, not just for headers. Found while closing [ticket
-  49](tickets/49-triage-patient-raw-residual-5.md): Python's `sanitize_str`
-  (`src/a4d/reference/synonyms.py`) reduces `[^a-z0-9]`, which is what lets it
-  match a header carrying a Thai translation where R fails -- clearly right
-  there. But the same function turns the province names `Kratié` -> `krati` and
-  `Takéo` -> `tako` (observed in `2022_Kantha Bopha`'s Look Up List), where R
-  keeps the accent. Nobody has measured whether province validation actually
-  compares sanitized forms on both sides, so it is unknown whether this is
-  harmless or silently rejects accented provinces. Not sharp enough to ticket
-  until that is measured -- [ticket
-  51](tickets/51-triage-patient-cleaned-residual-4.md) carries 57 cleaned-stage
-  `province` mismatches, which is where it would show, so that round is the
-  natural place to measure it.
+- Whether the **unaccented** spellings of a province should be recovered too.
+  Resolved for accents by [ticket 51](tickets/51-triage-patient-cleaned-residual-4.md):
+  Python's ASCII-folding `sanitize_str` is safe (the 209-entry province list
+  has zero accent-strip collisions, and `validate_allowed_values` *raises* on
+  any two allowed values that sanitize alike), and it recovers `Thái Nguyễn`
+  where R stamps "Undefined". What is left is the spelling with no accents at
+  all: the same VNCH trackers also write `Thai Nguyen` and `Thai nguyen`, which
+  sanitize to `thainguyen` on **both** sides and so are lost in both pipelines.
+  The comparison is silent on it — a shared limitation, not a divergence — so
+  nobody has measured how many provinces across how many trackers are written
+  this way, or whether an `aliases` entry is the right fix. Not sharp enough to
+  ticket until that is measured.
+
 - Whether Python should emit the string error sentinel **`"Undefined"` where R
   has null** on `clinic_visit`/`remote_followup`. Four cleaned-stage rows,
   noticed while closing ticket 49 and out of that ticket's raw-stage scope.
@@ -2803,6 +2853,10 @@ flowchart TB
     direction LR
     U50["<b>50</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
   end
+  subgraph S2026_08_19["Session 2026-08-19"]
+    direction LR
+    U51["<b>51</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2817,7 +2871,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U51["<b>51</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
+    U52["<b>52</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2851,7 +2905,8 @@ flowchart TB
   S2026_08_17d ~~~ S2026_08_17e
   S2026_08_17e ~~~ S2026_08_18
   S2026_08_18 ~~~ S2026_08_18b
-  S2026_08_18b ~~~ Sopen
+  S2026_08_18b ~~~ S2026_08_19
+  S2026_08_19 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2889,7 +2944,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U51 --->|blocked| U12
+  U52 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -2929,13 +2984,14 @@ flowchart TB
   U46 -.->|spawned| U49
   U49 -.->|spawned| U50
   U50 -.->|spawned| U51
+  U51 -.->|spawned| U52
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U51 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U52 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

@@ -142,3 +142,29 @@ Per the map's **triage means deciding, not labelling** preference and the
 destination's "every difference explicitly decided": a finding in this report
 must be precise enough that someone can open the named workbook, find the named
 cell, and see the problem -- not a category label.
+
+## Findings added by session-2026-08-19 ([round 4](51-triage-patient-cleaned-residual-4.md))
+
+Two more source defects, both verified in the workbook and both already
+producing a pipeline error the report can derive from:
+
+- **2022 Vietnam National Children's Hospital: the whole `Date of T1D
+  Diagnosis` column is a year out.** Every cell in `Patient List!G` holds a
+  2023 date -- `G13` = 2023-07-16 for VN_VC001, who was born 2013-03 and
+  recruited 2017-07 -- in a tracker filled in during 2022. The patients are
+  recorded as diagnosed a year after the tracker was written and five years
+  after they were recruited for having the disease. Python's `_validate_dates`
+  already logs each one as `invalid_value`; 530 cleaned-stage cells.
+- **Misspelled month names inside otherwise well-formed dates.** `9-Dce-20`
+  (2021 Mahosot, 81 cells), `25-Ma4-2025` (18), `4-Okt-2023` (3), plus
+  malformed separators `26/102022` (5) and `19-Jan_2023` (5). Python refuses
+  them and stamps the date sentinel, logging `invalid_value`; R guesses and
+  gets them wrong (it reads `9-Dce-20` as 2020-09-01, dropping the misspelled
+  month and promoting the day into the month slot). The intended dates are
+  legible to a human, which is exactly why the fix belongs in the workbook.
+
+Also worth carrying, though it is a *province* rather than a date: five VNCH
+trackers write `Thái Nguyễn` where the allowed list has `Thái Nguyên`, and two
+more spellings (`Thai Nguyen`, `Thai nguyen`) that **neither** pipeline
+recovers -- those rows are "Undefined" in both, so the comparison never flags
+them but the data is lost all the same.

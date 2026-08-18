@@ -45,6 +45,7 @@ from a4d.clean.validators import load_validation_rules
 from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
     PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
@@ -58,7 +59,9 @@ from a4d.migration.compare import (
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
+    PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
+    PATIENT_YMD_FIRST_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
@@ -494,6 +497,32 @@ CLASSIFIERS_BY_COLUMN |= {
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | R_DATE_ERROR_SENTINEL_CLASSIFIERS
     for col in get_date_columns()
+}
+
+# ticket 51: R's ymd-before-dmy parse order, which mis-reads any D.M.YY source
+# string. Same argument again -- parse_date_string is R's one date entry point,
+# so the cause belongs to every date column, not to the five that happen to
+# carry it in the current tracker set.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_YMD_FIRST_CLASSIFIERS
+    for col in get_date_columns()
+}
+
+# ticket 51: Python's own beyond-tracker-year guard (_validate_dates), which
+# runs over get_date_columns() itself -- so the cause has exactly that domain
+# by construction, not by observation.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS
+    for col in get_date_columns()
+}
+
+# ticket 51: the two sanitizers disagree on accented letters, so the cause
+# belongs to every allowed-value column rather than to province alone -- it is
+# only province today because province is the one whose canonical values carry
+# accents. Appended last so a column-specific cause still wins the first match.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_UNICODE_SANITIZER_CLASSIFIERS
+    for col in PATIENT_CATEGORICAL_COLS
 }
 
 

@@ -10,6 +10,7 @@ from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     GROUP_INVARIANT_PRODUCT_COLUMNS,
+    PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
@@ -20,7 +21,9 @@ from a4d.migration.compare import (
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
+    PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
+    PATIENT_YMD_FIRST_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
     PRODUCT_ROW_ORDER_CLASSIFIERS,
@@ -1993,3 +1996,203 @@ class TestNonLatinHeaderMiss:
         )
 
         assert not PATIENT_NON_LATIN_HEADER_CLASSIFIERS["r_non_latin_header_miss"](m)
+
+
+class TestRYmdFirstMisparse:
+    """Ticket 51: R's parse_date_string tries "ymd" before "dmy", so a source
+    string written D.M.YY is read year-first."""
+
+    def test_flags_the_day_year_swap(self):
+        # Source "30.1.18": Python reads 2018-01-30, R reads 2030-01-18.
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=datetime.date(2030, 1, 18),
+            py_value=datetime.date(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "r_ymd_first_misparse"
+
+    def test_flags_the_swap_when_r_lands_in_the_past(self):
+        # Source "5.9.17": R reads year 05 -> 2005-09-17, Python 2017-09-05.
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC002",
+            column="hba1c_updated_date",
+            r_value=datetime.date(2005, 9, 17),
+            py_value=datetime.date(2017, 9, 5),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "r_ymd_first_misparse"
+
+    def test_accepts_datetime_as_well_as_date(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=datetime.datetime(2030, 1, 18),
+            py_value=datetime.datetime(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "r_ymd_first_misparse"
+
+    def test_unclassified_when_the_month_differs(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=datetime.date(2030, 2, 18),
+            py_value=datetime.date(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_the_digits_are_not_a_swap(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=datetime.date(2019, 1, 18),
+            py_value=datetime.date(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_the_dates_agree_on_the_day(self):
+        """A same-day pair is not a swap even when the years happen to line up
+        -- an unambiguous D.M.YY date (day 18, year 18) reads the same either
+        way, so a difference on it has some other cause."""
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=datetime.date(2018, 1, 18),
+            py_value=datetime.date(2018, 1, 18),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_a_side_is_the_sentinel(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_a_side_is_null(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC001",
+            column="fbg_updated_date",
+            r_value=None,
+            py_value=datetime.date(2018, 1, 30),
+        )
+
+        assert classify(m, PATIENT_YMD_FIRST_CLASSIFIERS) == "unclassified"
+
+
+class TestPythonRejectsBeyondTrackerYear:
+    """Ticket 51: Python's _validate_dates stamps the error sentinel on a date
+    later than its tracker year; R has no such guard and carries it through."""
+
+    def test_flags_a_date_later_than_the_sheet_year(self):
+        m = CellMismatch(
+            key={"__key_patient_id": "VN_VC002", "__key_sheet_name": "Jan22"},
+            column="t1d_diagnosis_date",
+            r_value=datetime.date(2023, 2, 16),
+            py_value=SENTINEL_DATE,
+        )
+
+        assert classify(m, PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS) == (
+            "python_rejects_beyond_tracker_year"
+        )
+
+    def test_reads_the_year_through_an_apostrophe_in_the_sheet_name(self):
+        m = CellMismatch(
+            key={"__key_patient_id": "VN_VC002", "__key_sheet_name": "Oct'22"},
+            column="t1d_diagnosis_date",
+            r_value=datetime.date(2023, 2, 16),
+            py_value=SENTINEL_DATE,
+        )
+
+        assert classify(m, PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS) == (
+            "python_rejects_beyond_tracker_year"
+        )
+
+    def test_unclassified_when_r_date_is_within_the_tracker_year(self):
+        """The parse-failure half of the same symptom -- Python sentinels a
+        value it could not read at all, which this cause does not explain."""
+        m = CellMismatch(
+            key={"__key_patient_id": "LA_MH001", "__key_sheet_name": "Jan21"},
+            column="fbg_updated_date",
+            r_value=datetime.date(2020, 9, 1),
+            py_value=SENTINEL_DATE,
+        )
+
+        assert classify(m, PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_python_is_not_the_sentinelling_side(self):
+        m = CellMismatch(
+            key={"__key_patient_id": "VN_VC002", "__key_sheet_name": "Jan22"},
+            column="t1d_diagnosis_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2023, 2, 16),
+        )
+
+        assert classify(m, PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_the_sheet_name_carries_no_year(self):
+        m = CellMismatch(
+            key={"__key_patient_id": "VN_VC002", "__key_sheet_name": "Patient List"},
+            column="t1d_diagnosis_date",
+            r_value=datetime.date(2023, 2, 16),
+            py_value=SENTINEL_DATE,
+        )
+
+        assert classify(m, PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS) == "unclassified"
+
+
+class TestRUnicodeSanitizerRejectsAccent:
+    """Ticket 51: R's `[^[:alnum:]]` keeps accented letters, so a misaccented
+    spelling misses its allowed value; Python's `[^a-z0-9]` folds it home."""
+
+    def test_flags_an_accented_canonical_value_r_called_undefined(self):
+        m = CellMismatch(
+            key={"patient_id": "VN_VC020", "sheet_name": "Jan22"},
+            column="province",
+            r_value="Undefined",
+            py_value="Thái Nguyên",
+        )
+
+        assert classify(m, PATIENT_UNICODE_SANITIZER_CLASSIFIERS) == (
+            "r_unicode_sanitizer_rejects_accent"
+        )
+
+    def test_unclassified_when_the_canonical_value_is_plain_ascii(self):
+        """An unaccented canonical value cannot have been rejected for its
+        accents, so some other cause is at work."""
+        m = CellMismatch(
+            key={"patient_id": "TH_BK001", "sheet_name": "Jan22"},
+            column="province",
+            r_value="Undefined",
+            py_value="Bangkok",
+        )
+
+        assert classify(m, PATIENT_UNICODE_SANITIZER_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_r_did_not_sentinel_the_value(self):
+        m = CellMismatch(
+            key={"patient_id": "VN_VC020", "sheet_name": "Jan22"},
+            column="province",
+            r_value="Hà Nội",
+            py_value="Thái Nguyên",
+        )
+
+        assert classify(m, PATIENT_UNICODE_SANITIZER_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_python_has_nothing(self):
+        m = CellMismatch(
+            key={"patient_id": "VN_VC020", "sheet_name": "Jan22"},
+            column="province",
+            r_value="Undefined",
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_UNICODE_SANITIZER_CLASSIFIERS) == "unclassified"
