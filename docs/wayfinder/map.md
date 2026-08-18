@@ -47,7 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
+    T51["<b>51</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 35"]
+  subgraph DECIDED["Decided · 37"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -92,6 +92,8 @@ flowchart TD
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
     T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
     T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
+    T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
+    T50["<b>50</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -134,14 +136,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T49 --> T12
+  T51 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T49 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T51 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1778,8 +1780,88 @@ since a merged identity attributes one patient's records to another in
 production output. The rest are independent triage residuals and a separate
 feature (ticket 16), takeable in any order.**
 
+**Thirty-six tickets resolved.** [Triage the residual patient raw-stage column
+mismatches (round 5)](tickets/49-triage-patient-raw-residual-5.md) is done:
+patient raw-stage unclassified went **229 -> 84** (63%), verified end-to-end
+against the full 248-tracker drive data across two real comparison runs. This
+round found **no Python defect** -- a first for the patient raw residual, and
+the substantive result. Two of its four causes were the *comparison tool*
+mis-measuring rather than the pipeline diverging:
+`PATIENT_WHITESPACE_NORMALIZE_COLS` resolved through the *cleaned* schema's
+`get_string_columns()`, so it never reached a raw-only column
+(`dm_complications`) or one the cleaned schema types `Float64`
+(`insulin_injections`, `hba1c_updated`) -- the identical defect ticket 43 fixed
+for the numeric list, never applied to the whitespace one; and R's `FALSE`
+against Python's `False` for a genuine Excel boolean, confirmed a pure
+representation artifact by checking the cleaned stage, where both sides already
+agree. `dm_complications` had been invisible for five rounds because DuckDB's
+xlsx reader normalizes `\r\n` away, so the report showed R's
+`Kidney \r\nDamage` and Python's `Kidney \nDamage` as byte-identical --
+**a shape that looks identical in the report is not evidence the values are
+equal.** The other two causes are R limitations, each traced to a mechanism in
+R's own source rather than wired on shape: `r_non_latin_header_miss` (44 rows)
+-- `2022_Mukdahan` appends Thai translations to two headers, R's `sanitize_str`
+strips `[^[:alnum:]]` whose class is Unicode-aware so the Thai survives,
+`harmonize_patient_data_columns`' `match()` is exact, and R drops the whole
+column; Python's `[^a-z0-9]` strips it and matches, recovering 44 real dates --
+and ticket 37's already-verified 2026 Annual-sheet gap reaching five columns
+`r_extraction_gap` had not been registered for (41 rows, verified per column
+against `2026 ISDFI, Annual!E32/H32/I32/AD32`). The residual 84 did not
+converge and split into [ticket
+50](tickets/50-triage-patient-raw-residual-6.md); ticket 12's `blocked_by`
+swaps `49` for `50`, since closing 49 required reading and *running*
+`r-archive/`'s own R source -- exactly the dependency ticket 12 waits on. Full
+detail: [ticket 49](tickets/49-triage-patient-raw-residual-5.md).
+
+**Thirty-seven tickets resolved, and the patient raw stage is finished.**
+[Triage the residual patient raw-stage column mismatches (round
+6)](tickets/50-triage-patient-raw-residual-6.md) took the last 84 to **zero**
+unclassified -- the first stage of either arm to reach it, ending a chain that
+started at 14,903. Again no Python defect: three populations were R never
+mapping the column at all (a header opening with thirteen spaces, a sheet whose
+header merges have been deleted, a column with no header in either row), one was
+a date typed into a numeric column that ticket 24's existing
+`openpyxl_date_typed_stray_cell` already explained on the product arm, and one
+was R keeping only the first selection of a multi-select screening block. The
+two more interesting ones were **the comparison tool measuring wrong**, both now
+fixed in `parse_date_flexible` itself: the month-name truncation required a word
+boundary a following digit cannot provide, so a rich-text-damaged `July2014`
+fell through to dateutil, which filled the day **from today** -- the comparison
+was literally producing different numbers on different days; and the Excel-serial
+ceiling of 100000 excluded the Buddhist-Era serials a BE year typed into a
+Gregorian cell produces, so `241062` was read positionally as 24/10/62.
+Correcting the ceiling removed 375 mismatches outright rather than labelling 12.
+The cleaned stage is now the whole of the patient residual (7,967 across 27
+columns) and became [ticket
+51](tickets/51-triage-patient-cleaned-residual-4.md); ticket 12's `blocked_by`
+swaps `50` for `51` on the same standing precedent. Full detail: [ticket
+50](tickets/50-triage-patient-raw-residual-6.md).
+
 ## Decisions so far
 
+- [Triage the residual patient raw-stage column mismatches (round
+  6)](tickets/50-triage-patient-raw-residual-6.md) -- the patient raw stage
+  reaches **zero** unclassified (84 -> 0), on six mechanisms and no Python
+  defect. Three header defects R cannot survive and Python does, all
+  `r_extraction_gap` (38 rows): a hospitalisation header opening with thirteen
+  spaces, two sheets whose header merges have been deleted so "Date" is no
+  longer qualified, and a column unheaded in both header rows. A date typed into
+  a numeric column (20), wired to ticket 24's existing
+  `openpyxl_date_typed_stray_cell` -- each serial decodes to exactly Python's
+  value. R keeping only the first selection of a merged multi-select block (2),
+  the new `r_duplicate_header_selection_dropped`, proven against R's own junk
+  column. And two harness defects fixed in `parse_date_flexible`: the month-name
+  truncation needed a word boundary a digit cannot give, so `July2014` (readxl
+  drops the rich-text space) had its day filled **from today** -- the comparison
+  was non-deterministic across run dates (11); and the Excel-serial ceiling
+  excluded Buddhist-Era serials, so `241062` was read as 24/10/62 rather than as
+  2560-01-01 (12, plus 363 rows `buddhist_era_typo` had been absorbing). The
+  ticket's own load-bearing question -- whether Python stamps the date sentinel
+  at the raw stage -- was answered no: Python's raw holds the verbatim
+  `on stamlor 5mg`, and the `9999-09-09` was the harness's own normalization.
+  Six source defects reported to [ticket
+  40](tickets/40-source-defect-findings-report.md); cleaned-stage residual
+  spawned as [ticket 51](tickets/51-triage-patient-cleaned-residual-4.md).
 - [Python drops complication-screening results and dates where a merged header
   spans the block](tickets/48-putrajaya-screening-columns-lost.md) -- a merged
   upper header now names every column its span covers, but **only where that
@@ -2447,6 +2529,17 @@ feature (ticket 16), takeable in any order.**
   conclusion, and a valuable finding rather than a failure to converge.
   Recorded in the map's Notes.
 
+- [Triage the residual patient raw-stage column mismatches (round 5)](tickets/49-triage-patient-raw-residual-5.md)
+  — patient raw-stage unclassified 229 -> 84, with no Python defect in it: two
+  comparison-tool defects fixed (the whitespace target list was derived from
+  the *cleaned* schema, so it never reached `dm_complications`, `insulin_injections`
+  or `hba1c_updated`; and R's `FALSE` vs Python's `False` for an Excel boolean,
+  confirmed absent at the cleaned stage) and two R limitations root-caused and
+  classified (`r_non_latin_header_miss` — R's Unicode-aware sanitizer keeps a
+  Thai translation appended to a header, so its exact `match()` drops the whole
+  column, 44 rows; and ticket 37's 2026 Annual-sheet gap reaching five more
+  columns, 41). Residual split into [ticket 50](tickets/50-triage-patient-raw-residual-6.md).
+
 ## Assumptions in force
 
 - **The glucose limits the pipeline enforces are the right ones.** A4D's
@@ -2502,6 +2595,26 @@ unverified, was confirmed rather than overturned by
 folded into Decisions so far above.)
 
 ## Not yet specified
+
+- Whether **Python's header/value sanitizer stripping non-Latin script** is
+  right everywhere, not just for headers. Found while closing [ticket
+  49](tickets/49-triage-patient-raw-residual-5.md): Python's `sanitize_str`
+  (`src/a4d/reference/synonyms.py`) reduces `[^a-z0-9]`, which is what lets it
+  match a header carrying a Thai translation where R fails -- clearly right
+  there. But the same function turns the province names `Kratié` -> `krati` and
+  `Takéo` -> `tako` (observed in `2022_Kantha Bopha`'s Look Up List), where R
+  keeps the accent. Nobody has measured whether province validation actually
+  compares sanitized forms on both sides, so it is unknown whether this is
+  harmless or silently rejects accented provinces. Not sharp enough to ticket
+  until that is measured -- [ticket
+  51](tickets/51-triage-patient-cleaned-residual-4.md) carries 57 cleaned-stage
+  `province` mismatches, which is where it would show, so that round is the
+  natural place to measure it.
+- Whether Python should emit the string error sentinel **`"Undefined"` where R
+  has null** on `clinic_visit`/`remote_followup`. Four cleaned-stage rows,
+  noticed while closing ticket 49 and out of that ticket's raw-stage scope.
+  Too small to ticket alone; likely belongs with whatever next works the
+  patient cleaned stage.
 
 - Whether the **numeric** conversion path should treat absence-written-as-a-
   word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
@@ -2682,6 +2795,14 @@ flowchart TB
     direction LR
     U48["<b>48</b><br/>Python drops<br/>complication-screening<br/>results and dates where<br/>a merged header spans<br/>the block"]
   end
+  subgraph S2026_08_18["Session 2026-08-18"]
+    direction LR
+    U49["<b>49</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
+  end
+  subgraph S2026_08_18b["Session 2026-08-18b"]
+    direction LR
+    U50["<b>50</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2696,7 +2817,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U49["<b>49</b><br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
+    U51["<b>51</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2728,7 +2849,9 @@ flowchart TB
   S2026_08_17b ~~~ S2026_08_17c
   S2026_08_17c ~~~ S2026_08_17d
   S2026_08_17d ~~~ S2026_08_17e
-  S2026_08_17e ~~~ Sopen
+  S2026_08_17e ~~~ S2026_08_18
+  S2026_08_18 ~~~ S2026_08_18b
+  S2026_08_18b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2766,7 +2889,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U49 --->|blocked| U12
+  U51 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -2804,13 +2927,15 @@ flowchart TB
   U45 -.->|spawned| U47
   U46 -.->|spawned| U48
   U46 -.->|spawned| U49
+  U49 -.->|spawned| U50
+  U50 -.->|spawned| U51
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U49 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U51 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

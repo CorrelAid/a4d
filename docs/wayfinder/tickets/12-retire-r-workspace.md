@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 49]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 51]
 assignee: null
 claimed_at: null
 resolution: null
@@ -161,3 +161,22 @@ right answer looks like -- confirmed by `2023_Chiang Mai`'s R output carrying
 the same propagated column names. [Round-5 patient raw
 triage](49-triage-patient-raw-residual-5.md) is now the single remaining
 blocker.
+
+**2026-08-18 (ticket 49 closed).** `blocked_by` swaps `49` for `50`. Ticket 49
+did not empty the patient raw-stage residual (229 -> 84) and, more to the
+point, needed `r-archive/`'s own source to close: root-causing the Mukdahan
+header gap meant reading `script1_helper_read_patient_data.R` and
+`script2_sanitize_str.R` and *running* R's sanitizer against the real header to
+confirm its Unicode behaviour. That is the same reason this ticket has waited
+each round -- [ticket 50](50-triage-patient-raw-residual-6.md) inherits it.
+
+## Premise update (session-2026-08-18b)
+
+[Round 6](50-triage-patient-raw-residual-6.md) closed and the patient **raw**
+stage is at **zero** unclassified mismatches -- the first stage of either arm to
+reach it. That does not unblock this ticket: the cleaned stage still carries
+7,967 unclassified mismatches across 27 columns, and that triage is exactly the
+kind that has repeatedly had to read `r-archive/`'s own source to root-cause a
+difference. `blocked_by` swaps `50` for [ticket
+51](51-triage-patient-cleaned-residual-4.md), the cleaned-stage round the raw
+work spawned. Same precedent as every swap above.

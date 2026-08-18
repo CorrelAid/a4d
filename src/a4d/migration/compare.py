@@ -106,6 +106,51 @@ def numeric_normalize_targets(df: pl.DataFrame, exclude: Sequence[str]) -> list[
     return [c for c in df.columns if c not in excluded and not c.startswith("__")]
 
 
+def normalize_boolean_literal_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Fold R's and Python's spellings of a boolean cell together.
+
+    Where a source cell holds a genuine Excel boolean, readxl reads a logical
+    and R writes it as ``FALSE``; openpyxl reads a Python ``bool`` and Python
+    writes it as ``False``. Only an actual Excel boolean produces both
+    spellings at once, so this is a language convention, not a divergence --
+    confirmed at the cleaned stage, where both sides already agree because
+    cleaning canonicalizes them (ticket 49: 20 raw-stage mismatches on
+    clinic_visit/remote_followup, 0 cleaned-stage). Only the exact literals
+    are folded, so free text that merely contains "false" is untouched.
+    """
+    if column not in df.columns:
+        return df
+    lowered = pl.col(column).str.to_lowercase()
+    return df.with_columns(
+        pl.when(lowered.is_in(["true", "false"]))
+        .then(lowered)
+        .otherwise(pl.col(column))
+        .alias(column)
+    )
+
+
+def whitespace_normalize_targets(df: pl.DataFrame, exclude: Sequence[str]) -> list[str]:
+    """Raw-stage columns to strip and line-ending-normalize before diffing.
+
+    Scoped like ``numeric_normalize_targets`` and for the same reason: the
+    cleaned patient schema, though derived rather than hand-written, is the
+    wrong source at the raw stage. ``get_string_columns()`` omits raw-only
+    columns entirely (``dm_complications`` has no cleaned equivalent) and
+    types as ``Float64`` columns the raw stage still holds as text
+    (``insulin_injections``, ``hba1c_updated``), so readxl's ``trim_ws`` and
+    its ``\\r\\n`` line endings kept surfacing on exactly those columns as
+    mismatches while every cleaned-schema string column was already handled.
+    Since the raw stage stores every value as text, the correct scope is
+    every string column.
+    """
+    excluded = set(exclude)
+    return [
+        name
+        for name, dtype in df.schema.items()
+        if name not in excluded and not name.startswith("__") and dtype == pl.String
+    ]
+
+
 def normalize_whitespace_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
     """Strip leading/trailing whitespace from a raw string column.
 
@@ -716,6 +761,29 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
       real source Excel (06 YGH T1D Tracker_June_26, Annual!G/H/I for
       MM_YG101: 2026-02-05, 100, 60).
 
+    Ticket 50 adds three more, each verified against the source workbook and
+    against R's own raw parquet, which carries the column R could not name:
+
+    - ``hospitalisation_date``/``hospitalisation_cause`` on 2022 Kantha Bopha:
+      the upper header cell (X71) opens with thirteen spaces, so R's merged
+      header starts with a space and its name sanitizer emits
+      ``xcurrentmonthhospitalisationdkahypootherdropdown``/``...date``, which no
+      synonym matches -- the same leading-space mechanism as ``edu_occ_updated``
+      above. The source plainly records "DKA" and a date (Sept'22!X92/Y92 for
+      KH_KB020, Nov'22 and Dec'22 for KH_KB113).
+    - ``fbg_updated_date`` on 2019 Preah Kossamak: the Jul19 and Aug19 sheets
+      lost the header merges every other month sheet still has (only B63:B64
+      survives), so the "Updated FBG" title no longer spans its "Date"
+      sub-header. R pastes the two header rows per column and is left with a
+      bare ``date`` column it cannot map; Python forward-fills the upper header
+      row and recovers the qualified name. Verified: Jul19!O66 = 2019-06-06 for
+      KH_PK002, exactly Python's value, and R has 0 non-null for both sheets
+      against Python's 13 and 12.
+    - ``clinic_visit`` on 2025 LWCH: the column holding the current-month visit
+      flag (D) has no header in *either* header row, so R drops it; Python
+      recovers the name from the sibling month sheets that do label it (ticket
+      30's ``recover_blank_headers``). Verified: Oct25!D90 = "Y" for MY_LW014.
+
     A genuine R limitation in every case, not a Python defect.
     """
     return m.r_value is None and m.py_value is not None
@@ -723,6 +791,62 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
 
 PATIENT_R_EXTRACTION_GAP_CLASSIFIERS: dict[str, Classifier] = {
     "r_extraction_gap": _is_r_extraction_gap,
+}
+
+
+def _is_r_duplicate_header_selection_dropped(m: CellMismatch) -> bool:
+    """R keeps only the first selection of a multi-select block; Python keeps all.
+
+    Where a merged screening header spans several "(Select)" sub-columns that
+    all map to one canonical name, R's ``make.names(unique = TRUE)`` suffixes
+    the duplicates and its mapping then keeps only the first -- verified in R's
+    own raw parquet for 2021 NPH, which carries the second selection in
+    ``complicationscreeningselect1`` rather than in ``complication_screening``.
+    Python unites the whole group (ticket 31), so it carries both. The source
+    records both (Dec21!AD84 "Dilated Eye Examination", AE84 "Foot Examination
+    (Nerves)" for KH_NP006), so Python is the correct side and R is losing a
+    recorded screening.
+
+    Fires only where R's value is exactly Python's own first selection, so a
+    group whose *kept* selection disagrees stays unclassified.
+    """
+    if m.r_value is None or m.py_value is None:
+        return False
+    py_parts = str(m.py_value).split(",")
+    return len(py_parts) > 1 and py_parts[0].strip() == str(m.r_value).strip()
+
+
+PATIENT_SCREENING_SELECTION_CLASSIFIERS: dict[str, Classifier] = {
+    "r_duplicate_header_selection_dropped": _is_r_duplicate_header_selection_dropped,
+}
+
+
+def _is_r_non_latin_header_miss(m: CellMismatch) -> bool:
+    """R's header sanitizer keeps non-Latin script, so its exact match fails.
+
+    ``harmonize_patient_data_columns`` (script1_helper_read_patient_data.R)
+    resolves a header by ``match()`` -- exact equality against the sanitized
+    synonym list -- after ``sanitize_str`` strips ``[^[:alnum:]]``. R's
+    character class is Unicode-aware, so a clinic that appends a local-language
+    translation to the English header keeps it: "Last Clinic \\nVisit\\n
+    <Thai>" sanitizes to ``lastclinicvisit<Thai>``, which equals no synonym, so
+    R drops the column and leaves every row null. Python's ``sanitize_str``
+    (src/a4d/reference/synonyms.py) strips to ``[^a-z0-9]`` instead, reducing
+    the same header to ``lastclinicvisit`` and matching.
+
+    Executed both implementations on the real header to confirm the divergence
+    rather than reading the two regexes. Verified against the real source Excel
+    (2022 Mukdahan, Mar22!F44/G44 carry Thai suffixes; F46 = 2022-02-17, which
+    is Python's 44609): Python recovers 44 real dates R discards. A genuine R
+    limitation, not a Python defect -- and the reason Python's own docstring
+    claim that its sanitizer "matches the R implementation" is not exactly
+    true here.
+    """
+    return m.r_value is None and m.py_value is not None
+
+
+PATIENT_NON_LATIN_HEADER_CLASSIFIERS: dict[str, Classifier] = {
+    "r_non_latin_header_miss": _is_r_non_latin_header_miss,
 }
 
 
@@ -1158,12 +1282,20 @@ def _is_r_na_unite_padding(m: CellMismatch) -> bool:
 
     Fires only when stripping the ``NA`` tokens from R's value leaves exactly
     Python's value, so a real disagreement inside the group stays unclassified.
+
+    Surviving parts are compared trimmed (ticket 50): Python trims each
+    sub-value before merging -- ticket 46's separately-verified
+    ``python_trims_merged_subvalue`` -- so where a source cell ends in a space
+    the two causes stack in one cell and neither explained it alone. Trimming
+    only ignores leading/trailing space per part, so an internal whitespace
+    difference (``r_drops_richtext_space``) still falls through to its own
+    cause.
     """
     if m.r_value is None or "NA" not in str(m.r_value):
         return False
-    stripped = [p for p in str(m.r_value).split(",") if p.strip() not in ("NA", "")]
+    stripped = [p.strip() for p in str(m.r_value).split(",") if p.strip() not in ("NA", "")]
     py_parts = [] if m.py_value is None else str(m.py_value).split(",")
-    return stripped == [p for p in py_parts if p.strip() != ""]
+    return stripped == [p.strip() for p in py_parts if p.strip() != ""]
 
 
 PATIENT_NA_UNITE_PADDING_CLASSIFIERS: dict[str, Classifier] = {

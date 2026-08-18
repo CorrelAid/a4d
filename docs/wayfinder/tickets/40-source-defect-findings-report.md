@@ -80,6 +80,33 @@ Concrete findings already waiting for such a report, all source-verified:
   `observations`. Python reads them correctly, so this is cosmetic for the
   pipeline -- but it is also why the same value exists in two forms in one
   column, which is worth flagging to whoever maintains the workbooks.
+- **More dates typed into numeric columns** ([ticket
+  50](50-triage-patient-raw-residual-6.md)), extending the ticket-46 entry
+  above with the two cells that finished the raw stage: `2023_Yangon General`
+  `Patient List!H76` for `MM_YC043_YG`, "Age at Diagnosis" holding a
+  `d-mmm-yyyy`-formatted 2017-05-04 (4 rows); `2021_Khon Kaen` `Mar21!P60` for
+  `TH_KN008`, "Testing Frequency (per day)" holding a `d-mmm`-formatted
+  2021-02-01 (1 row). Same verdict as the ticket-46 cases: no number is
+  recoverable, the cell needs a human.
+- **A clinical note typed into a date column** ([ticket
+  50](50-triage-patient-raw-residual-6.md)): `2022_Kantha Bopha`,
+  `May'22!Y161` and `Jun'22!Y161` for `KH_KB089`, the hospitalisation Date
+  column holding the text "on stamlor 5mg" -- a medication note, not a date.
+  Both pipelines carry the text through the raw stage unchanged.
+- **A Buddhist-Era year in a date cell that decodes to a plausible Gregorian
+  date** ([ticket 50](50-triage-patient-raw-residual-6.md)): `2022_Hat Yai`
+  `Patient List!G25` for `TH_HY013` holds 2560-01-01 in a `d-mmm-yyyy` cell.
+  The patient's own D.O.B. (2013-03-17), recruitment (2017-06-01) and age at
+  diagnosis (4) all agree the intended date is 2017, so BE 2560 is a typo, not
+  a different convention.
+- **Three more header defects Python works around and R does not** ([ticket
+  50](50-triage-patient-raw-residual-6.md)), each costing R real data and each
+  worth correcting at source: `2022_Kantha Bopha`'s month sheets open the
+  hospitalisation header (`X71`) with thirteen leading spaces; `2019_Preah
+  Kossamak`'s `Jul19` and `Aug19` sheets have lost every header merge the other
+  ten sheets still carry, leaving "Date" sub-headers unqualified (and a stray
+  `3` typed into `L63`); `2025_LWCH` leaves the current-month clinic-visit
+  column (`D`) unheaded in both header rows.
 - **113 product groups across 21 files where the computed closing balance
   contradicts the tracker's own recorded total** (`balance_reconciliation`,
   [ticket 36](36-triage-product-cleaned-unclassified-residual.md)).

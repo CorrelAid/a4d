@@ -54,8 +54,10 @@ from a4d.migration.compare import (
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    PATIENT_NON_LATIN_HEADER_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
+    PATIENT_SCREENING_SELECTION_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -76,12 +78,14 @@ from a4d.migration.compare import (
     build_summary_rows,
     compare_directory,
     compute_deltas,
+    normalize_boolean_literal_column,
     normalize_date_column,
     normalize_numeric_column,
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
     summarize_directory,
+    whitespace_normalize_targets,
 )
 
 # normalize_date_column (via a4d.clean.date_parser.parse_date_flexible) logs
@@ -245,6 +249,17 @@ PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS = ["product", "product_sheet_name", "f
 # comparison entirely rather than showing them as equal.
 PATIENT_WHITESPACE_NORMALIZE_COLS = get_patient_string_columns()
 
+# Ticket 49 widens this to every string column for the *raw* stage only, on
+# the same grounds ticket 43 widened the numeric list: get_patient_string_columns()
+# reads the cleaned schema, which cannot see a raw-only column
+# (dm_complications, no cleaned equivalent) and types as Float64 columns the
+# raw stage still holds as text (insulin_injections, hba1c_updated). Those
+# three were the entire residual of readxl's trim_ws and \r\n line endings at
+# the raw stage -- 40 of the 229 unclassified mismatches. The cleaned stage
+# keeps the schema-derived list: there the dtypes are real, and a column
+# typed Float64 genuinely holds floats rather than text.
+PATIENT_RAW_WHITESPACE_NORMALIZE_COLS = ALL_RAW_COLUMNS
+
 CLASSIFIERS_BY_COLUMN = {
     # ticket 28: R's static "Patient List" recruitment-date extraction fails
     # to populate recruitment_date for most patients even where the tracker
@@ -275,7 +290,13 @@ CLASSIFIERS_BY_COLUMN = {
     # sub-columns with the literal string "NA"; Python skips them. Derived,
     # not guessed: these are the only targets that form a duplicate group
     # anywhere in the 254-tracker set.
-    "complication_screening": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    # ticket 50 adds the multi-select cause: where the same merged block holds
+    # several "(Select)" sub-columns, R's duplicate-name suffixing keeps only
+    # the first. Checked after the padding cause, which is the more specific of
+    # the two (the shapes are disjoint -- R's value carries no NA token here).
+    "complication_screening": (
+        PATIENT_NA_UNITE_PADDING_CLASSIFIERS | PATIENT_SCREENING_SELECTION_CLASSIFIERS
+    ),
     "latest_complication_screenning": PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     # ticket 46: two whitespace causes in opposite directions -- readxl
     # dropping a whitespace-only rich-text run (verified in the source XML of
@@ -309,7 +330,10 @@ CLASSIFIERS_BY_COLUMN = {
     # value to carry and returns null. age shares the same shape on a
     # handful of rows. Verified against the real drive data.
     "bmi": EXCEL_FORMULA_ERROR_CLASSIFIERS,
-    "t1d_diagnosis_age": EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    # ticket 50 adds the stray-date cause: two trackers record a diagnosis
+    # *date* in this numeric column. Disjoint from the formula-error cause,
+    # which needs an Excel error string on R's side.
+    "t1d_diagnosis_age": EXCEL_FORMULA_ERROR_CLASSIFIERS | STRAY_DATE_CLASSIFIERS,
     "age": EXCEL_FORMULA_ERROR_CLASSIFIERS,
     # ticket 27: source-data typos where a clinician entered a Thai
     # Buddhist-Era year into a Gregorian date cell -- see
@@ -323,9 +347,51 @@ CLASSIFIERS_BY_COLUMN = {
     "blood_pressure_updated": (
         PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS
     ),
-    "fbg_updated_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
-    "last_clinic_visit_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
-    "hospitalisation_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    # ticket 50: 2019 Preah Kossamak's Jul19/Aug19 sheets lost the header merge
+    # that qualifies the FBG "Date" sub-header, so R is left with a bare `date`
+    # column it cannot map -- see _is_r_extraction_gap. That one file is the
+    # whole of the column's residual.
+    "fbg_updated_date": (PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS),
+    # ticket 49: 2022 Mukdahan appends Thai translations to both headers, which
+    # R's Unicode-aware sanitizer keeps and its exact match then misses -- see
+    # _is_r_non_latin_header_miss. Python recovers 44 real dates R drops.
+    "last_clinic_visit_date": (
+        PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_NON_LATIN_HEADER_CLASSIFIERS
+    ),
+    "last_remote_followup_date": PATIENT_NON_LATIN_HEADER_CLASSIFIERS,
+    # ticket 49, extending ticket 37's verified 2026 finding to the columns it
+    # did not reach: the 2026 template carries these on its new "Annual" sheet,
+    # which R reads no values from. Verified per column against the real source
+    # Excel (2026 ISDFI, Annual!E32/H32/I32/AD32 for PH_IS022: "college
+    # graduate", 80, 50, "for cataract surgery" -- exactly Python's values);
+    # every affected row across all five files is a 2026 tracker.
+    "blood_pressure_sys_mmhg": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    "blood_pressure_dias_mmhg": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    "edu_occ": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    "other_issues": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    "status": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    # ticket 50: the 2022 Kantha Bopha header opens with thirteen spaces, which
+    # defeats R's name sanitizer the way ticket 37's "Updated 2022" leading
+    # space did -- both columns of the block, so both carry the gap cause.
+    "hospitalisation_date": (
+        PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS
+    ),
+    "hospitalisation_cause": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    # ticket 50: 2025 LWCH leaves the current-month visit column unheaded in
+    # both header rows, so R drops it and Python recovers the name from the
+    # sibling month sheets (ticket 30). Disjoint from ticket 49's boolean
+    # spelling fold, which never leaves R null.
+    "clinic_visit": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
+    # ticket 50: a date typed into a non-date column. R's readxl coerces the
+    # whole column to its majority numeric type and carries the raw Excel
+    # serial; Python's openpyxl honours the cell's own date format. Verified
+    # source-side per column (2023 Chiang Mai Patient List!H14 and 2023 Yangon
+    # General Patient List!H76, both `mmm-yy`/`d-mmm-yyyy` formatted; 2020
+    # Mahosot Nov20!R152; 2021 Khon Kaen Mar21!P60) -- the same
+    # openpyxl_date_typed_stray_cell ticket 24 root-caused on the product arm,
+    # and a source defect reported for ticket 40 rather than a pipeline change.
+    "blood_pressure_mmhg": STRAY_DATE_CLASSIFIERS,
+    "testing_frequency": STRAY_DATE_CLASSIFIERS,
     "complication_screening_kidney_test_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "complication_screening_lipid_profile_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     "complication_screening_thyroid_test_date": PATIENT_BUDDHIST_ERA_CLASSIFIERS,
@@ -466,7 +532,11 @@ class Stage:
     ordinal_group_cols: list[str]
     date_normalize_cols: list[str] | None = None
     numeric_normalize_cols: list[str] | Sentinel | None = None
-    whitespace_normalize_cols: list[str] | None = None
+    whitespace_normalize_cols: list[str] | Sentinel | None = None
+    # Raw-stage-only (ticket 49): readxl writes an Excel boolean as FALSE,
+    # openpyxl as False. Cleaning already canonicalizes both, so the cleaned
+    # stage never sees it.
+    normalize_boolean_literals: bool = False
 
     @property
     def detect_row_order_divergence(self) -> bool:
@@ -504,7 +574,8 @@ STAGES = [
         ordinal_group_cols=PATIENT_KEY_COLS,
         date_normalize_cols=PATIENT_RAW_DATE_NORMALIZE_COLS,
         numeric_normalize_cols=PATIENT_RAW_NUMERIC_NORMALIZE_COLS,
-        whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
+        whitespace_normalize_cols=PATIENT_RAW_WHITESPACE_NORMALIZE_COLS,
+        normalize_boolean_literals=True,
     ),
     Stage(
         label="Patient (cleaned)",
@@ -561,10 +632,23 @@ def _compare_arm(r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison
     # which breaks normalize_whitespace_column's `.str.*` expressions on the
     # non-numeric residual if applied after -- stripping first keeps the
     # column `pl.String` for numeric normalization to then act on.
-    for column in stage.whitespace_normalize_cols or []:
-        for frames in (r_frames, py_frames):
-            for name, df in frames.items():
-                frames[name] = normalize_whitespace_column(df, column)
+    for frames in (r_frames, py_frames):
+        for name, df in frames.items():
+            if stage.whitespace_normalize_cols is ALL_RAW_COLUMNS:
+                # Resolved per frame, not once: raw parquets differ in which
+                # columns they carry, and a 2026 tracker holds columns a 2017
+                # one never had.
+                columns = whitespace_normalize_targets(df, exclude=[])
+            else:
+                columns = stage.whitespace_normalize_cols or []
+            for column in columns:
+                frames[name] = normalize_whitespace_column(frames[name], column)
+            # Boolean literals share whitespace's scope and must run before
+            # numeric normalization for the same reason: once a column widens
+            # to pl.Object the `.str.*` expressions no longer apply.
+            if stage.normalize_boolean_literals:
+                for column in columns:
+                    frames[name] = normalize_boolean_literal_column(frames[name], column)
     for frames in (r_frames, py_frames):
         for name, df in frames.items():
             if stage.numeric_normalize_cols is ALL_RAW_COLUMNS:

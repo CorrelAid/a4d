@@ -32,12 +32,25 @@ TYPO_REPLACEMENTS: list[tuple[str, str]] = [
 
 
 # Any month name written out beyond its 3-letter abbreviation, so it can be
-# truncated back to that abbreviation. Word-boundary-anchored so a longer word
-# that merely starts with a month name is left alone.
+# truncated back to that abbreviation. Anchored so a longer word that merely
+# starts with a month name is left alone. The tail is a negative lookahead
+# rather than \b (ticket 50): a digit is a word character, so \b never fires
+# between "July" and "2014" in a cell whose separating space was lost, and the
+# month-year branch below never saw such a value.
 MONTH_NAME_PATTERN = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+\b",
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+(?![a-z])",
     re.IGNORECASE,
 )
+
+
+# The largest serial still read as an Excel date, ~year 2600. Raised from
+# 100000 (year 2173) for the Buddhist-era typo (ticket 50): a BE year written
+# into a Gregorian date cell lands around 241,000-245,000, and below the old
+# ceiling those serials fell through to dateutil, which read "241062"
+# positionally as 24/10/62 -- a plausible-looking date the cell does not hold.
+# Deliberately well below the numeric error sentinel 999999 and the largest
+# observed non-date value (1,141,523), so a big count is still not a date.
+MAX_EXCEL_DATE_SERIAL = 256_000
 
 
 # The markers that mean "nothing was recorded here". Declared once and shared
@@ -161,7 +174,7 @@ def _parse_date_str(date_str: str) -> date | None:
     # Excel stores dates as number of days since 1899-12-30
     try:
         numeric_val = float(date_str)
-        if 1 < numeric_val < 100000:  # Reasonable range for Excel dates (1900-2173)
+        if 1 < numeric_val < MAX_EXCEL_DATE_SERIAL:
             days = int(numeric_val)
             result = EXCEL_EPOCH + timedelta(days=days)
             logger.debug(f"Parsed Excel serial {date_str} → {result}")
