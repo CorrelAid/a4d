@@ -861,7 +861,15 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
     """Validate date columns and replace future dates with error value.
 
     Dates beyond the tracker year are considered invalid and replaced with
-    the error date value (9999-09-09). This matches R pipeline behavior.
+    the error date value (9999-09-09).
+
+    This is a deliberate divergence from R, not a match for it: R has no
+    tracker-year or future-date bound on any date column, so it carries an
+    impossible date into its output unchanged (ticket 51 -- 2022 Vietnam
+    National Children's Hospital records every diagnosis date as a 2023 one,
+    for patients recruited in 2017). Sentinelling marks the value unusable
+    rather than inventing a plausible one; the workbook is what needs
+    correcting, which is why each rejection is also logged per patient.
 
     Args:
         df: Input DataFrame with date columns
