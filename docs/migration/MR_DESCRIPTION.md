@@ -32,16 +32,16 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 35 of 49 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 37 of 51 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 8,141 unclassified<br/>ticket 44"]
-    M["Patient raw: 229 unclassified<br/>ticket 49"]
+    L["Patient cleaned: 7,967 unclassified<br/>tickets 44, 51"]
+    M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["49 - patient raw triage, round 5"]
+    O["51 - patient cleaned triage, round 4"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -347,7 +347,15 @@ everything else. Three normalisers run per stage, on columns declared in the
   schema, which cannot name the Patient List join's `.static` copies or a
   measurement column typed as a string. *434 mismatches -> 0.*
 - `normalize_whitespace_column` — readxl's `trim_ws=TRUE` strips what openpyxl
-  keeps, and represents an embedded line break as `\r\n` vs `\n`.
+  keeps, and represents an embedded line break as `\r\n` vs `\n`. On the
+  patient raw stage its target columns come from each frame itself, for the
+  same reason as the numeric list: the cleaned schema cannot name a raw-only
+  column (`dm_complications`) and types as `Float64` columns the raw stage
+  still holds as text (`insulin_injections`, `hba1c_updated`). *40 mismatches
+  -> 0.*
+- `normalize_boolean_literal_column` — readxl writes an Excel boolean as
+  `FALSE`, openpyxl as `False`. Only the exact literals are folded. Raw stage
+  only; cleaning already canonicalizes both. *20 mismatches -> 0.*
 
 ## Cause classifiers
 
@@ -355,7 +363,8 @@ Every cell mismatch is run through a per-column registry and labelled with a
 cause, or left `unclassified`. ~20 classifiers exist, each named after the
 *mechanism* it identifies, e.g.:
 
-`r_extraction_gap`, `r_category_lookup_miss`, `r_insulin_dedup_drop`,
+`r_extraction_gap`, `r_non_latin_header_miss`, `r_category_lookup_miss`,
+`r_insulin_dedup_drop`,
 `r_join_suffix_collision`, `r_ifelse_na_propagation`, `r_date_error_sentinel`,
 `r_numeric_error_sentinel`, `row_order_divergence`,
 `derived_running_total_row_order`, `buddhist_era_typo`,
@@ -482,11 +491,11 @@ and should be read as historical.
 |---|---|---|
 | Product (raw) | 112 | **0** |
 | Product (cleaned) | 22,716 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 113,385 | 8,141 |
-| Patient (raw) | 26,617 | 229 (from 14,844) |
+| Patient (cleaned) | 113,385 | 7,967 |
+| Patient (raw) | 26,171 | **0** (from 14,844) |
 
-The product arm is fully triaged on both stages. Patient's cleaned stage is
-down 88%; patient's raw stage is the remaining body of work.
+Three of the four stages are fully triaged. Patient's cleaned stage is down
+88% and is the remaining body of work.
 
 ---
 
@@ -499,10 +508,9 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **49 — patient raw triage, round 5.** The 229 remaining unclassified
-  raw-stage mismatches across 22 columns, none larger than 40. Roughly half are
-  R-null-Python-has-a-value, which needs per-column source verification rather
-  than one blanket classifier.
+- **51 — patient cleaned triage, round 4.** The 7,967 remaining unclassified
+  cleaned-stage mismatches across 27 columns and 129 files, excluding the FBG
+  population ticket 44 already owns. The date family is the largest block.
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
   9 identities in total, row counts preserved. R does the same, so the
@@ -531,8 +539,9 @@ Nothing here blocks review of the code — it blocks the merge.
 **Blocked**
 
 - **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
-  on 48 and 49: triage has repeatedly needed to read R's actual source to
-  root-cause a mismatch, not just diff its output.
+  on 50: triage has repeatedly needed to read R's actual source to root-cause a
+  mismatch, not just diff its output — ticket 49 had to *run* R's own
+  `sanitize_str` against a real header to confirm its Unicode behaviour.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
   after promotion.

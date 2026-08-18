@@ -519,6 +519,39 @@ def test_parse_date_flexible_handles_full_month_names():
     assert parse_date_flexible("Sept-19") == date(2019, 9, 1)
 
 
+def test_parse_date_flexible_handles_a_month_name_run_into_its_year():
+    """readxl drops a whitespace-only rich-text run, so "July 2014" reaches the
+    comparison as "July2014" (ticket 50, 2017 Yangon Children's Feb17!I66).
+
+    The month-name truncation required a word boundary after the name, which a
+    following digit does not provide, so the month-year branch never saw it and
+    dateutil filled the day from *today* -- the same run-date dependence ticket
+    37 removed from the spaced form.
+    """
+    assert parse_date_flexible("July2014") == date(2014, 7, 1)
+    assert parse_date_flexible("Jan2012") == date(2012, 1, 1)
+    assert parse_date_flexible("May2015") == date(2015, 5, 1)
+
+
+def test_parse_date_flexible_reads_a_buddhist_era_serial_as_the_date_it_encodes():
+    """A Thai Buddhist-Era year typed into a Gregorian date cell produces an
+    Excel serial far above a plausible Gregorian one (ticket 50, 2022 Hat Yai
+    Patient List!G25 holds 2560-01-01, serial 241062).
+
+    Below the raised ceiling it fell through to dateutil, which read the digits
+    positionally as 24/10/62 -- a plausible-looking date that is not what the
+    cell holds. The cleaned stage's own future-date guard still sentinels it.
+    """
+    assert parse_date_flexible("241062") == date(2560, 1, 1)
+    assert parse_date_flexible("243498") == date(2566, 9, 2)
+
+
+def test_parse_date_flexible_still_rejects_a_number_too_large_to_be_a_date():
+    """The numeric error sentinel and other large counts must not become dates."""
+    assert parse_date_flexible("999999") == date(9999, 9, 9)
+    assert parse_date_flexible("1141523") == date(9999, 9, 9)
+
+
 def test_parse_date_flexible_recovers_a_date_followed_by_free_text():
     """Hospitalisation cells carry a clause after the date. The prefix
     fallback must reach the date without a bare month name completing itself

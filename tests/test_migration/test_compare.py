@@ -16,8 +16,10 @@ from a4d.migration.compare import (
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
+    PATIENT_NON_LATIN_HEADER_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
+    PATIENT_SCREENING_SELECTION_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
     PRODUCT_ENTRY_DATE_CLASSIFIERS,
@@ -55,12 +57,14 @@ from a4d.migration.compare import (
     compare_shape,
     compare_totals,
     compute_deltas,
+    normalize_boolean_literal_column,
     normalize_date_column,
     normalize_numeric_column,
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
     summarize_directory,
+    whitespace_normalize_targets,
 )
 
 
@@ -177,6 +181,28 @@ class TestNumericNormalizeTargets:
         assert numeric_normalize_targets(df, exclude=[]) == ["weight"]
 
 
+class TestWhitespaceNormalizeTargets:
+    def test_includes_a_raw_only_column_absent_from_the_cleaned_schema(self):
+        df = pl.DataFrame({"patient_id": ["A"], "dm_complications": ["Kidney \r\nDamage"]})
+
+        assert "dm_complications" in whitespace_normalize_targets(df, exclude=["patient_id"])
+
+    def test_includes_a_column_the_cleaned_schema_types_as_numeric(self):
+        df = pl.DataFrame({"patient_id": ["A"], "insulin_injections": ["  "]})
+
+        assert "insulin_injections" in whitespace_normalize_targets(df, exclude=["patient_id"])
+
+    def test_excludes_non_string_columns(self):
+        df = pl.DataFrame({"weight": [31.5], "edu_occ": ["college "]})
+
+        assert whitespace_normalize_targets(df, exclude=[]) == ["edu_occ"]
+
+    def test_excludes_synthetic_join_helper_columns(self):
+        df = pl.DataFrame({"__key_patient_id": ["A"], "edu_occ": ["college "]})
+
+        assert whitespace_normalize_targets(df, exclude=[]) == ["edu_occ"]
+
+
 class TestNormalizeWhitespaceColumn:
     def test_strips_leading_and_trailing_whitespace(self):
         df = pl.DataFrame({"product": ["WIZ Twist Lancets (25s)\t"]})
@@ -226,6 +252,36 @@ class TestNormalizeWhitespaceColumn:
         result = normalize_whitespace_column(df, "product")
 
         assert result.columns == ["other"]
+
+
+class TestNormalizeBooleanLiteralColumn:
+    def test_r_and_python_boolean_spellings_compare_equal(self):
+        r_df = pl.DataFrame({"clinic_visit": ["FALSE", "TRUE"]})
+        py_df = pl.DataFrame({"clinic_visit": ["False", "True"]})
+
+        r_result = normalize_boolean_literal_column(r_df, "clinic_visit")
+        py_result = normalize_boolean_literal_column(py_df, "clinic_visit")
+
+        assert r_result["clinic_visit"].to_list() == py_result["clinic_visit"].to_list()
+
+    def test_leaves_ordinary_text_untouched(self):
+        df = pl.DataFrame({"observations": ["Nil", "false alarm reported"]})
+
+        result = normalize_boolean_literal_column(df, "observations")
+
+        assert result["observations"].to_list() == ["Nil", "false alarm reported"]
+
+    def test_passes_through_null(self):
+        df = pl.DataFrame({"clinic_visit": [None]}, schema={"clinic_visit": pl.Utf8})
+
+        result = normalize_boolean_literal_column(df, "clinic_visit")
+
+        assert result["clinic_visit"].to_list() == [None]
+
+    def test_is_a_no_op_when_the_column_is_absent(self):
+        df = pl.DataFrame({"other": [1, 2]})
+
+        assert normalize_boolean_literal_column(df, "clinic_visit").columns == ["other"]
 
 
 class TestAddRowOrdinal:
@@ -812,6 +868,40 @@ class TestClassify:
 
         assert classify(mismatch, PATIENT_R_EXTRACTION_GAP_CLASSIFIERS) == "r_extraction_gap"
 
+    def test_screening_selection_dropped_when_r_keeps_only_the_first_selection(self):
+        """Ticket 50, 2021 NPH Dec21 KH_QE006: AD84/AE84 are two "(Select)"
+        sub-columns of one merged block; R's own raw output parks the second in
+        ``complicationscreeningselect1`` and maps only the first."""
+        mismatch = _mismatch(
+            r_value="Dilated Eye Examination",
+            py_value="Dilated Eye Examination,Foot Examination (Nerves)",
+            column="complication_screening",
+        )
+
+        assert (
+            classify(mismatch, PATIENT_SCREENING_SELECTION_CLASSIFIERS)
+            == "r_duplicate_header_selection_dropped"
+        )
+
+    def test_screening_selection_unclassified_when_the_kept_selection_differs(self):
+        """R's value must be Python's own first selection, not merely shorter."""
+        mismatch = _mismatch(
+            r_value="Foot Examination (Nerves)",
+            py_value="Dilated Eye Examination,Foot Examination (Nerves)",
+            column="complication_screening",
+        )
+
+        assert classify(mismatch, PATIENT_SCREENING_SELECTION_CLASSIFIERS) == "unclassified"
+
+    def test_screening_selection_unclassified_when_python_adds_nothing(self):
+        mismatch = _mismatch(
+            r_value="Dilated Eye Examination",
+            py_value="Dilated Eye Examination",
+            column="complication_screening",
+        )
+
+        assert classify(mismatch, PATIENT_SCREENING_SELECTION_CLASSIFIERS) == "unclassified"
+
     def test_recruitment_date_unclassified_when_both_sides_null(self):
         mismatch = _mismatch(r_value=None, py_value=None, column="recruitment_date")
 
@@ -1007,6 +1097,18 @@ class TestClassify:
     def test_r_na_unite_padding_when_several_sub_columns_are_populated(self):
         mismatch = _mismatch(
             r_value="NA,JAN,NA,FEB,NA", py_value="JAN,FEB", column="complication_screening"
+        )
+
+        assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "r_na_unite_padding"
+
+    def test_r_na_unite_padding_when_python_trimmed_a_sub_value_before_merging(self):
+        """Ticket 50, 2020 Kantha Bopha Dec20 KH_QD040: the padding cause and
+        ticket 46's verified ``python_trims_merged_subvalue`` stack in one cell,
+        so neither explained it while the parts were compared untrimmed."""
+        mismatch = _mismatch(
+            r_value="collection in January ,NA",
+            py_value="collection in January",
+            column="observations",
         )
 
         assert classify(mismatch, PATIENT_NA_UNITE_PADDING_CLASSIFIERS) == "r_na_unite_padding"
@@ -1869,3 +1971,25 @@ class TestClassifyColumnDivergence:
             classify_column_divergence("only in R", "na", {"na"}, {"N/A"})
             == "r_blank_header_artifact"
         )
+
+
+class TestNonLatinHeaderMiss:
+    def test_flags_r_null_where_python_read_the_column(self):
+        m = CellMismatch(
+            key="__key_patient_id=TH_QE001",
+            column="last_clinic_visit_date",
+            r_value=None,
+            py_value="44609",
+        )
+
+        assert PATIENT_NON_LATIN_HEADER_CLASSIFIERS["r_non_latin_header_miss"](m)
+
+    def test_does_not_fire_when_both_sides_read_the_column(self):
+        m = CellMismatch(
+            key="__key_patient_id=TH_QE001",
+            column="last_clinic_visit_date",
+            r_value="44600",
+            py_value="44609",
+        )
+
+        assert not PATIENT_NON_LATIN_HEADER_CLASSIFIERS["r_non_latin_header_miss"](m)
