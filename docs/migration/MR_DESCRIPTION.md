@@ -35,7 +35,7 @@ flowchart TD
   subgraph TRIAGE["R/Python triage - 37 of 51 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 7,967 unclassified<br/>tickets 44, 51"]
+    L["Patient cleaned: 5,474 unclassified<br/>tickets 44, 52"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
@@ -370,7 +370,8 @@ cause, or left `unclassified`. ~20 classifiers exist, each named after the
 `derived_running_total_row_order`, `buddhist_era_typo`,
 `python_canonical_label`, `python_future_date_sentinel`,
 `stray_date_zeroed`, `wide_format_fragment`, `r_drops_richtext_space`,
-`python_trims_merged_subvalue`.
+`python_trims_merged_subvalue`, `r_ymd_first_misparse`,
+`python_rejects_beyond_tracker_year`, `r_unicode_sanitizer_rejects_accent`.
 
 **`unclassified` is the number that matters.** A classifier records that a
 difference is *understood*, not that Python won. Where a difference is
@@ -508,9 +509,22 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **51 — patient cleaned triage, round 4.** The 7,967 remaining unclassified
-  cleaned-stage mismatches across 27 columns and 129 files, excluding the FBG
-  population ticket 44 already owns. The date family is the largest block.
+- **52 — patient cleaned triage, round 5.** 2,538 in-scope cells left after
+  round 4 cut the residual in half (whole cleaned stage 7,967 -> 5,474),
+  excluding the FBG population ticket 44 already owns. `t1d_diagnosis_age`
+  (558) is the largest untouched shape; ~533 date cells are parse failures
+  where Python refused the source and R guessed, part of which is ticket 39's
+  open question about dates buried in clinical notes.
+
+  Round 4 landed three causes, all verified in the source workbooks:
+  `r_ymd_first_misparse` (1,714 — R's `parse_date_string` orders `ymd` before
+  `dmy`, reading `30.1.18` as 2030-01-18 and putting 1,236 cells in the future
+  relative to their own tracker year), `python_rejects_beyond_tracker_year`
+  (722 — a deliberate Python guard R has no equivalent of, which exposed 2022
+  VNCH recording every diagnosis date as a 2023 one for patients recruited in
+  2017), and `r_unicode_sanitizer_rejects_accent` (57 — R's `[^[:alnum:]]`
+  keeps accents where Python's `[^a-z0-9]` folds them, so Python recovers a
+  province R discards).
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
   9 identities in total, row counts preserved. R does the same, so the
