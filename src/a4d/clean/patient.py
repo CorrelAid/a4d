@@ -848,7 +848,11 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
         pl.when(has_recorded_age)
         .then(pl.col("t1d_diagnosis_age"))
         .when(valid_dob & valid_diagnosis)
-        .then(calculated_age)
+        # A negative result means the tracker dates contradict each other --
+        # diagnosis recorded before birth (ticket 52). The derivation has
+        # nothing to say about such a row, and emitting the arithmetic put
+        # impossible ages into production output.
+        .then(pl.when(calculated_age >= 0).then(calculated_age).otherwise(None))
         .otherwise(None)
         .cast(pl.Int32)
         .alias("t1d_diagnosis_age")

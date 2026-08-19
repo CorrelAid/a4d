@@ -47,7 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T52["<b>52</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
+    T53["<b>53</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 38"]
+  subgraph DECIDED["Decided · 39"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -95,6 +95,7 @@ flowchart TD
     T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
     T50["<b>50</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
     T51["<b>51</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
+    T52["<b>52</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -137,14 +138,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T52 --> T12
+  T53 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T52 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T53 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1869,6 +1870,34 @@ HITL question. Ticket 12's `blocked_by` swaps `51` for `52` on the same standing
 precedent: R cannot be retired while triage still has to read `r-archive/` to
 root-cause a difference, which is exactly what this round did three times.
 
+**[Round 5](tickets/52-triage-patient-cleaned-residual-5.md) is now closed, and
+it broke the pattern of the four rounds before it: its largest shape was not a
+divergence to explain but two real Python bugs to fix.** A bare four-digit year
+typed into a date cell -- 590 `dob` cells and 425 `t1d_diagnosis_date` cells
+across nine trackers -- was read as an Excel serial and became a 1905 date,
+which drove `age` to the 999999 sentinel and `t1d_diagnosis_age` to -95; and
+the diagnosis-age derivation emitted negative ages where a source workbook
+records a diagnosis before the birth date. Both are fixed and both were in
+production BigQuery. The cleaned output now holds zero pre-1930 birth dates and
+zero negative diagnosis ages, where it held 590 and 264.
+
+Two things worth carrying forward. First, **fixing the parser alone was not
+enough and the map's own instrument said so**: it left one file (2019 Yangon
+Children's, the only one whose D.O.B. column is date-formatted) unrecovered and
+produced a 163-cell regression at the raw stage, where six earlier rounds had
+reached zero. That regression is what located the extraction half of the bug;
+the raw stage is back to 0 unclassified. Second, **the in-scope count can rise
+when Python gets more correct** -- recovering the years made Python disagree
+with R on two derived columns that had previously agreed on a shared wrong
+answer -- so the number alone is not the progress signal, and a round that
+raises it may be the round that did the most.
+
+What is left became [round 6](tickets/53-triage-patient-cleaned-residual-6.md):
+2,278 in-scope cells, now led by `hospitalisation_date` (546) and the
+parse-failure date family, blood pressure (491), the 298 diagnosis-age cells
+that did *not* trace to a bare year, and the long tail. Ticket 12's
+`blocked_by` swaps `52` for `53` on the same standing precedent.
+
 ## Decisions so far
 
 - [Triage the residual patient raw-stage column mismatches (round
@@ -2591,6 +2620,28 @@ root-cause a difference, which is exactly what this round did three times.
   it does not, and now says so. Residual split into [ticket
   52](tickets/52-triage-patient-cleaned-residual-5.md).
 
+- [Triage the residual patient cleaned-stage mismatches (round
+  5)](tickets/52-triage-patient-cleaned-residual-5.md) — in-scope residual
+  2,538 -> 2,278, and the largest shape turned out to be **two real Python
+  bugs, not a labelling job**. A bare four-digit year typed into a date cell
+  was read as an Excel serial and became a 1905 date: 590 `dob` cells across
+  four Yangon Children's trackers, 425 `t1d_diagnosis_date` cells across five
+  more clinics, driving `age` to the 999999 sentinel and `t1d_diagnosis_age`
+  to -95. Fixed in **both** places the misreading happens — the bare-year
+  window in `parse_date_flexible`, and `_IMPOSSIBLE_DATE_BEFORE` raised
+  1903 -> 1906 in `read_patient_rows` for the one file whose column is
+  date-formatted. Python is right on the source's own evidence: Sarawak
+  General writes the same patients' diagnoses as real 1-January dates in its
+  2024 workbook and as bare years in 2025/2026. Separately,
+  `_fix_t1d_diagnosis_age` emitted **negative** ages (25 cells) where the
+  source records a diagnosis before the birth date — the workbook's own
+  formula says `#NUM!` — now nulled, and a ticket 40 finding. Two classifiers
+  landed (`python_reads_bare_year` 1,166, `python_age_from_bare_year` 992),
+  the second on a new row-level `row_has_bare_year_date` flag rather than on
+  the derived values' shape. Cleaned output now holds zero pre-1930 birth
+  dates and zero negative diagnosis ages. Residual split into [round
+  6](tickets/53-triage-patient-cleaned-residual-6.md).
+
 ## Assumptions in force
 
 - **The glucose limits the pipeline enforces are the right ones.** A4D's
@@ -2659,12 +2710,6 @@ folded into Decisions so far above.)
   nobody has measured how many provinces across how many trackers are written
   this way, or whether an `aliases` entry is the right fix. Not sharp enough to
   ticket until that is measured.
-
-- Whether Python should emit the string error sentinel **`"Undefined"` where R
-  has null** on `clinic_visit`/`remote_followup`. Four cleaned-stage rows,
-  noticed while closing ticket 49 and out of that ticket's raw-stage scope.
-  Too small to ticket alone; likely belongs with whatever next works the
-  patient cleaned stage.
 
 - Whether the **numeric** conversion path should treat absence-written-as-a-
   word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
@@ -2857,6 +2902,10 @@ flowchart TB
     direction LR
     U51["<b>51</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
   end
+  subgraph S2026_08_19b["Session 2026-08-19b"]
+    direction LR
+    U52["<b>52</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2871,7 +2920,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U52["<b>52</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
+    U53["<b>53</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2906,7 +2955,8 @@ flowchart TB
   S2026_08_17e ~~~ S2026_08_18
   S2026_08_18 ~~~ S2026_08_18b
   S2026_08_18b ~~~ S2026_08_19
-  S2026_08_19 ~~~ Sopen
+  S2026_08_19 ~~~ S2026_08_19b
+  S2026_08_19b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2944,7 +2994,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U52 --->|blocked| U12
+  U53 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -2985,13 +3035,14 @@ flowchart TB
   U49 -.->|spawned| U50
   U50 -.->|spawned| U51
   U51 -.->|spawned| U52
+  U52 -.->|spawned| U53
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U52 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U53 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

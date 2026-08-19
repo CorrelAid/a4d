@@ -546,6 +546,20 @@ def test_parse_date_flexible_reads_a_buddhist_era_serial_as_the_date_it_encodes(
     assert parse_date_flexible("243498") == date(2566, 9, 2)
 
 
+def test_parse_date_flexible_reads_a_bare_year_as_the_first_of_that_year():
+    """A bare four-digit year typed into a date cell is a year, not an Excel
+    serial (ticket 52, Sarawak General Hospital Patient List!G10 holds 2011).
+
+    As a serial it lands in 1905, which no tracker records, and the derived
+    t1d_diagnosis_age went negative. The same clinic wrote the same patients'
+    diagnoses as real 2011-01-01 dates in its 2024 workbook, so the first of
+    January is the clinic's own convention for a year without a day.
+    """
+    assert parse_date_flexible("2011") == date(2011, 1, 1)
+    assert parse_date_flexible("1994") == date(1994, 1, 1)
+    assert parse_date_flexible("2017.0") == date(2017, 1, 1)
+
+
 def test_parse_date_flexible_still_rejects_a_number_too_large_to_be_a_date():
     """The numeric error sentinel and other large counts must not become dates."""
     assert parse_date_flexible("999999") == date(9999, 9, 9)

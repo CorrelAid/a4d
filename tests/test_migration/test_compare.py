@@ -10,6 +10,8 @@ from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     GROUP_INVARIANT_PRODUCT_COLUMNS,
+    PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS,
+    PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
@@ -1996,6 +1998,92 @@ class TestNonLatinHeaderMiss:
         )
 
         assert not PATIENT_NON_LATIN_HEADER_CLASSIFIERS["r_non_latin_header_miss"](m)
+
+
+class TestPythonReadsBareYear:
+    """Ticket 52: a bare four-digit year typed into a date cell."""
+
+    def test_flags_the_year_r_read_as_a_1905_serial(self):
+        # Sarawak Patient List!G10 holds 2011. R reads it as Excel serial
+        # 2011 -> 1905-07-03; Python reads the year and resolves it to 1 Jan.
+        m = CellMismatch(
+            key="__key_patient_id=MY_SW001",
+            column="t1d_diagnosis_date",
+            r_value=datetime.date(1905, 7, 3),
+            py_value=datetime.date(2011, 1, 1),
+        )
+
+        assert classify(m, PATIENT_BARE_YEAR_CLASSIFIERS) == "python_reads_bare_year"
+
+    def test_flags_a_bare_birth_year(self):
+        # 2018 Yangon Children's writes MM_YC005's D.O.B. as 2003.
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC005",
+            column="dob",
+            r_value=datetime.date(1905, 6, 25),
+            py_value=datetime.date(2003, 1, 1),
+        )
+
+        assert classify(m, PATIENT_BARE_YEAR_CLASSIFIERS) == "python_reads_bare_year"
+
+    def test_ignores_a_first_of_january_r_did_not_read_as_that_serial(self):
+        # Both sides parsed a real date; the serial arithmetic must not match.
+        m = CellMismatch(
+            key="__key_patient_id=MY_SW004",
+            column="t1d_diagnosis_date",
+            r_value=datetime.date(2012, 6, 16),
+            py_value=datetime.date(2012, 1, 1),
+        )
+
+        assert classify(m, PATIENT_BARE_YEAR_CLASSIFIERS) == "unclassified"
+
+
+class TestPythonAgeFromBareYear:
+    """Ticket 52: the ages derived from a bare-year date."""
+
+    def test_flags_an_age_on_a_row_carrying_a_bare_year_date(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC005",
+            column="age",
+            r_value=999999.0,
+            py_value=15.0,
+            row_has_bare_year_date=True,
+        )
+
+        assert classify(m, PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS) == "python_age_from_bare_year"
+
+    def test_ignores_the_same_shape_without_a_bare_year_date_on_the_row(self):
+        m = CellMismatch(
+            key="__key_patient_id=MM_YC099",
+            column="age",
+            r_value=999999.0,
+            py_value=15.0,
+        )
+
+        assert classify(m, PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS) == "unclassified"
+
+    def test_compare_cells_sets_the_flag_across_the_whole_row(self):
+        # dob carries the bare year; age is derived from it and must inherit
+        # the flag even though its own values say nothing about a serial.
+        r_df = pl.DataFrame(
+            {
+                "patient_id": ["MM_YC005"],
+                "dob": [datetime.date(1905, 6, 25)],
+                "age": [999999.0],
+            }
+        )
+        py_df = pl.DataFrame(
+            {
+                "patient_id": ["MM_YC005"],
+                "dob": [datetime.date(2003, 1, 1)],
+                "age": [15.0],
+            }
+        )
+
+        by_col = {m.column: m for m in compare_cells(r_df, py_df, ["patient_id"])}
+
+        assert by_col["dob"].row_has_bare_year_date
+        assert by_col["age"].row_has_bare_year_date
 
 
 class TestRYmdFirstMisparse:

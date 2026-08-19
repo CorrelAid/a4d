@@ -341,6 +341,27 @@ class TestFixT1dDiagnosisAge:
         # 2020 - 2005 = 15, August > March so no adjustment
         assert result["t1d_diagnosis_age"][0] == 15
 
+    def test_diagnosis_before_birth_returns_null(self):
+        """A diagnosis date earlier than the birth date is a source
+        contradiction, so the derived age is meaningless (ticket 52).
+
+        2023 Likas Women & Children's records MY_LW004 as born 2016-08-17 and
+        diagnosed 2015-05-29; the workbook's own age formula resolves to
+        #NUM!. Deriving anyway emitted -2 into BigQuery.
+        """
+        df = pl.DataFrame(
+            {
+                "patient_id": ["P001"],
+                "dob": [date(2016, 8, 17)],
+                "t1d_diagnosis_date": [date(2015, 5, 29)],
+                "t1d_diagnosis_age": [None],
+            }
+        )
+
+        result = _fix_t1d_diagnosis_age(df)
+
+        assert result["t1d_diagnosis_age"][0] is None
+
     def test_missing_dob_returns_null(self):
         """Should return null if DOB is missing."""
         df = pl.DataFrame(

@@ -230,6 +230,21 @@ class TestReadPatientRows:
 
         wb.close()
 
+    def test_recovers_a_bare_year_typed_into_a_date_formatted_cell(self):
+        """2019 Yangon Children's Patient List!F, MM_YC005: the D.O.B. cell
+        holds the bare year 2003 under a date format, so openpyxl resolves
+        serial 2003 to 25-Jun-1905 and the year is lost before cleaning can
+        read it (ticket 52). Its 2017, 2018 and 2020 siblings leave the same
+        cell General-formatted, so only this one file was affected."""
+        wb, ws = self._sheet([[1, "MM_YC005", "MM_YC005", None]])
+        ws.cell(row=1, column=4, value=datetime.datetime(1905, 6, 25))
+
+        rows = read_patient_rows(ws, 1, 4)
+
+        assert rows[0][3] == 2003
+
+        wb.close()
+
     def test_keeps_a_date_that_could_plausibly_have_been_typed(self):
         """The inverse case, already settled for product as
         openpyxl_date_typed_stray_cell: a real date landing in the wrong

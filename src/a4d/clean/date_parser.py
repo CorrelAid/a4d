@@ -53,6 +53,17 @@ MONTH_NAME_PATTERN = re.compile(
 MAX_EXCEL_DATE_SERIAL = 256_000
 
 
+# A whole number in this window is a year the clinic typed instead of a date,
+# not an Excel serial (ticket 52). Read as a serial it lands in 1905, which no
+# tracker records anything from, so the two readings cannot collide. Resolved
+# to 1 January: Sarawak General Hospital wrote the same patients' diagnoses as
+# real 1-January dates in its 2024 workbook and as bare years in 2025/2026, so
+# that is the clinic's own convention for a year with no day. The upper bound
+# stays below the Buddhist-era serials (~241,000) the ceiling above admits.
+BARE_YEAR_MIN = 1900
+BARE_YEAR_MAX = 2100
+
+
 # The markers that mean "nothing was recorded here". Declared once and shared
 # with safe_convert_column (clean/converters.py), which carried its own copy:
 # the two drifted, and a date cell holding "-" or "N/A" reached the error
@@ -174,6 +185,10 @@ def _parse_date_str(date_str: str) -> date | None:
     # Excel stores dates as number of days since 1899-12-30
     try:
         numeric_val = float(date_str)
+        if numeric_val.is_integer() and BARE_YEAR_MIN <= numeric_val <= BARE_YEAR_MAX:
+            result = date(int(numeric_val), 1, 1)
+            logger.debug(f"Parsed bare year {date_str} → {result}")
+            return result
         if 1 < numeric_val < MAX_EXCEL_DATE_SERIAL:
             days = int(numeric_val)
             result = EXCEL_EPOCH + timedelta(days=days)
