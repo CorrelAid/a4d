@@ -1460,6 +1460,99 @@ PATIENT_BARE_YEAR_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_month_name_truncated_to_year(m: CellMismatch) -> bool:
+    """A spelled-out month-year cell R keeps only the year of.
+
+    ``parse_dates`` (script2_helper_patient_data_fix.R) shortens any word of
+    four or more letters with ``sub("([[:alpha:]]{3})[[:alpha:]]", "\\\\1", date)``,
+    which deletes the *fourth* letter and leaves the rest of the word standing:
+    executed against R 4.5, "April-17" becomes "Aprl-17" and "August,2015"
+    becomes "Augst,2015". Neither is a month lubridate recognises, so
+    ``parse_date_time`` walks its order list down to the final ``"y"`` and
+    returns 1 January of the year -- 2017-01-01 and 2015-01-01, which is
+    exactly what R's frozen output carries for those cells.
+
+    Python is right: ``parse_date_flexible``'s ``MONTH_NAME_PATTERN`` truncates
+    the same names to a real abbreviation and its month-year branch resolves
+    them to the first of the month the clinic actually wrote. Verified by
+    running R's own truncation and order list over the source strings taken
+    from the raw parquet (ticket 56), not inferred from the shape of the diff.
+
+    The test is that R sits on 1 January of the same year Python read a
+    later month for. Python landing on 1 January too is the bare-year cause
+    above, and is excluded.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None:
+        return False
+    if (r_date.month, r_date.day) != (1, 1) or r_date.year != py_date.year:
+        return False
+    return py_date.day == 1 and py_date.month != 1
+
+
+PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS: dict[str, Classifier] = {
+    "r_month_name_truncated_to_year": _is_r_month_name_truncated_to_year,
+}
+
+
+def _is_r_reads_day_as_month(m: CellMismatch) -> bool:
+    """A month name R cannot read, so it reads the day number as the month.
+
+    Once the alphabetic token fails, ``parse_date_time``'s order list reaches
+    ``"my"``, which reads the two remaining numbers as month and year. The day
+    is promoted to a month and the day itself is invented as the 1st: executed
+    against R, "9-Dce-20" gives 2020-09-01, "11-Mach-20" gives 2020-11-01,
+    "4-Okt-2023" gives 2023-04-01 and "10-MAC-2026" gives 2026-10-01 -- every
+    one matching R's frozen output for that cell.
+
+    The month names behind this are two dropped or transposed letters ("Dce",
+    "ug"), R's own inability to keep "Mach" once truncation has run, and the
+    Bahasa Malaysia spellings the Malaysian clinics write ("Mac", "Mei",
+    "Okt"). Python is right on all of them: ``TYPO_REPLACEMENTS`` now maps each
+    to its English abbreviation before parsing (ticket 56), so Python publishes
+    the date the clinic wrote where R publishes a month it derived from the day.
+
+    The test is that arithmetic identity -- R on the first of a month whose
+    number is Python's day, in the same year.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None:
+        return False
+    if SENTINEL_DATE in (r_date, py_date):
+        return False
+    return r_date.day == 1 and r_date.year == py_date.year and py_date.day == r_date.month
+
+
+def _is_r_parse_order_cannot_read_cell(m: CellMismatch) -> bool:
+    """R sentinels because none of its eight parse orders fits the cell.
+
+    The same mechanism as ``r_reads_day_as_month`` at the point where it runs
+    out of road: with the month name unreadable, R's positional fallback needs
+    the day to be a valid month number, so a day past 12 leaves the whole order
+    list without a match and ``convert_to`` substitutes ERROR_VAL_DATE.
+    Executed against R: "25-Mach-20" returns NA, as do "05/15/2026" and
+    "Dec-22-2025" -- the month-first spellings no order in
+    ``c("dmy","dmY","dbY","by","bY","mY","my","y")`` can express. Python reads
+    all three.
+
+    A day past 12 is the signature, and it is what separates this from the
+    other reasons R sentinels a date. It is deliberately not applied to
+    ``hospitalisation_date``, whose population round 6 measured as 100% clinical
+    notes: R sentinels those because it cannot read a sentence, which is
+    ticket 39's open question and not this cause.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date != SENTINEL_DATE or py_date is None or py_date == SENTINEL_DATE:
+        return False
+    return py_date.day > 12
+
+
+PATIENT_UNREADABLE_MONTH_CLASSIFIERS: dict[str, Classifier] = {
+    "r_reads_day_as_month": _is_r_reads_day_as_month,
+    "r_parse_order_cannot_read_cell": _is_r_parse_order_cannot_read_cell,
+}
+
+
 def _is_age_from_bare_year(m: CellMismatch) -> bool:
     """An age derived from a date whose bare year only Python recovered.
 

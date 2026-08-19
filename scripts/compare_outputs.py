@@ -59,12 +59,14 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_TYPE_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
+    PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_NON_LATIN_HEADER_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
     PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
+    PATIENT_UNREADABLE_MONTH_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PATIENT_YMD_FIRST_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -571,6 +573,25 @@ CLASSIFIERS_BY_COLUMN["insulin_subtype"] = (
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_FBG_TEXT_CLASSIFIERS
     for col in ("fbg_updated_mg", "fbg_baseline_mg")
+}
+
+# ticket 56: R's own date entry point again -- the destructive month-name
+# truncation in parse_dates and the order list it falls through afterwards. Like
+# every other parse_dates cause the domain is the whole date family, not the
+# columns that happen to carry it today.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS
+    for col in get_date_columns()
+}
+
+# ticket 56: the unreadable-month half of the same mechanism. hospitalisation_date
+# is excluded by name: round 6 measured its residual as 100% clinical notes, so
+# an R sentinel there means R could not read a sentence -- ticket 39's open
+# question, and a different cause wearing the same shape.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_UNREADABLE_MONTH_CLASSIFIERS
+    for col in get_date_columns()
+    if col != "hospitalisation_date"
 }
 
 # ticket 51: the two sanitizers disagree on accented letters, so the cause

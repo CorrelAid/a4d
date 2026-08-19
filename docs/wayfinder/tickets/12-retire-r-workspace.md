@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 56]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 57]
 assignee: null
 claimed_at: null
 resolution: null
@@ -214,3 +214,13 @@ R manufactures glucose readings from text and that its height threshold is the
 correct one. Round 9's leading shape points at R's own
 `extract_date_from_measurement`. Triage still depends on `r-archive/` being
 present.
+
+**2026-08-19f (ticket 56 closed).** `blocked_by` swaps `56` for [ticket
+57](57-triage-patient-cleaned-residual-10.md) on the same standing precedent,
+and this round is the sharpest example yet of why R has to stay: closing it
+required *installing lubridate and executing* R's `parse_dates` -- its
+fourth-letter truncation and its eight-order fallback list -- over the actual
+source strings, because reading the function was not enough to predict which
+cells it would sentinel and which it would misread. Round 10's largest group is
+R's `extract_date_from_measurement`, which will need the same treatment.
+Triage still depends on `r-archive/` being present.

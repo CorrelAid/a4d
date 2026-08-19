@@ -2,12 +2,12 @@
 id: 56
 title: Triage the residual patient cleaned-stage mismatches (round 9)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-19f
+claimed_at: 2026-08-19
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 55
 ---
@@ -91,3 +91,102 @@ the source carried, fix the pipeline. Where the source workbook itself is
 wrong, that is a legitimate conclusion and a finding for [ticket
 40](40-source-defect-findings-report.md). A cause genuinely undecidable on the
 available evidence is recorded as an open question, not closed with a label.
+
+## Resolution
+
+**Decision.** The nine-column date family is one R mechanism, not nine causes,
+and Python is the correct side of all of it. Three classifiers now carry it,
+and three Python gaps the same investigation exposed are fixed. The in-scope
+cleaned residual goes **448 -> 94 (79%)**; the patient raw stage is
+byte-identical at 0 unclassified and product is unchanged.
+
+**The mechanism, executed rather than read.** R's `parse_dates`
+(`r-archive/R/script2_helper_patient_data_fix.R`) shortens any word of four or
+more letters with `sub("([[:alpha:]]{3})[[:alpha:]]", "\\1", date)`, which
+deletes the *fourth* letter and leaves the rest of the word standing, then
+hands the wreckage to `lubridate::parse_date_time` with the fixed order list
+`c("dmy","dmY","dbY","by","bY","mY","my","y")`. Nothing in that chain can fail
+loudly. Installing lubridate and running it over the source strings taken from
+the raw parquet reproduced R's frozen output exactly in every case:
+
+- `April-17` becomes `Aprl-17`, no order matches a month, the list falls to
+  `y`, and R publishes **2017-01-01**. Same for `August,2015` -> `Augst,2015`
+  -> 2015-01-01. That is `r_month_name_truncated_to_year` (88 cells).
+- `9-Dce-20` has an unreadable month, so `my` reads the remaining digits as
+  month and year and R publishes **2020-09-01** -- the *day* promoted to a
+  month, the day itself invented as the 1st. Same for `11-Mach-20` ->
+  2020-11-01, `4-Okt-2023` -> 2023-04-01, `10-MAC-2026` -> 2026-10-01. That is
+  `r_reads_day_as_month` (143 cells).
+- `25-Mach-20` needs month 25, so the whole list misses and R sentinels; so do
+  `05/15/2026` and `Dec-22-2025`, month-first spellings no order in the list can
+  express. That is `r_parse_order_cannot_read_cell` (107 cells), deliberately
+  not applied to `hospitalisation_date`, whose residual round 6 measured as
+  100% clinical notes -- R sentinels those because it cannot read a sentence,
+  which is [ticket 39](39-recover-dates-embedded-in-free-text.md)'s question
+  wearing the same shape.
+
+**Three Python gaps, all real data loss, all fixed.** Python sentinelled 32
+distinct source strings a human reads without effort. Verified the way round 6
+verified its parser change -- old parser against new over all **5,187** distinct
+raw date strings on the 248-tracker set: **32 changed, every one from the
+sentinel to a real date, and no already-parsing value changed its reading.**
+
+1. *Month names Python did not know.* `TYPO_REPLACEMENTS` gains `DCE` (a
+   transposition) and `UG` (a dropped letter), plus the Bahasa Malaysia
+   abbreviations the Malaysian clinics write in a column everyone else writes in
+   English -- `Mac`, `Mei`, `Okt` observed, `Ogos` and `Dis` added to complete
+   the set. A new `_THAI_MONTH_REPLACEMENTS` covers all twelve Thai
+   abbreviations with or without their full stops, for Nakornping's 2025 and
+   2026 trackers. These are locale spellings, not typos, and the code says so.
+2. *Separator runs damaged by a stray keystroke.* `26-05- 2007`, `19-Jan_2023`,
+   `02-Apr=-2026`, `23/05//2025`, `16-July-/2025`, `7_May-21` -- R recovers all
+   of these because lubridate splits on any non-alphanumeric run where dateutil
+   needs a well-formed separator. `_DAMAGED_SEPARATOR` collapses a run of two or
+   more separator characters, or a lone `_`/`=`, to a single `-` on a second
+   attempt only. Deliberately narrow: a single `/` or `.` is left alone so no
+   already-parsing value changes reading, and a whitespace-only run is left
+   alone so the trailing-free-text path still sees its word boundaries.
+3. *Invisible characters.* A zero-width space pasted in from another
+   application (`11<U+200B> Mar 2026`) is stripped.
+
+**The guard that measurement found, not reasoning.** The first version of the
+separator repair turned `11-15 /01/2019` -- a *range* of two visit days -- into
+2001-11-15, a date the cell does not hold. The repair now runs only when the
+result leaves at most three numbers.
+
+**Rejected.** A general "any run of non-alphanumerics is a separator" rule,
+matching lubridate: it is what produced the fabricated 2001-11-15, and it would
+also have taken `26/102022` and `10/1023`, where the missing separator's
+position is a guess. Fuzzy month matching by edit distance instead of an
+explicit spelling list: it would have swallowed `Ma4` silently, which is exactly
+the cell nobody can resolve. Classifying the R-sentinel shape on `day > 12`
+across *all* date columns: measured first, and it would have mislabelled 79
+`hospitalisation_date` clinical notes as this cause -- the reason that column is
+excluded by name. What the chosen route gives up: the three classifiers are
+shape tests, so they cannot see the source string that proves the mechanism;
+the proof lives in this comment and in the executed R runs behind it, not in
+the code.
+
+**Deliberately not decided.** `insulin_subtype`'s 11 cells were traced to their
+mechanism and left unclassified. R's derivation
+(`script2_process_patient_data.R:101`) is a chain of `ifelse(x == "Y", ...)`
+pasted together: an all-`-` row yields `""`, which `check_allowed_values` turns
+into NA, while an all-null row yields `NA`, which pastes to a string and becomes
+`Undefined`. So **R's null-vs-`Undefined` split is NA propagation, not a
+designed distinction**, and R's null on these rows is not evidence of intent.
+That makes these cells the map's existing fog entry on unticked insulin rows,
+reached from the `-` side -- a change to shared behaviour on 17,418 rows, which
+round 8 already measured and reverted. Left visible rather than labelled.
+
+**Evidence.** Executed: R's truncation and order list run over the real source
+strings under R 4.5 with lubridate installed; the old-vs-new parser sweep over
+5,187 distinct raw strings; a full patient pipeline run over the 248-tracker
+drive set followed by a full four-stage comparison
+(`output/comparison/2026-08-19T212139Z`); 843 tests, ruff, `ty check src/`.
+Read: R's `extract_date_from_measurement` and `insulin_subtype` derivation,
+whose consequences are described but not executed -- both are round 10's to
+confirm.
+
+**Tense.** Every count above is current behaviour measured on the new run, not
+a prediction. The 94 remaining are described in [ticket
+57](57-triage-patient-cleaned-residual-10.md).
