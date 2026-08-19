@@ -115,11 +115,7 @@ def clean_patient_data(
     # Must happen after type conversions so dates are proper date types
     df = _validate_dates(df, error_collector)
 
-    # Step 5.7: Calculate BMI from weight and height (like R does)
-    # Must happen after type conversions and before range validation
-    df = _calculate_bmi(df)
-
-    # Step 5.8: Resolve glucose readings recorded under the wrong unit's header.
+    # Step 5.7: Resolve glucose readings recorded under the wrong unit's header.
     # Before range validation so the analytical limits judge corrected values,
     # and before step 8 so the mg/mmol cross-derivation sees matching units.
     df = resolve_glucose_units(df, error_collector)
@@ -337,6 +333,24 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
+_INSULIN_NOT_TICKED = ("", "-", "0", "n", "no")
+
+
+def _insulin_ticked(column: str) -> pl.Expr:
+    """Whether a 2024+ insulin tick box says this subtype applies.
+
+    The template asks for `Y`, but 2024 Sarawak ticks by writing the drug's
+    name instead -- `Novorapid` in the rapid-acting column, `Glargine`,
+    `Toujeo` or `Ryzodeg` in the long-acting one. Testing for `Y` alone
+    discarded those 56 rows' subtypes entirely (ticket 55). The negative
+    markers are enumerated instead, because they are the closed set: across all
+    248 trackers these five columns hold only `Y`, `-`, `0`, the four drug
+    names, and null.
+    """
+    value = pl.col(column).cast(pl.String).str.strip_chars().str.to_lowercase()
+    return pl.col(column).is_not_null() & ~value.is_in(_INSULIN_NOT_TICKED)
+
+
 def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     """Derive insulin_type and insulin_subtype from individual columns.
 
@@ -374,9 +388,9 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
         .then(
             # Now check which type
             pl.when(
-                (pl.col("human_insulin_pre_mixed") == "Y")
-                | (pl.col("human_insulin_short_acting") == "Y")
-                | (pl.col("human_insulin_intermediate_acting") == "Y")
+                _insulin_ticked("human_insulin_pre_mixed")
+                | _insulin_ticked("human_insulin_short_acting")
+                | _insulin_ticked("human_insulin_intermediate_acting")
             )
             .then(pl.lit("human insulin"))
             .otherwise(pl.lit("analog insulin"))
@@ -390,25 +404,29 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
         pl.concat_list(
             [
-                pl.when(pl.col("human_insulin_pre_mixed") == "Y")
+                pl.when(_insulin_ticked("human_insulin_pre_mixed"))
                 .then(pl.lit("pre-mixed"))
                 .otherwise(pl.lit(None)),
-                pl.when(pl.col("human_insulin_short_acting") == "Y")
+                pl.when(_insulin_ticked("human_insulin_short_acting"))
                 .then(pl.lit("short-acting"))
                 .otherwise(pl.lit(None)),
-                pl.when(pl.col("human_insulin_intermediate_acting") == "Y")
+                pl.when(_insulin_ticked("human_insulin_intermediate_acting"))
                 .then(pl.lit("intermediate-acting"))
                 .otherwise(pl.lit(None)),
-                pl.when(pl.col("analog_insulin_rapid_acting") == "Y")
+                pl.when(_insulin_ticked("analog_insulin_rapid_acting"))
                 .then(pl.lit("rapid-acting"))  # CORRECTED from R's typo
                 .otherwise(pl.lit(None)),
-                pl.when(pl.col("analog_insulin_long_acting") == "Y")
+                pl.when(_insulin_ticked("analog_insulin_long_acting"))
                 .then(pl.lit("long-acting"))
                 .otherwise(pl.lit(None)),
             ]
         )
         .list.drop_nulls()
         .list.join(",")
+        # An unticked row deliberately keeps the empty string, which allowed-value
+        # validation publishes as "Undefined". That claims the clinic recorded a
+        # subtype it did not, but R does the same on 17,418 rows and the two
+        # pipelines agree there; changing it is its own question (ticket 55).
         .alias("insulin_subtype")
     )
 
@@ -531,8 +549,8 @@ def _calculate_bmi(df: pl.DataFrame) -> pl.DataFrame:
     Matches R's fix_bmi() function (script2_helper_patient_data_fix.R:401).
     This REPLACES any existing BMI value with calculated BMI = weight / height^2.
 
-    Must be called after type conversions (so weight/height are numeric)
-    and before range validation (so calculated BMI gets validated).
+    Must be called after height and weight have been range-validated (R cuts
+    both before fix_bmi) and before the BMI bound is applied.
 
     Args:
         df: Input DataFrame
@@ -563,10 +581,12 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     Returns:
         DataFrame with range validation applied
     """
-    # Height: convert cm to m if > 2.3 (likely in cm), then validate
+    # Height: convert cm to m only above 50, matching R's transform_cm_to_m.
+    # A value between 2.3 and 50 is neither unit; dividing it by 100 would turn
+    # an unusable cell into a plausible-looking metre reading (ticket 55).
     if "height" in df.columns:
         df = df.with_columns(
-            pl.when(pl.col("height") > 2.3)
+            pl.when(pl.col("height") > 50)
             .then(pl.col("height") / 100.0)
             .otherwise(pl.col("height"))
             .alias("height")
@@ -576,6 +596,11 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     # Weight: 0-200 kg
     if "weight" in df.columns:
         df = cut_numeric_value(df, "weight", 0, 200, error_collector)
+
+    # BMI is derived here rather than earlier so it sees the validated height,
+    # as R does: an out-of-bounds height voids the BMI instead of producing one
+    # from an impossible measurement.
+    df = _calculate_bmi(df)
 
     # BMI: 4-60
     if "bmi" in df.columns:

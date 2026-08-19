@@ -108,6 +108,14 @@ def rescue_date_typos(s: str) -> tuple[str, bool]:
     return s, rescued
 
 
+# A year below this is a source cell with a digit missing, not a date: the
+# trackers record births, diagnoses and visits, none of which predate 1900.
+# dateutil reads "1/16/224" as the year 224 without complaint, so the guard has
+# to sit outside it, and it mirrors the cleaned stage's own beyond-tracker-year
+# guard at the other end of the calendar (ticket 55).
+_MIN_PLAUSIBLE_YEAR = 1900
+
+
 def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> date | None:
     """Parse date strings flexibly using Python's dateutil.parser.
 
@@ -142,7 +150,7 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     result = _parse_date_str(date_str)
     if result is None:
         result = _parse_longest_parseable_prefix(date_str)
-    if result is not None:
+    if result is not None and result.year >= _MIN_PLAUSIBLE_YEAR:
         return result
 
     logger.bind(error_code="invalid_value").warning(

@@ -47,7 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
+    T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 41"]
+  subgraph DECIDED["Decided · 42"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -98,6 +98,7 @@ flowchart TD
     T52["<b>52</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
     T53["<b>53</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
     T54["<b>54</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 7)"]
+    T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -140,14 +141,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T55 --> T12
+  T56 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T55 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T56 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53,T54 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53,T54,T55 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1974,7 +1975,81 @@ nine smaller date columns (~440) and the long tail follow. Ticket 12's
 R's commented-out call site directly, and round 8 opens by reading R's
 `fix_fbg`.
 
+
+**Round 8 closed both suspected defects at the head of its queue, and they were
+real: 770 in-scope -> 448 (42%), raw still 0, three Python fixes shipped.**
+`height` (114 -> 0) and `bmi` (22 -> 0) were one defect with two halves.
+Python converted a height to metres above **2.3** where R converts above **50**,
+so the 120 source cells sitting between the two units -- `2.31`, `2.43`, `6.9`,
+`10.4`, `13.0` -- were divided by 100 and published as `0.069` and `0.0243`
+metres rather than failing the [0, 2.3] bound as they do in R. And BMI was
+derived at step 5.7, before range validation, so it was computed from that
+impossible height and its result (10-12) passed the BMI bound; R sequences the
+height cut first, which propagates the sentinel. Both halves are fixed and both
+were live in production output.
+
+`fbg_updated_mg` (113 -> 0) was the alarming one and turned out to have **no
+Python defect**. R's `fix_fbg` runs its CDC category words through `grepl`
+without a word boundary, so 41 cells reading `Lost follow up` become a fasting
+glucose of **140** -- "fol-low" contains "low" -- and 41 more reading
+`SMBG 50-HI`, `129-HI`, `CBG 57-High` or bare `HI` become **200**, throwing away
+the number the clinic did write. Python anchors the same patterns to the whole
+string (`^(low|good|okay)$`) and sentinels everything else, which is the correct
+side; it also reads `148 mg/dl   (Mar-18)` where R's `as.numeric` fails on the
+whole string. Two classifiers, no pipeline change.
+
+Two more results worth carrying. `insulin_subtype` recovered **56 rows** where
+2024 Sarawak ticks the template's insulin boxes by writing the drug --
+`Novorapid`, `Glargine`, `Toujeo`, `Ryzodeg` -- which both pipelines discarded
+by testing for `Y` exactly. And the date family gave up a third defect nobody
+had suspected: `parse_date_flexible` accepted a year with a digit missing, so
+`1/16/224` and `13-Mar-0202` reached production as `0224-01-16` and
+`0202-03-13`; the parser now floors the calendar at 1900, mirroring the
+beyond-tracker-year guard at the other end.
+
+**One attempted fix was measured and reverted, which is the round's other
+lesson.** Making an unticked insulin row null instead of `Undefined` is
+defensible in principle -- and created **17,418 new divergences**, because R
+publishes `Undefined` there too and the two pipelines already agreed. The
+question is real but it is a change to shared behaviour, not a residual to
+triage, so it is recorded as fog rather than smuggled into a triage round.
+
+What is left became [round
+9](tickets/56-triage-patient-cleaned-residual-9.md): 412 of the 448 are the nine
+smaller date columns, and round 8 killed the obvious framings by measuring them
+-- only 2 of 414 are a day/month swap and none is a year-only difference. The
+residual is concentrated by tracker instead (2021 and 2020 Mahosot DC account
+for ~150), and moves together across `hba1c_updated_date`, `fbg_updated_date`
+and `bmi_date`, which points at the legacy path that lifts a date out of the
+measurement cell rather than at nine separate causes. Ticket 12's `blocked_by`
+swaps `55` for `56` on the same standing precedent -- round 8 read four of R's
+own functions to reach its verdicts.
+
 ## Decisions so far
+
+- [Triage the residual patient cleaned-stage mismatches (round
+  8)](tickets/55-triage-patient-cleaned-residual-8.md) -- the in-scope cleaned
+  residual falls 770 -> **448** (42%) on three Python defects fixed and one
+  R limitation explained, with the raw stage holding at 0. `height`'s cm-to-m
+  threshold was 2.3 where R's is 50, so a source value between the two -- 120
+  cells reading `2.43`, `6.9`, `13.0` -- was divided by 100 and published as
+  `0.069` metres instead of being rejected; and BMI was derived before range
+  validation, so it came from that impossible height (`60 / 2.43^2` = 10.16)
+  and passed its own bound. Both fixed, both were live in production.
+  `fbg_updated_mg` turned out to have no Python defect at all: R's `fix_fbg`
+  matches its CDC category words as substrings, so `Lost follow up` becomes a
+  glucose of **140** ("fol-low" contains "low") and every `SMBG 50-HI` /
+  `129-HI` / bare `HI` becomes **200**, discarding the number the clinic wrote;
+  Python already anchors the same patterns to the whole string and sentinels
+  instead, and separately reads `148 mg/dl   (Mar-18)` where R cannot.
+  `insulin_subtype` recovered 56 rows where 2024 Sarawak ticks the insulin
+  boxes by writing `Novorapid`/`Glargine`/`Toujeo`/`Ryzodeg`, which both
+  pipelines were discarding. And a third defect surfaced in the date family:
+  `parse_date_flexible` accepted a year with a digit missing, so `1/16/224` and
+  `13-Mar-0202` reached production as dates in antiquity -- now floored at
+  1900, mirroring the existing guard at the other end of the calendar. What is
+  left is almost entirely the date family and became [round
+  9](tickets/56-triage-patient-cleaned-residual-9.md).
 
 - [Triage the residual patient raw-stage column mismatches (round
   6)](tickets/50-triage-patient-raw-residual-6.md) -- the patient raw stage
@@ -2832,6 +2907,15 @@ folded into Decisions so far above.)
   this way, or whether an `aliases` entry is the right fix. Not sharp enough to
   ticket until that is measured.
 
+- Whether an insulin row that **ticks nothing** should publish `Undefined`.
+  Both pipelines do today, on 17,418 rows, so the comparison is silent on it --
+  which is why round 8 measured the alternative rather than assuming it: making
+  Python null those rows created 17,418 new divergences and resolved none, so
+  it was reverted. The claim is still false in the same way `999999` is on a
+  numeric absence (below): the clinic recorded no subtype, and `Undefined`
+  says it recorded an unrecognised one. Not sharp enough to ticket until
+  someone has said whether the downstream consumer distinguishes them.
+  Surfaced by [ticket 55](tickets/55-triage-patient-cleaned-residual-8.md).
 - Whether the **numeric** conversion path should treat absence-written-as-a-
   word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
   (ticket 38). Correct in principle -- 999999 makes the same false claim there
@@ -3035,6 +3119,10 @@ flowchart TB
     direction LR
     U54["<b>54</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 7)"]
   end
+  subgraph S2026_08_19e["Session 2026-08-19e"]
+    direction LR
+    U55["<b>55</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -3049,7 +3137,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U55["<b>55</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
+    U56["<b>56</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3087,7 +3175,8 @@ flowchart TB
   S2026_08_19 ~~~ S2026_08_19b
   S2026_08_19b ~~~ S2026_08_19c
   S2026_08_19c ~~~ S2026_08_19d
-  S2026_08_19d ~~~ Sopen
+  S2026_08_19d ~~~ S2026_08_19e
+  S2026_08_19e ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -3125,7 +3214,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U55 --->|blocked| U12
+  U56 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3169,13 +3258,14 @@ flowchart TB
   U52 -.->|spawned| U53
   U53 -.->|spawned| U54
   U54 -.->|spawned| U55
+  U55 -.->|spawned| U56
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U55 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U56 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 55]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 56]
 assignee: null
 claimed_at: null
 resolution: null
@@ -205,3 +205,12 @@ round 7 read R's own commented-out `fix_t1d_diagnosis_age` call site
 (`script2_process_patient_data.R:251`) to establish why R never derives a
 diagnosis age, and round 8's first task is reading R's `fix_fbg` for the same
 kind of answer. Triage still depends on `r-archive/` being present.
+
+**2026-08-19e (ticket 55 closed).** `blocked_by` swaps `55` for [ticket
+56](56-triage-patient-cleaned-residual-9.md) on the same standing precedent:
+round 8 read R's `fix_fbg`, `transform_cm_to_m`, `cut_numeric_value` and the
+mutate that sequences them, all directly from `r-archive/`, to establish that
+R manufactures glucose readings from text and that its height threshold is the
+correct one. Round 9's leading shape points at R's own
+`extract_date_from_measurement`. Triage still depends on `r-archive/` being
+present.

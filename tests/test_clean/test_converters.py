@@ -644,3 +644,23 @@ def test_parse_date_flexible_still_sentinels_a_recorded_but_unusable_value():
     """
     assert parse_date_flexible("garbage_value_xyz") == date(9999, 9, 9)
     assert parse_date_flexible("She stay in Hospital") == date(9999, 9, 9)
+
+
+def test_parse_date_flexible_rejects_a_year_with_a_digit_missing():
+    """A source year typed short is unusable, not a date in antiquity.
+
+    2024 Vietnam National Children's writes `1/16/224` and `5/16/223`, 2023
+    Yangon General writes `13-Mar-0202`, and dateutil reads each literally --
+    Python published `0224-01-16` into production output where R sentinels
+    (ticket 55). No clinical date this dataset records predates 1900, and no
+    arithmetic recovers the missing digit, so the cell is unreadable.
+    """
+    assert parse_date_flexible("1/16/224") == date(9999, 9, 9)
+    assert parse_date_flexible("13-Mar-0202") == date(9999, 9, 9)
+    assert parse_date_flexible("31 oct 222") == date(9999, 9, 9)
+    assert parse_date_flexible("1-Oct-205") == date(9999, 9, 9)
+
+
+def test_parse_date_flexible_keeps_the_oldest_dates_the_data_really_holds():
+    assert parse_date_flexible("1/1/1950") == date(1950, 1, 1)
+    assert parse_date_flexible("1994") == date(1994, 1, 1)

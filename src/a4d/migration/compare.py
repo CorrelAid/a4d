@@ -1144,6 +1144,41 @@ PATIENT_INSULIN_SUBTYPE_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_r_drops_drug_name_tick(m: CellMismatch) -> bool:
+    """The clinic ticks an insulin column by naming the drug, and only Python
+    reads it.
+
+    The 2024+ template's five insulin columns are tick boxes taking ``Y`` or
+    ``-``. 2024 Sarawak General writes the drug instead -- ``Novorapid`` in
+    ``analog_insulin_rapid_acting`` and ``Glargine``, ``Toujeo`` or
+    ``Ryzodeg`` in ``analog_insulin_long_acting``, across 56 rows. Both
+    pipelines tested for ``Y`` exactly, so both discarded the subtype and
+    Python's empty derivation was then published as ``Undefined``.
+
+    ``_insulin_ticked`` (clean/patient.py) now reads any value that is not a
+    negative marker as a tick, which recovers ``Rapid-acting,Long-acting`` for
+    those rows. The negative markers are the closed set the data actually
+    holds: across all 248 trackers these columns contain only ``Y``, ``-``,
+    ``0``, the four drug names, and null (verified by a distinct-value count
+    over the raw output). Python is the correct side -- the clinic did record
+    which insulins the patient takes -- and the workbook is a ticket 40
+    finding, since free text in a tick box is what made both pipelines lose it.
+
+    Keyed on R holding nothing while Python holds a real subtype list, which
+    is the only shape this recovery produces.
+    """
+    return (
+        m.r_value is None
+        and isinstance(m.py_value, str)
+        and m.py_value not in ("", settings.error_val_character)
+    )
+
+
+PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS: dict[str, Classifier] = {
+    "r_drops_drug_name_tick": _is_r_drops_drug_name_tick,
+}
+
+
 def _is_r_ifelse_na_propagation(m: CellMismatch) -> bool:
     """R's derivation returns NA because one input is NA, not because the
     answer is unknown.
@@ -1535,6 +1570,87 @@ def _is_source_date_in_diagnosis_age(m: CellMismatch) -> bool:
 PATIENT_DIAGNOSIS_AGE_CLASSIFIERS: dict[str, Classifier] = {
     "r_never_derives_diagnosis_age": _is_r_never_derives_diagnosis_age,
     "source_date_in_diagnosis_age": _is_source_date_in_diagnosis_age,
+}
+
+# The three mg/dL readings R's fix_fbg manufactures from text
+# (script2_helper_patient_data_fix.R:557-561, citing CDC's "getting tested"
+# levels): high/bad/hi -> 200, med/medium -> 170, low/good/okay -> 140.
+_R_FBG_CATEGORY_VALUES = frozenset({140.0, 170.0, 200.0})
+
+
+def _is_r_fbg_text_category_invention(m: CellMismatch) -> bool:
+    """R converts unreadable text into one of three invented glucose readings.
+
+    ``fix_fbg`` (r-archive/R/script2_helper_patient_data_fix.R:551) runs its
+    category patterns through ``grepl`` on the whole string with no word
+    boundary, so any cell merely *containing* the letters wins a number. Two
+    populations follow, and every one of the 85 affected cells was read back to
+    its raw source value to confirm which:
+
+    - 44 cells where the source is a category word or a phrase containing one.
+      41 of them read ``Lost follow up`` and become **140**, because "fol-low"
+      contains "low"; the other 3 are a genuine ``low``/``Low``. A patient lost
+      to follow-up has no glucose reading at all, and R publishes one.
+    - 41 cells where the source records a meter range or an out-of-range
+      marker: ``SMBG 50-HI``, ``DSMP 250-HI``, ``129-HI``, ``CBG 57-High``,
+      ``112/ High``, bare ``HI``. All become **200**, discarding the numeric
+      endpoint the clinic did write. On a glucometer "HI" means a reading above
+      the analytical ceiling -- far above 200 -- so R's substitution is not
+      merely invented but wrong in direction.
+
+    Python is the correct side and diverges here by design:
+    ``_fix_fbg_column`` (clean/patient.py) implements the same CDC mapping but
+    anchors each pattern to the full string (``^(low|good|okay)$``), so only a
+    cell that says exactly "low" is treated as a category and everything else
+    falls through to the numeric conversion and sentinels. The source cells are
+    free text in a numeric column -- a defect for ticket 40, not a value to
+    reconstruct.
+
+    Keyed on R holding exactly one of the three invented constants while Python
+    holds its numeric sentinel: Python only sentinels a cell it could not read
+    at all, so a real reading of 200 cannot land in this shape.
+    """
+    r_numeric = _numeric(m.r_value)
+    py_numeric = _numeric(m.py_value)
+    return (
+        r_numeric in _R_FBG_CATEGORY_VALUES
+        and py_numeric is not None
+        and py_numeric == settings.error_val_numeric
+    )
+
+
+def _is_r_unit_suffix_not_stripped(m: CellMismatch) -> bool:
+    """The source writes the unit beside the reading; only Python reads past it.
+
+    The 2018 trackers record updated FBG as ``148 mg/dl   (Mar-18)`` -- value,
+    unit, and the date of the reading in one cell. Python strips the unit and
+    lifts the parenthetical date out to ``fbg_updated_date``
+    (``_fix_fbg_column`` and ``_extract_date_from_measurement``,
+    clean/patient.py); R's ``fix_fbg`` handles neither, so ``as.numeric`` fails
+    on the whole string and ``convert_to`` substitutes its sentinel.
+
+    All 28 cells in this shape were read back to their raw source, and every
+    one is a plain reading carrying its unit (three also carry no date:
+    ``332 mg/dl``, ``196((Dec-2017)``). Python recovers a real measurement R
+    throws away, so Python is the correct side.
+
+    Keyed on the reverse of the invention shape above -- R sentinelled, Python
+    holds a number -- which on this column is only reachable when R's parse
+    failed and Python's did not.
+    """
+    r_numeric = _numeric(m.r_value)
+    py_numeric = _numeric(m.py_value)
+    return (
+        r_numeric is not None
+        and r_numeric == settings.error_val_numeric
+        and py_numeric is not None
+        and py_numeric != settings.error_val_numeric
+    )
+
+
+PATIENT_FBG_TEXT_CLASSIFIERS: dict[str, Classifier] = {
+    "r_fbg_text_category_invention": _is_r_fbg_text_category_invention,
+    "r_unit_suffix_not_stripped": _is_r_unit_suffix_not_stripped,
 }
 
 # A month sheet is named "Jan22", "Sept22" or "Oct'22" -- the trailing two

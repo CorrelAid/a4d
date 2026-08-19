@@ -3,10 +3,13 @@
 from datetime import date
 
 import polars as pl
+import pytest
 
 from a4d.clean.patient import (
     _apply_preprocessing,
+    _apply_range_validation,
     _apply_type_conversions,
+    _derive_insulin_fields,
     _fix_age_from_dob,
     _fix_t1d_diagnosis_age,
     clean_patient_data,
@@ -527,3 +530,110 @@ def test_apply_type_conversions_keeps_the_year_of_a_space_separated_date():
     result = _apply_type_conversions(df, ErrorCollector())
 
     assert result["t1d_diagnosis_date"].to_list() == [date(2006, 6, 1), date(2009, 4, 17)]
+
+
+class TestHeightRangeValidation:
+    """Height cm-to-m conversion must not rescue implausible source values.
+
+    R converts only above 50 (transform_cm_to_m), so a value between 2.3 and 50
+    is neither metres nor centimetres and falls out of the [0, 2.3] bound as an
+    error. Dividing it by 100 instead manufactures a plausible-looking metre
+    reading from an unusable cell (ticket 55).
+    """
+
+    def _validate(self, df: pl.DataFrame) -> pl.DataFrame:
+        return _apply_range_validation(df, ErrorCollector())
+
+    def test_centimetre_height_is_converted_to_metres(self):
+        df = pl.DataFrame({"height": [135.5], "file_name": ["f"], "patient_id": ["p"]})
+
+        assert self._validate(df)["height"].to_list() == [1.355]
+
+    def test_metre_height_is_kept(self):
+        df = pl.DataFrame({"height": [1.75], "file_name": ["f"], "patient_id": ["p"]})
+
+        assert self._validate(df)["height"].to_list() == [1.75]
+
+    def test_value_between_the_two_units_becomes_the_error_value(self):
+        df = pl.DataFrame(
+            {
+                "height": [2.43, 6.9, 13.0],
+                "file_name": ["f", "f", "f"],
+                "patient_id": ["p", "p", "p"],
+            }
+        )
+
+        assert self._validate(df)["height"].to_list() == [settings.error_val_numeric] * 3
+
+    def test_bmi_is_derived_from_the_validated_height(self):
+        """R cuts height before fix_bmi, so an unusable height voids the BMI."""
+        df = pl.DataFrame(
+            {
+                "height": [2.43, 1.75],
+                "weight": [60.0, 70.0],
+                "bmi": [None, None],
+                "file_name": ["f", "f"],
+                "patient_id": ["p", "q"],
+            }
+        )
+
+        result = self._validate(df)
+
+        assert result["bmi"][0] == settings.error_val_numeric
+        assert result["bmi"][1] == pytest.approx(70.0 / 1.75**2)
+
+
+class TestInsulinSubtypeDerivation:
+    """The 2024+ template's five insulin columns are tick boxes, but one clinic
+    ticks them by writing the drug's name (ticket 55)."""
+
+    def _derive(self, **cols: list[str | None]) -> pl.DataFrame:
+        return _derive_insulin_fields(pl.DataFrame(cols))
+
+    def test_ticked_columns_become_the_subtype_list(self):
+        result = self._derive(
+            human_insulin_pre_mixed=["-"],
+            human_insulin_short_acting=["-"],
+            human_insulin_intermediate_acting=["-"],
+            analog_insulin_rapid_acting=["Y"],
+            analog_insulin_long_acting=["Y"],
+        )
+
+        assert result["insulin_subtype"].to_list() == ["rapid-acting,long-acting"]
+        assert result["insulin_type"].to_list() == ["analog insulin"]
+
+    def test_a_drug_name_in_a_tick_column_counts_as_ticked(self):
+        """2024 Sarawak writes Novorapid/Glargine where the template wants Y."""
+        result = self._derive(
+            human_insulin_pre_mixed=["-"],
+            human_insulin_short_acting=["-"],
+            human_insulin_intermediate_acting=["-"],
+            analog_insulin_rapid_acting=["Novorapid"],
+            analog_insulin_long_acting=["Glargine"],
+        )
+
+        assert result["insulin_subtype"].to_list() == ["rapid-acting,long-acting"]
+
+    def test_negative_markers_do_not_count_as_ticked(self):
+        result = self._derive(
+            human_insulin_pre_mixed=["0"],
+            human_insulin_short_acting=["N"],
+            human_insulin_intermediate_acting=["-"],
+            analog_insulin_rapid_acting=[""],
+            analog_insulin_long_acting=["-"],
+        )
+
+        assert result["insulin_subtype"].to_list() == [""]
+
+    def test_no_tick_at_all_leaves_the_subtype_empty(self):
+        """Allowed-value validation turns the empty string into "Undefined", and
+        R does the same -- the two agree, so this ticket does not change it."""
+        result = self._derive(
+            human_insulin_pre_mixed=["-"],
+            human_insulin_short_acting=["-"],
+            human_insulin_intermediate_acting=["-"],
+            analog_insulin_rapid_acting=["-"],
+            analog_insulin_long_acting=["-"],
+        )
+
+        assert result["insulin_subtype"].to_list() == [""]
