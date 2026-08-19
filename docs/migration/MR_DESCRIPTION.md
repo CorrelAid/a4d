@@ -32,16 +32,16 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 39 of 53 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 40 of 54 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 4,625 unclassified<br/>tickets 44, 54"]
+    L["Patient cleaned: 4,195 unclassified<br/>tickets 44, 55"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["54 - patient cleaned triage, round 7"]
+    O["55 - patient cleaned triage, round 8"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -492,11 +492,13 @@ and should be read as historical.
 |---|---|---|
 | Product (raw) | 89 | **0** |
 | Product (cleaned) | 22,706 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 114,712 | 4,625 |
+| Patient (cleaned) | 114,580 | 4,195 |
 | Patient (raw) | 26,171 | **0** (from 14,844) |
 
-Three of the four stages are fully triaged. Patient's cleaned stage is down
-88% and is the remaining body of work.
+Three of the four stages are fully triaged. Patient's cleaned stage has
+**96.3%** of its flagged cells explained and is the remaining body of work; of
+the 4,195 left, 3,425 already belong to two open decisions (tickets 44 and 39)
+rather than being unexplained, leaving 770 genuinely untriaged.
 
 ---
 
@@ -509,34 +511,53 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **54 — patient cleaned triage, round 7.** 1,689 in-scope cells left after
-  round 6, excluding the FBG population ticket 44 owns and the
-  `hospitalisation_date` population ticket 39 owns. `t1d_diagnosis_age` (298)
-  is now the largest takeable shape, measured into three decidable sub-shapes;
-  the smaller date columns, `height` (114), `fbg_updated_mg` (113) and a ~200
-  long tail are the rest.
+- **55 — patient cleaned triage, round 8.** 770 in-scope cells left after
+  round 7, excluding the FBG population ticket 44 owns and the
+  `hospitalisation_date` population ticket 39 owns. It is the first
+  cleaned-stage round to open with **two suspected Python defects at the head
+  of the queue** rather than R limitations. `height` (114): source cells read
+  `6.9`, `2.52`, `2.43`, `13.0`; R rejects every one as out of range, Python
+  divides by 100 and emits `0.069` metres into production output. Whatever
+  those cells mean, Python's values are not heights. `fbg_updated_mg` (113)
+  runs both ways: 85 cells where R **manufactures a reading** — 140 from the
+  text "Lost follow up", 200 from "HI" or "SMBG 50-HI" — and Python sentinels,
+  which needs R's `fix_fbg` read before Python can be judged; and ~28 the
+  other way, where the source reads `148 mg/dl   (Mar-18)` and Python extracts
+  148 where R sentinels. Then `insulin_subtype` (67, Python stamping
+  "Undefined" over rows carrying real brand names), `bmi` (22), the nine
+  smaller date columns (~440, still unmeasured) and a ~30 long tail.
 
-  Round 6 repeated round 5's pattern: its work was **fixing Python, not
-  explaining R**, and both defects were live in production output.
-  `parse_date_flexible` let `dateutil` complete an absent **day from today**
-  for every month-year spelling its alphabetic branch does not match --
-  `10/2019`, `Mar, 2017`, `Jun'09` -- so 42 production cells carried the run
-  date's own day of month and changed meaning between runs with no input
-  change. This was the third appearance of one root cause, so it was closed as
-  a class rather than as another spelling: the string is parsed twice against
-  two disjoint defaults, and any component that differs between the parses is
-  one dateutil invented, not read. Separately,
-  `split_bp_in_sys_and_dias` left the padding on each fragment; R's
-  `as.numeric` ignores surrounding whitespace where Polars' cast fails on it,
-  so every blood pressure written `70 / 40` reached the cleaned output as the
-  999999 error sentinel. 465 readings across 7 trackers were restored and both
-  BP columns left the residual (302 -> 13, 215 -> 13).
+  Round 7's own work was **explaining R, not fixing Python** — the first round
+  in three where nothing in the pipeline needed changing. `t1d_diagnosis_age`
+  (298 cells, the largest column left) came down to a single fact read
+  straight out of R: **R never derives a diagnosis age at all.**
+  `fix_t1d_diagnosis_age` exists in `script2_helper_patient_data_fix.R` and is
+  unit-tested against exactly the strings the trackers carry — "At birth",
+  "4 months", "5y", "10y10m" — but its call site is commented out, so R only
+  ever passes the source column through `as.numeric`. A blank cell stays NA; a
+  word-written age becomes R's 999999 sentinel. Python derives from `dob` and
+  `t1d_diagnosis_date` and lands on a figure the source's own words confirm:
+  2017 Mandalay's MM_QA010 reads `11yr` and Python derives 11; MM_QA011 reads
+  `4mth` and Python derives 0. The remaining 16 are a date typed into the age
+  column at two clinics — 1956-08-01 and 2017-05-04, confirmed by opening both
+  workbooks — where R carries the Excel serial into the age and Python nulls
+  it.
 
-  The round also settled what `hospitalisation_date` is: joining all 546 cells
-  back to the raw stage showed the column is **100% clinical notes**, so it
-  belongs to ticket 39 in full rather than in part. It was left unclassified on
-  purpose -- labelling it would hide the largest column on the report behind a
-  decision nobody has made.
+  The round's stated hypothesis was **wrong, and measurement is what killed
+  it**: round 6 had predicted these were a downstream face of the bare-year
+  date fix. They are not — R and Python hold *identical* dates on the dominant
+  Sarawak population, so there is no bare-year mismatch for the ages to be
+  downstream of, and the real mechanism is far more general.
+
+  Separately, 132 cells across two screening-measurement columns were pure
+  float-rounding representation (`4.8600000000000003` against `4.86`) that
+  survived into the cleaned stage because the schema types those columns as
+  **String** — the one exception to the earlier "cleaning casts its numeric
+  columns" scoping, which is why raw-stage normalization never reached them.
+  Fixed by deriving the cleaned stage's normalization scope from each frame's
+  own dtypes rather than naming the columns. They stop being mismatches at all:
+  the report's total fell by exactly 132, so nothing already classified was
+  masked.
 
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
