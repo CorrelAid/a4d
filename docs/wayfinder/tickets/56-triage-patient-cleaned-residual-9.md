@@ -97,7 +97,7 @@ available evidence is recorded as an open question, not closed with a label.
 **Decision.** The nine-column date family is one R mechanism, not nine causes,
 and Python is the correct side of all of it. Three classifiers now carry it,
 and three Python gaps the same investigation exposed are fixed. The in-scope
-cleaned residual goes **448 -> 94 (79%)**; the patient raw stage is
+cleaned residual goes **448 -> 96 (79%)**; the patient raw stage is
 byte-identical at 0 unclassified and product is unchanged.
 
 **The mechanism, executed rather than read.** R's `parse_dates`
@@ -188,5 +188,5 @@ whose consequences are described but not executed -- both are round 10's to
 confirm.
 
 **Tense.** Every count above is current behaviour measured on the new run, not
-a prediction. The 94 remaining are described in [ticket
+a prediction. The 96 remaining are described in [ticket
 57](57-triage-patient-cleaned-residual-10.md).

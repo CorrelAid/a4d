@@ -2026,7 +2026,7 @@ measurement cell rather than at nine separate causes. Ticket 12's `blocked_by`
 swaps `55` for `56` on the same standing precedent -- round 8 read four of R's
 own functions to reach its verdicts.
 
-**Round 9 closed the date family as a single mechanism: 448 -> 94 in-scope
+**Round 9 closed the date family as a single mechanism: 448 -> 96 in-scope
 (79%), raw byte-identical at 0, product untouched.** Its lead was half right
 and half wrong, and measurement said which. Right: the nine date columns share
 one cause. Wrong: the cause is not `extract_date_from_measurement` and the
@@ -2062,7 +2062,7 @@ distinction** -- which strengthens the standing fog entry rather than
 answering it, and means R's null there is not evidence of intent.
 
 What is left became [round
-10](tickets/57-triage-patient-cleaned-residual-10.md): 94 cells in five groups
+10](tickets/57-triage-patient-cleaned-residual-10.md): 96 cells in five groups
 that share no mechanism -- the 2017/2018 measurement-cell dates where R's
 `extract_date_from_measurement` genuinely does live and Python has no
 equivalent (~27), the undecidable `25-Ma4-2025` (18), glued digit groups
@@ -2085,7 +2085,7 @@ independent triage residuals, standing decisions and a separate feature
 
 - [Triage the residual patient cleaned-stage mismatches (round
   9)](tickets/56-triage-patient-cleaned-residual-9.md) -- the in-scope cleaned
-  residual falls 448 -> **94** (79%), the raw stage stays byte-identical at 0
+  residual falls 448 -> **96** (79%), the raw stage stays byte-identical at 0
   and product is untouched. The nine-column date family turned out to be **one
   R mechanism, not nine causes**, and it was established by installing
   lubridate and *executing* R rather than by reading it. `parse_dates` deletes

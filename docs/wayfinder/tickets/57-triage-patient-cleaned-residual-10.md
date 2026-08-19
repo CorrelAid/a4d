@@ -15,7 +15,7 @@ spawned_by: 56
 ## Premise
 
 Rests on [round 9](56-triage-patient-cleaned-residual-9.md), closed, which took
-the in-scope cleaned residual from 448 to **94** and settles three things this
+the in-scope cleaned residual from 448 to **96** and settles three things this
 ticket must not re-open:
 
 - **R's `parse_dates` is understood end to end**, and it is one mechanism, not
@@ -45,7 +45,7 @@ R/Python difference to be explained before R is retired.
 
 ## Question
 
-Triage the **94** in-scope cells left on run
+Triage the **96** in-scope cells left on run
 `output/comparison/2026-08-19T212139Z`, excluding `fbg_updated_mmol` ([ticket
 44](44-triage-cleaned-fbg-r-null-residual.md)) and `hospitalisation_date`
 ([ticket 39](39-recover-dates-embedded-in-free-text.md)). Re-measure before

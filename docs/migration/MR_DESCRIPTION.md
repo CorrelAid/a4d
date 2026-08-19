@@ -35,7 +35,7 @@ flowchart TD
   subgraph TRIAGE["R/Python triage - 42 of 56 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 3,508 unclassified<br/>tickets 44, 39, 57"]
+    L["Patient cleaned: 3,510 unclassified<br/>tickets 44, 39, 57"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
@@ -497,8 +497,8 @@ and should be read as historical.
 
 Three of the four stages are fully triaged. Patient's cleaned stage has
 **96.9%** of its flagged cells explained and is the remaining body of work; of
-the 3,510 left, 3,416 already belong to two open decisions (tickets 44 and 39)
-rather than being unexplained, leaving **94** genuinely untriaged.
+the 3,510 left, 3,414 already belong to two open decisions (tickets 44 and 39)
+rather than being unexplained, leaving **96** genuinely untriaged.
 
 ---
 
@@ -511,7 +511,7 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **57 — patient cleaned triage, round 10.** 94 in-scope cells left after
+- **57 — patient cleaned triage, round 10.** 96 in-scope cells left after
   round 9, excluding the FBG population ticket 44 owns and the
   `hospitalisation_date` population ticket 39 owns. Unlike every round before
   it these share no mechanism: ~27 are 2017/2018 trackers where R lifts a date
