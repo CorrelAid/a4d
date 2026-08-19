@@ -32,16 +32,16 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 40 of 54 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 42 of 56 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 4,195 unclassified<br/>tickets 44, 55"]
+    L["Patient cleaned: 3,508 unclassified<br/>tickets 44, 39, 57"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["55 - patient cleaned triage, round 8"]
+    O["57 - patient cleaned triage, round 10"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -484,7 +484,7 @@ columns left for that month.
 
 ## Where verification stands
 
-Current baseline: `output/comparison/2026-08-19T205332Z`, 254 trackers.
+Current baseline: `output/comparison/2026-08-19T212139Z`, 254 trackers.
 Earlier counts on the wayfinder map were measured against smaller tracker sets
 and should be read as historical.
 
@@ -492,13 +492,13 @@ and should be read as historical.
 |---|---|---|
 | Product (raw) | 89 | **0** |
 | Product (cleaned) | 22,706 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 114,431 | 3,873 |
-| Patient (raw) | 26,171 | **0** (from 14,844) |
+| Patient (cleaned) | 114,400 | 3,510 |
+| Patient (raw) | 26,172 | **0** (from 14,844) |
 
 Three of the four stages are fully triaged. Patient's cleaned stage has
-**96.6%** of its flagged cells explained and is the remaining body of work; of
-the 3,873 left, 3,425 already belong to two open decisions (tickets 44 and 39)
-rather than being unexplained, leaving 448 genuinely untriaged.
+**96.9%** of its flagged cells explained and is the remaining body of work; of
+the 3,510 left, 3,416 already belong to two open decisions (tickets 44 and 39)
+rather than being unexplained, leaving **94** genuinely untriaged.
 
 ---
 
@@ -511,46 +511,54 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **56 — patient cleaned triage, round 9.** 448 in-scope cells left after
-  round 8, excluding the FBG population ticket 44 owns and the
-  `hospitalisation_date` population ticket 39 owns. **412 of them are the nine
-  smaller date columns**, and round 8 killed the obvious framings by measuring
-  rather than arguing: only 2 of 414 are a day/month swap and none is a
-  year-only difference. The residual is concentrated by tracker (2021 and 2020
-  Mahosot DC account for ~150) and moves together across `hba1c_updated_date`,
-  `fbg_updated_date` and `bmi_date` on the same rows, which points at the
-  legacy path that lifts a date out of the measurement cell's parentheses
-  rather than at nine separate causes. Then 11 `insulin_subtype` cells and a
-  ~25-cell tail.
+- **57 — patient cleaned triage, round 10.** 94 in-scope cells left after
+  round 9, excluding the FBG population ticket 44 owns and the
+  `hospitalisation_date` population ticket 39 owns. Unlike every round before
+  it these share no mechanism: ~27 are 2017/2018 trackers where R lifts a date
+  out of the measurement cell (`8.53 (28/8/2017)`) and Python has no equivalent
+  path; 18 are one undecidable cell (`25-Ma4-2025` — Mar or May, and R answers
+  April); ~19 are glued digit groups (`26/102022`, `10/1023`) where the missing
+  separator's position is a guess; 14 are a numeric tail, two of whose FBG
+  values sit *inside* the analytical bounds and should not have been
+  sentinelled; and 13 are `Undefined` cells that belong to a standing open
+  question rather than to triage.
 
-  Round 8 shipped **three Python fixes, all live in production output before
-  it**. `height` (114 cells) converted to metres above 2.3 where R converts
-  above 50, so 120 source cells sitting between the two units — `2.43`, `6.9`,
-  `13.0` — were divided by 100 and published as `0.069` metres instead of being
-  rejected as out of range; and `bmi` (22) was derived *before* range
-  validation, so it was computed from that impossible height (`60 / 2.43^2` =
-  10.16) and passed its own 10–80 bound. R sequences the height cut first,
-  which propagates the sentinel; Python now does too. Third, the date parser
-  accepted a year with a digit missing — `1/16/224`, `13-Mar-0202` — and
-  dateutil read them literally, so `0224-01-16` reached production; the parser
-  now floors the calendar at 1900, mirroring the beyond-tracker-year guard at
-  the other end.
+  Round 9 closed the whole nine-column date family as **one R mechanism**, and
+  it was established by installing lubridate and *executing* R rather than
+  reading it. `parse_dates` deletes the **fourth letter** of any word of four
+  or more letters — `April-17` becomes `Aprl-17` — and then walks a fixed order
+  list ending in `my` and `y` that cannot fail loudly. So a spelled-out month
+  collapses to 1 January of its year (88 cells), an unreadable month makes R
+  read the **day** as the month — `9-Dce-20` becomes 2020-09-01 (143 cells) —
+  and a day past 12 leaves R with no reading at all (107 cells). Every
+  reproduction matched R's frozen output exactly. Python is the correct side of
+  all three.
 
-  `fbg_updated_mg` (113) was the round's alarming-looking column and turned out
-  to have **no Python defect**. R's `fix_fbg` matches its CDC category words as
-  substrings, so 41 cells reading `Lost follow up` become a fasting glucose of
-  **140** — "fol-low" contains "low" — and 41 reading `SMBG 50-HI`, `129-HI`,
-  `CBG 57-High` or bare `HI` become **200**, discarding the number the clinic
-  wrote. Python already anchors the same patterns to the whole string and
-  sentinels instead; it also reads `148 mg/dl   (Mar-18)` where R's
-  `as.numeric` fails. Two classifiers, no pipeline change.
+  The same investigation exposed **three Python gaps, all real data loss, all
+  fixed**. Month spellings Python did not know: the Bahasa Malaysia `Mac`,
+  `Mei` and `Okt` that the Malaysian clinics write in a column every other
+  clinic writes in English, all twelve Thai abbreviations for Nakornping's
+  trackers, plus the transposition `Dce` and the dropped letter in `ug`.
+  Separator runs damaged by a stray keystroke — `26-05- 2007`, `19-Jan_2023`,
+  `02-Apr=-2026`, `23/05//2025` — which R recovers because lubridate splits on
+  any non-alphanumeric run where dateutil needs a well-formed separator. And
+  zero-width characters pasted in from another application. Checked old parser
+  against new over all **5,187** distinct raw date strings on the 254-tracker
+  set: 32 changed, every one from the sentinel to a real date, and no
+  already-parsing value altered its reading.
 
-  `insulin_subtype` recovered **56 rows**: 2024 Sarawak ticks the template's
-  five insulin tick boxes by writing the drug — `Novorapid`, `Glargine`,
-  `Toujeo`, `Ryzodeg` — and both pipelines discarded them by testing for `Y`
-  exactly. A second, tempting change was measured and **reverted**: making an
-  unticked row null instead of `Undefined` created 17,418 new divergences,
-  because R publishes `Undefined` there too and the two already agreed.
+  **The repair's narrowness was forced by measurement, not caution.** The first
+  version — lubridate's own rule, any non-alphanumeric run is a separator —
+  turned `11-15 /01/2019`, a *range* of two visit days, into a single date of
+  2001-11-15. The repair now runs only when at most three numbers remain, which
+  is also why `26/102022` and `10/1023` are deliberately still rejected.
+
+  `insulin_subtype`'s 11 cells were traced and deliberately **left
+  unclassified**. R's derivation is a chain of `ifelse(x == "Y", ...)`: an
+  all-`-` row yields `""` and becomes null, an all-null row yields `NA` and
+  becomes `Undefined`. R's apparent distinction is NA propagation, not design,
+  so it cannot be cited as evidence for what the output should say — which
+  makes these cells part of a standing open question, not a residual.
 
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose

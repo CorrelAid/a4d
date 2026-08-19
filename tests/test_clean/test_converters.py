@@ -3,6 +3,7 @@
 from datetime import date
 
 import polars as pl
+import pytest
 
 from a4d.clean.converters import (
     correct_decimal_sign,
@@ -429,6 +430,69 @@ def test_rescue_date_typos_passthrough():
     assert rescue_date_typos("15-Mar-2024") == ("15-Mar-2024", False)
     # Word-boundary protects unrelated substrings.
     assert rescue_date_typos("CON0CTOR") == ("CON0CTOR", False)
+
+
+def test_rescue_date_typos_malay_month_names():
+    assert rescue_date_typos("04-Mac-2026") == ("04-MAR-2026", True)
+    assert rescue_date_typos("5-Mei-2023") == ("5-MAY-2023", True)
+    assert rescue_date_typos("4-Okt-2023") == ("4-OCT-2023", True)
+    assert rescue_date_typos("1-Ogos-2024") == ("1-AUG-2024", True)
+    assert rescue_date_typos("2-Dis-2024") == ("2-DEC-2024", True)
+
+
+def test_rescue_date_typos_thai_month_names():
+    assert rescue_date_typos("3 เมย 2026") == ("3 APR 2026", True)
+    assert rescue_date_typos("9 มค 2026") == ("9 JAN 2026", True)
+    assert rescue_date_typos("10-ม.ค.-2025") == ("10-JAN-2025", True)
+
+
+def test_rescue_date_typos_dropped_and_transposed_letters():
+    assert rescue_date_typos("9-Dce-20") == ("9-DEC-20", True)
+    assert rescue_date_typos("6-ug-2025") == ("6-AUG-2025", True)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # A trailing separator followed by a space (ticket 56).
+        ("26-05- 2007", date(2007, 5, 26)),
+        # A stray underscore or equals sign typed instead of the separator.
+        ("19-Jan_2023", date(2023, 1, 19)),
+        ("7_May-21", date(2021, 5, 7)),
+        ("02-Apr=-2026", date(2026, 4, 2)),
+        # A doubled or mixed separator run.
+        ("23/05//2025", date(2025, 5, 23)),
+        ("15-05-/2026", date(2026, 5, 15)),
+        ("16-July-/2025", date(2025, 7, 16)),
+        # A zero-width space pasted in from another application.
+        ("11​ Mar 2026", date(2026, 3, 11)),
+    ],
+)
+def test_parse_date_flexible_recovers_separator_damage(source, expected):
+    assert parse_date_flexible(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # Glued digit runs: where the missing separator goes is a guess, and R's
+        # own reading of "10/1023" is not stable across its call sites.
+        "26/102022",
+        "10/1023",
+        # A date with a stray digit group nobody can resolve.
+        "10-Oct-2-24",
+        # A range of two visit days, not one date: repairing the separator run
+        # would let dateutil read it as 2001-11-15.
+        "11-15 /01/2019",
+    ],
+)
+def test_parse_date_flexible_still_rejects_ambiguous_damage(source):
+    assert parse_date_flexible(source) == date(9999, 9, 9)
+
+
+def test_parse_date_flexible_keeps_trailing_free_text_behaviour():
+    # Separator normalization must not run the free-text clause into the date.
+    assert parse_date_flexible("16-Nov-2019 due to DKA") == date(2019, 11, 16)
 
 
 def test_parse_date_column_rescues_typo_and_logs():

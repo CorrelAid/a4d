@@ -21,12 +21,14 @@ from a4d.migration.compare import (
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
     PATIENT_MERGED_SUBVALUE_TRIM_CLASSIFIERS,
+    PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS,
     PATIENT_NA_UNITE_PADDING_CLASSIFIERS,
     PATIENT_NON_LATIN_HEADER_CLASSIFIERS,
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
     PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
+    PATIENT_UNREADABLE_MONTH_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PATIENT_YMD_FIRST_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -2491,3 +2493,140 @@ class TestInsulinSubtypeFromDrugName:
         )
 
         assert classify(m, PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS) == "unclassified"
+
+
+class TestRMonthNameTruncatedToYear:
+    """Ticket 56: R deletes the fourth letter of a spelled-out month, then falls
+    through its order list to "y" and keeps only the year."""
+
+    def test_flags_a_month_year_cell_r_read_as_january(self):
+        # Source "April-17": R yields 2017-01-01, Python 2017-04-01.
+        m = CellMismatch(
+            key={"patient_id": "TH_QE001", "sheet_name": "Jan21"},
+            column="recruitment_date",
+            r_value=datetime.date(2017, 1, 1),
+            py_value=datetime.date(2017, 4, 1),
+        )
+
+        assert (
+            classify(m, PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS)
+            == "r_month_name_truncated_to_year"
+        )
+
+    def test_unclassified_when_python_also_reads_january(self):
+        """Both on 1 January is the bare-year cause, not this one."""
+        m = CellMismatch(
+            key={"patient_id": "TH_QE001", "sheet_name": "Jan21"},
+            column="recruitment_date",
+            r_value=datetime.date(2017, 1, 1),
+            py_value=datetime.date(2017, 1, 1),
+        )
+
+        assert classify(m, PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_python_carries_a_day_of_month(self):
+        """A month-year cell resolves to the first; anything else is a different
+        source shape."""
+        m = CellMismatch(
+            key={"patient_id": "TH_QE001", "sheet_name": "Jan21"},
+            column="recruitment_date",
+            r_value=datetime.date(2017, 1, 1),
+            py_value=datetime.date(2017, 4, 23),
+        )
+
+        assert classify(m, PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_the_years_differ(self):
+        m = CellMismatch(
+            key={"patient_id": "TH_QE001", "sheet_name": "Jan21"},
+            column="recruitment_date",
+            r_value=datetime.date(2016, 1, 1),
+            py_value=datetime.date(2017, 4, 1),
+        )
+
+        assert classify(m, PATIENT_MONTH_NAME_TRUNCATED_CLASSIFIERS) == "unclassified"
+
+
+class TestRReadsDayAsMonth:
+    """Ticket 56: where the month name is one R cannot read, R ignores it and
+    reads the remaining digits as month and year."""
+
+    def test_flags_the_day_promoted_to_month(self):
+        # Source "9-Dce-20": R yields 2020-09-01, Python 2020-12-09.
+        m = CellMismatch(
+            key={"patient_id": "LA_QA001", "sheet_name": "Dec20"},
+            column="bmi_date",
+            r_value=datetime.date(2020, 9, 1),
+            py_value=datetime.date(2020, 12, 9),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "r_reads_day_as_month"
+
+    def test_flags_it_when_day_and_month_number_coincide(self):
+        # Source "5-Mei-2023": R yields 2023-05-01, Python 2023-05-05.
+        m = CellMismatch(
+            key={"patient_id": "MY_QB001", "sheet_name": "May23"},
+            column="hba1c_updated_date",
+            r_value=datetime.date(2023, 5, 1),
+            py_value=datetime.date(2023, 5, 5),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "r_reads_day_as_month"
+
+    def test_unclassified_when_r_is_not_on_the_first(self):
+        m = CellMismatch(
+            key={"patient_id": "LA_QA001", "sheet_name": "Dec20"},
+            column="bmi_date",
+            r_value=datetime.date(2020, 9, 3),
+            py_value=datetime.date(2020, 12, 9),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_pythons_day_is_not_rs_month(self):
+        m = CellMismatch(
+            key={"patient_id": "LA_QA001", "sheet_name": "Dec20"},
+            column="bmi_date",
+            r_value=datetime.date(2020, 9, 1),
+            py_value=datetime.date(2020, 12, 11),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "unclassified"
+
+
+class TestRParseOrderCannotReadCell:
+    """Ticket 56: where R's fixed order list has no reading for the cell it
+    sentinels, while Python reads the date the clinic wrote."""
+
+    def test_flags_a_day_r_cannot_promote_to_a_month(self):
+        # Source "25-Mach-20": R's fallback needs month 25, so it yields NA.
+        m = CellMismatch(
+            key={"patient_id": "LA_QA009", "sheet_name": "Apr20"},
+            column="bmi_date",
+            r_value=datetime.date(9999, 9, 9),
+            py_value=datetime.date(2020, 3, 25),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "r_parse_order_cannot_read_cell"
+
+    def test_unclassified_when_python_holds_an_early_day(self):
+        """A day of 12 or less is one R's positional fallback can read as a
+        month, so an R sentinel there has some other cause."""
+        m = CellMismatch(
+            key={"patient_id": "LA_QA009", "sheet_name": "Apr20"},
+            column="bmi_date",
+            r_value=datetime.date(9999, 9, 9),
+            py_value=datetime.date(2020, 3, 4),
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_when_python_has_nothing_either(self):
+        m = CellMismatch(
+            key={"patient_id": "LA_QA009", "sheet_name": "Apr20"},
+            column="bmi_date",
+            r_value=datetime.date(9999, 9, 9),
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "unclassified"

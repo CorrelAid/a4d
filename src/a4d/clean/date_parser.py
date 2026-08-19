@@ -28,6 +28,43 @@ TYPO_REPLACEMENTS: list[tuple[str, str]] = [
     (r"(?i)\b0CTOBER\b", "OCTOBER"),
     (r"(?i)\bN0V\b", "NOV"),
     (r"(?i)\bN0VEMBER\b", "NOVEMBER"),
+    # A transposed and a dropped letter, each observed on real trackers
+    # (ticket 56): "9-Dce-20" at Mahosot DC, "6-ug-2025" at NPH.
+    (r"(?i)\bDCE\b", "DEC"),
+    (r"(?i)\bUG\b", "AUG"),
+    # Bahasa Malaysia month abbreviations, not typos: the Malaysian clinics
+    # (Likas, Putrajaya, Sultanah Malihah, Sarawak) write the month in their
+    # own language in a column every other clinic writes in English. Mac, Mei
+    # and Okt are observed on the current tracker set; Ogos and Dis are the
+    # rest of the set that differs from English, added so the next one to
+    # appear is read rather than sentinelled. The other seven Malay
+    # abbreviations are spelled as in English and need no entry.
+    (r"(?i)\bMAC\b", "MAR"),
+    (r"(?i)\bMEI\b", "MAY"),
+    (r"(?i)\bOGOS\b", "AUG"),
+    (r"(?i)\bOKT\b", "OCT"),
+    (r"(?i)\bDIS\b", "DEC"),
+]
+
+
+# Thai month abbreviations, with or without the abbreviating full stops, as the
+# Thai clinics write them (ticket 56: Nakornping's 2025 and 2026 trackers). The
+# guards are lookarounds on the Thai block rather than \b, because a full stop
+# between two Thai letters kills the word boundary a trailing \b would need.
+# Longest-first so "มี.ค." (March) is not read as "ม.ค." (January).
+_THAI_MONTH_REPLACEMENTS: list[tuple[str, str]] = [
+    (r"(?<![ก-๛])มี\.?ค\.?(?![ก-๛])", "MAR"),
+    (r"(?<![ก-๛])มิ\.?ย\.?(?![ก-๛])", "JUN"),
+    (r"(?<![ก-๛])เม\.?ย\.?(?![ก-๛])", "APR"),
+    (r"(?<![ก-๛])ม\.?ค\.?(?![ก-๛])", "JAN"),
+    (r"(?<![ก-๛])ก\.?พ\.?(?![ก-๛])", "FEB"),
+    (r"(?<![ก-๛])พ\.?ค\.?(?![ก-๛])", "MAY"),
+    (r"(?<![ก-๛])ก\.?ค\.?(?![ก-๛])", "JUL"),
+    (r"(?<![ก-๛])ส\.?ค\.?(?![ก-๛])", "AUG"),
+    (r"(?<![ก-๛])ก\.?ย\.?(?![ก-๛])", "SEP"),
+    (r"(?<![ก-๛])ต\.?ค\.?(?![ก-๛])", "OCT"),
+    (r"(?<![ก-๛])พ\.?ย\.?(?![ก-๛])", "NOV"),
+    (r"(?<![ก-๛])ธ\.?ค\.?(?![ก-๛])", "DEC"),
 ]
 
 
@@ -101,7 +138,7 @@ def _is_missing_date_text(value: str) -> bool:
 def rescue_date_typos(s: str) -> tuple[str, bool]:
     """Substitute known month-name typos. Returns (possibly-rewritten, was_rescued)."""
     rescued = False
-    for pattern, replacement in TYPO_REPLACEMENTS:
+    for pattern, replacement in [*TYPO_REPLACEMENTS, *_THAI_MONTH_REPLACEMENTS]:
         new_s, n = re.subn(pattern, replacement, s)
         if n > 0:
             s, rescued = new_s, True
@@ -114,6 +151,24 @@ def rescue_date_typos(s: str) -> tuple[str, bool]:
 # to sit outside it, and it mirrors the cleaned stage's own beyond-tracker-year
 # guard at the other end of the calendar (ticket 55).
 _MIN_PLAUSIBLE_YEAR = 1900
+
+
+# Characters that carry no meaning of their own but survive a copy-paste out of
+# a browser or a chat message and make an otherwise clean date unparseable.
+_INVISIBLE_CHARS = str.maketrans(dict.fromkeys("\u200b\u200c\u200d\u2060\ufeff"))
+
+
+# A separator run damaged by a stray keystroke: either two or more separator
+# characters where one belongs ("26-05- 2007", "23/05//2025", "02-Apr=-2026"),
+# or a single character that is never a date separator to begin with ("_", "=").
+# R recovers all of these because lubridate splits on any non-alphanumeric run,
+# where dateutil requires the separator to be well-formed (ticket 56).
+#
+# Deliberately narrow. A single "/" or "." is left alone so that no
+# already-parsing value changes reading, and a whitespace-only run is left alone
+# so the trailing-free-text path ("16-Nov-2019 due to DKA") still sees its own
+# word boundaries.
+_DAMAGED_SEPARATOR = re.compile(r"(?=[-/_=.\s]*[-/_=.])[-/_=.\s]{2,}|[_=]")
 
 
 def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> date | None:
@@ -145,9 +200,17 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     if date_str is None or _is_missing_date_text(str(date_str)):
         return None
 
-    date_str = str(date_str).strip()
+    date_str = str(date_str).translate(_INVISIBLE_CHARS).strip()
 
     result = _parse_date_str(date_str)
+    if result is None:
+        repaired = _DAMAGED_SEPARATOR.sub("-", date_str)
+        # A fourth number means the repair joined something that was never one
+        # date: "11-15 /01/2019" is a range of two visit days, and reading it as
+        # a single date invents 2001-11-15. Repair only what can still be a
+        # day/month/year.
+        if repaired != date_str and len(re.findall(r"\d+", repaired)) <= 3:
+            result = _parse_date_str(repaired)
     if result is None:
         result = _parse_longest_parseable_prefix(date_str)
     if result is not None and result.year >= _MIN_PLAUSIBLE_YEAR:
