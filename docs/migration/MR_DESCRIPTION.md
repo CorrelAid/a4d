@@ -32,16 +32,16 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 38 of 52 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 39 of 53 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 5,214 unclassified<br/>tickets 44, 53"]
+    L["Patient cleaned: 4,625 unclassified<br/>tickets 44, 54"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["53 - patient cleaned triage, round 6"]
+    O["54 - patient cleaned triage, round 7"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -484,15 +484,15 @@ columns left for that month.
 
 ## Where verification stands
 
-Current baseline: `output/comparison/2026-08-17T212151Z`, 254 trackers.
+Current baseline: `output/comparison/2026-08-19T185253Z`, 254 trackers.
 Earlier counts on the wayfinder map were measured against smaller tracker sets
 and should be read as historical.
 
 | Stage | Mismatches | Unclassified |
 |---|---|---|
-| Product (raw) | 112 | **0** |
-| Product (cleaned) | 22,716 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 113,385 | 7,967 |
+| Product (raw) | 89 | **0** |
+| Product (cleaned) | 22,706 | **20** (kept on purpose as signals) |
+| Patient (cleaned) | 114,712 | 4,625 |
 | Patient (raw) | 26,171 | **0** (from 14,844) |
 
 Three of the four stages are fully triaged. Patient's cleaned stage is down
@@ -509,26 +509,34 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **53 — patient cleaned triage, round 6.** 2,278 in-scope cells left after
-  round 5, excluding the FBG population ticket 44 already owns.
-  `hospitalisation_date` (546) is now the largest shape, most of it parse
-  failures where Python refused the source and R guessed; part of that
-  population is ticket 39's open question about dates buried in clinical notes.
-  Blood pressure (491), the 298 diagnosis-age cells that did not trace to a
-  bare year, `height` (114) and `fbg_updated_mg` (113) are the rest.
+- **54 — patient cleaned triage, round 7.** 1,689 in-scope cells left after
+  round 6, excluding the FBG population ticket 44 owns and the
+  `hospitalisation_date` population ticket 39 owns. `t1d_diagnosis_age` (298)
+  is now the largest takeable shape, measured into three decidable sub-shapes;
+  the smaller date columns, `height` (114), `fbg_updated_mg` (113) and a ~200
+  long tail are the rest.
 
-  Round 5 broke the pattern of the four rounds before it: its largest shape
-  was not a divergence to explain but **two real Python bugs to fix**, both
-  live in production BigQuery. A bare four-digit year typed into a date cell
-  (590 `dob` cells, 425 `t1d_diagnosis_date` cells, nine trackers) was read as
-  an Excel serial and became a 1905 date, driving `age` to the 999999 sentinel
-  and `t1d_diagnosis_age` to -95; and the diagnosis-age derivation emitted
-  negative ages where a workbook records a diagnosis before the birth date.
-  The cleaned output now holds zero pre-1930 birth dates and zero negative
-  diagnosis ages, where it held 590 and 264. Fixing the date parser alone was
-  not enough — it left the one file whose D.O.B. column is date-formatted
-  unrecovered, and the 163-cell raw-stage regression that exposed is what
-  located the second half of the bug in `read_patient_rows`.
+  Round 6 repeated round 5's pattern: its work was **fixing Python, not
+  explaining R**, and both defects were live in production output.
+  `parse_date_flexible` let `dateutil` complete an absent **day from today**
+  for every month-year spelling its alphabetic branch does not match --
+  `10/2019`, `Mar, 2017`, `Jun'09` -- so 42 production cells carried the run
+  date's own day of month and changed meaning between runs with no input
+  change. This was the third appearance of one root cause, so it was closed as
+  a class rather than as another spelling: the string is parsed twice against
+  two disjoint defaults, and any component that differs between the parses is
+  one dateutil invented, not read. Separately,
+  `split_bp_in_sys_and_dias` left the padding on each fragment; R's
+  `as.numeric` ignores surrounding whitespace where Polars' cast fails on it,
+  so every blood pressure written `70 / 40` reached the cleaned output as the
+  999999 error sentinel. 465 readings across 7 trackers were restored and both
+  BP columns left the residual (302 -> 13, 215 -> 13).
+
+  The round also settled what `hospitalisation_date` is: joining all 546 cells
+  back to the raw stage showed the column is **100% clinical notes**, so it
+  belongs to ticket 39 in full rather than in part. It was left unclassified on
+  purpose -- labelling it would hide the largest column on the report behind a
+  decision nobody has made.
 
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
@@ -542,8 +550,13 @@ Nothing here blocks review of the code — it blocks the merge.
   unnoticed because the locally-run check set was a strict subset.
 - **35 — 17 Polars 2.0 deprecation warnings.** Each asks about a behaviour
   change; they need decisions, not silencing.
-- **39 — dates buried in clinical notes.** 487 cells where R parses a date out
-  of free text and Python does not. Open question: recover or discard.
+- **39 — dates buried in clinical notes.** Now owns `hospitalisation_date`'s
+  whole 489-cell residual, measured by round 6 to be 100% notes. Runs three
+  ways: 302 where Python sentinels and R has a date, 179 where **Python already
+  recovers a date and R sentinels**, and 65 where both find a date and disagree
+  about which of several recorded admissions the cell means. So the question is
+  not only recover-or-discard but *which* date, when the note lists more than
+  one.
 - **16 — per-file log drill-down.** Replaces `LogViewerA4D`'s job. Not yet
   decided whether it gates rollout or is a nice-to-have.
 - **40 — one Excel of every source-tracker defect** (file, sheet, patient, row,
