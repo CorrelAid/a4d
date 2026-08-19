@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 54]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 55]
 assignee: null
 claimed_at: null
 resolution: null
@@ -198,3 +198,10 @@ round 6 read R's own `split_bp_in_sys_and_dias`
 (`script2_helper_patient_data_fix.R:623-653`) to establish why R keeps a blood
 pressure Python was discarding, so triage still depends on `r-archive/` being
 present.
+
+**2026-08-19d (ticket 54 closed).** `blocked_by` swaps `54` for [ticket
+55](55-triage-patient-cleaned-residual-8.md) on the same standing precedent:
+round 7 read R's own commented-out `fix_t1d_diagnosis_age` call site
+(`script2_process_patient_data.R:251`) to establish why R never derives a
+diagnosis age, and round 8's first task is reading R's `fix_fbg` for the same
+kind of answer. Triage still depends on `r-archive/` being present.

@@ -183,3 +183,25 @@ stage and both deliberately left uncorrected in the pipeline:
   Python both produced a wrong date, and Python now produces the error
   sentinel. Round 6 rejected normalizing whitespace around date separators as
   an untested third change in one session, so the workbook is the fix.
+
+## Findings added 2026-08-19d (from [round 7](54-triage-patient-cleaned-residual-7.md))
+
+Round 6 already logged 2023 Chiang Mai's date-in-the-age-column above. Round 7
+confirmed it against the workbook itself and found the wider defect behind it,
+plus a second clinic with the same shape:
+
+- **2023 Chiang Mai's `Date of T1D Diagnosis` column is empty for every
+  patient**, which is why its formula-derived `Age at Diagnosis*` column reads
+  `#NUM!` throughout and why TH_CP005's stray `1956-08-01` had nothing to be
+  computed from. Fixing the one cell without filling the diagnosis-date column
+  leaves the whole column broken.
+- **2023 Yangon General records a diagnosis a year before the birth.**
+  MM_YC043_YG has D.O.B. 2008-01-01 and `Date of T1D Diagnosis` 2007-06-01,
+  with `2017-05-04` typed into the age column on top. R carries that date's
+  Excel serial (42859) into the age; Python nulls it. Two defects in one row.
+- **Heights that are not heights.** 2025/2026 Señor Sto. Niño, 2021-2023 Likas
+  and 2019 Mahosot record `6.9`, `2.52`, `2.43`, `2.72`, `13.0` in the height
+  column. R sentinels them; Python converts them to metres and emits `0.069`,
+  `0.0252`. Whether these are a mis-keyed unit or plain data entry errors is
+  [round 8](55-triage-patient-cleaned-residual-8.md)'s question, but no reading
+  of them is a plausible height.

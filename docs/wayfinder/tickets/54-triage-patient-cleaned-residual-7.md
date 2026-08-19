@@ -2,12 +2,12 @@
 id: 54
 title: Triage the residual patient cleaned-stage mismatches (round 7)
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-19d
+claimed_at: 2026-08-19T21:00:00+02:00
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 53
 ---
@@ -108,3 +108,106 @@ the source carried, fix the pipeline. Where the source workbook itself is wrong,
 that is a legitimate conclusion and a finding for [ticket
 40](40-source-defect-findings-report.md). A cause genuinely undecidable on the
 available evidence is recorded as an open question, not closed with a label.
+
+## Resolution
+
+**Decision.** `t1d_diagnosis_age` (298) and the two string-typed screening
+measurement columns (132) are fully explained and decided; the cleaned-stage
+in-scope residual falls **1,200 -> 770** (36%), the raw stage holds at **0**,
+and total cleaned-stage cell mismatches fall 114,712 -> 114,580. No pipeline
+behaviour changed: both findings are R limitations or comparison-harness gaps,
+not Python defects. Everything else measured this session is handed to [round
+8](55-triage-patient-cleaned-residual-8.md) with its mechanism already named.
+
+A note on the count: this ticket's own premise said 1,689 in-scope. The
+measured figure is 1,200 -- 4,625 unclassified less `fbg_updated_mmol` (2,936)
+and `hospitalisation_date` (489). 1,689 is 1,200 plus the 489 this ticket
+excludes from work; the frontier was the same either way.
+
+**`t1d_diagnosis_age` (298 -> 0), two causes, Python right in both.**
+
+`r_never_derives_diagnosis_age` (282). R's `fix_t1d_diagnosis_age` exists in
+`script2_helper_patient_data_fix.R` and is unit-tested against exactly the
+strings the trackers carry -- "At birth", "4 months", "5y", "10y10m" -- but its
+**call site is commented out** (`script2_process_patient_data.R:251`, read
+directly, not inferred). So R's `t1d_diagnosis_age` is only ever the source
+column through `as.numeric`: a blank cell stays NA, a cell written in words
+becomes R's 999999 "recorded but invalid" sentinel. Python's
+`_fix_t1d_diagnosis_age` fills from `dob` and `t1d_diagnosis_date` in exactly
+those two cases and otherwise keeps what the clinic recorded.
+
+Python is right on the source's own evidence, not on the shape of the diff.
+Where the source wrote the age in words, Python's derived figure agrees with
+the words: 2017 Mandalay's MM_MD010 reads `11yr` against a D.O.B. of
+2004-03-01 and a diagnosis of 2016-01-01, and Python derives 11; MM_MD011
+reads `4mth` against 2013-10-23 and 2014-02-01, and Python derives 0. Where
+the cell is blank, both pipelines hold the *same* two dates and only Python
+uses them -- 2024 Sarawak's MY_SW001 is (2000-06-30, 2011-01-01) on both sides,
+null in R and 10 in Python. R keeps nothing a clinic recorded; Python recovers
+information R discards.
+
+`source_date_in_diagnosis_age` (16). A date typed into the `Age at Diagnosis`
+column, confirmed in both source workbooks. 2023 Chiang Mai's Patient List row
+for TH_CP005 holds 1956-08-01 (serial 20668) in a workbook whose `Date of T1D
+Diagnosis` column is empty for **every** patient, so its formula-derived age
+column reads `#NUM!` throughout; 2023 Yangon General's row for MM_YC043_YG
+holds 2017-05-04 (serial 42859) against a D.O.B. of 2008-01-01 and a diagnosis
+date of 2007-06-01 -- a diagnosis a year before the birth. R's readxl reads
+the column as numeric and carries the raw serial into the age; Python's cast
+fails and the cell is null. Python is right (20,668 is not an age), and both
+are source defects for [ticket 40](40-source-defect-findings-report.md).
+
+Why these 298 were not already `python_age_from_bare_year` (ticket 52): that
+classifier fires on `row_has_bare_year_date`, which requires the row's own date
+cells to *disagree*. Sarawak's 2024 workbook writes real 1-January dates, so R
+and Python agree on the dates and no bare-year mismatch exists on the row --
+the ages differ purely because only Python derives one. The ticket's stated
+hypothesis (a downstream face of `python_reads_bare_year`) was therefore
+wrong, and the real mechanism is more general.
+
+**The screening measurement columns (132 -> 0), a harness gap.**
+`complication_screening_lipid_profile_cholesterol_value` (72) and
+`complication_screening_kidney_test_value` (60) were entirely
+`4.8600000000000003` against `4.86` -- the float-to-string rounding difference
+`normalize_numeric_column` has handled since ticket 22, which was scoped to the
+raw stage on the argument that cleaning casts its numeric columns. That
+argument has an exception nobody had measured: the cleaned schema types these
+columns as **String** (verified in both pipelines' own parquet schemas) because
+the same cell can read "normal", so cleaning never casts them and the artifact
+survives. Added `string_numeric_normalize_targets` (derived from each frame's
+own dtypes, not a named list) and wired the `Patient (cleaned)` stage to it via
+a new `ALL_STRING_COLUMNS` sentinel. The 132 cells stop being mismatches at
+all rather than being labelled -- total mismatches fell by exactly 132, so
+nothing already classified was masked.
+
+**Rejected.**
+- *Labelling the 298 as a bare-year effect*, per the ticket's own hypothesis.
+  Killed by measurement: R's and Python's dates are identical on the dominant
+  Sarawak population, so there is no bare-year mismatch to be downstream of.
+- *One classifier for all 298.* The 16 date-in-age cells have the opposite
+  direction (Python nulls, R carries) and a different verdict (the source is
+  broken, not R), so folding them in would have hidden a ticket 40 finding
+  behind an R-limitation label.
+- *Naming the two screening columns explicitly.* Rejected per the map's
+  never-hand-maintain rule -- which columns the schema types as strings is the
+  schema's decision, and a copy of it drifts.
+- *Chasing `height`, `fbg_updated_mg`, `bmi`, `insulin_subtype` here.* Each was
+  measured far enough to name its mechanism and two of them look like real
+  Python defects; that is more than one session and is round 8's work.
+
+**Evidence.** Executed. R's dead call site read directly from
+`r-archive/R/script2_process_patient_data.R`; both source workbooks opened with
+openpyxl and the offending cells printed; the mismatch population joined back
+to Python's own raw stage per the ticket's prescribed method; verdicts checked
+against the real 248-tracker `output_r`/`output_python` pair on the USB drive.
+Two full comparison runs (`2026-08-19T195136Z`, `2026-08-19T195625Z`) measured
+the before/after. Full suite 799 passed / 1 skipped, ruff and `ty check src/`
+clean.
+
+**Tense.** Every count above is current behaviour of the code as committed,
+measured on run `2026-08-19T195625Z`, not a consequence of a proposed design.
+
+**Also corrected in passing.** `clean/patient.py`'s step 5.5b comment still
+read "Replaces any existing value (including Excel errors like #NUM!)", which
+ticket 52 made false -- the function now prefers the tracker's own recorded
+age. Same class of correction as round 4's `_validate_dates` docstring.
