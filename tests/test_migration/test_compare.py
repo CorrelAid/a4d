@@ -14,6 +14,7 @@ from a4d.migration.compare import (
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
@@ -68,6 +69,7 @@ from a4d.migration.compare import (
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
+    string_numeric_normalize_targets,
     summarize_directory,
     whitespace_normalize_targets,
 )
@@ -184,6 +186,40 @@ class TestNumericNormalizeTargets:
         df = pl.DataFrame({"__row_ordinal": [1], "weight": ["31.5"]})
 
         assert numeric_normalize_targets(df, exclude=[]) == ["weight"]
+
+
+class TestStringNumericNormalizeTargets:
+    """Ticket 54: the cleaned stage's own numeric-normalization scope."""
+
+    def test_includes_a_string_typed_measurement_column(self):
+        """The cleaned schema types a screening measurement as a string
+        because the same column can also hold "normal", so cleaning never
+        casts it and R's float-to-string rounding survives into the output."""
+        df = pl.DataFrame(
+            {"patient_id": ["A"], "complication_screening_kidney_test_value": ["9.2"]}
+        )
+
+        targets = string_numeric_normalize_targets(df, exclude=["patient_id"])
+
+        assert targets == ["complication_screening_kidney_test_value"]
+
+    def test_excludes_an_already_numeric_column(self):
+        """Both sides hold a real float there, so there is nothing to reparse."""
+        df = pl.DataFrame({"patient_id": ["A"], "weight": [31.5]})
+
+        assert string_numeric_normalize_targets(df, exclude=["patient_id"]) == []
+
+    def test_excludes_the_row_alignment_key_columns(self):
+        df = pl.DataFrame({"patient_id": ["A"], "sheet_name": ["Jul24"], "hba1c_updated": ["9.2"]})
+
+        targets = string_numeric_normalize_targets(df, exclude=["patient_id", "sheet_name"])
+
+        assert targets == ["hba1c_updated"]
+
+    def test_excludes_synthetic_join_helper_columns(self):
+        df = pl.DataFrame({"__key_patient_id": ["A"], "hba1c_updated": ["9.2"]})
+
+        assert string_numeric_normalize_targets(df, exclude=[]) == ["hba1c_updated"]
 
 
 class TestWhitespaceNormalizeTargets:
@@ -2284,3 +2320,90 @@ class TestRUnicodeSanitizerRejectsAccent:
         )
 
         assert classify(m, PATIENT_UNICODE_SANITIZER_CLASSIFIERS) == "unclassified"
+
+
+class TestRNeverDerivesDiagnosisAge:
+    """Ticket 54: R's fix_t1d_diagnosis_age call site is commented out, so R
+    passes the source column through and Python derives the age from dates."""
+
+    def test_flags_an_age_python_derived_where_the_source_cell_was_blank(self):
+        m = CellMismatch(
+            key={"patient_id": "MY_QJ001", "sheet_name": "Jan24"},
+            column="t1d_diagnosis_age",
+            r_value=None,
+            py_value=10,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "r_never_derives_diagnosis_age"
+
+    def test_flags_an_age_python_derived_where_the_source_wrote_it_in_words(self):
+        """`At birth`, `4mth`, `11yr` -- as.numeric() fails and R sentinels."""
+        m = CellMismatch(
+            key={"patient_id": "MM_QA010", "sheet_name": "May17"},
+            column="t1d_diagnosis_age",
+            r_value=999999.0,
+            py_value=11,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "r_never_derives_diagnosis_age"
+
+    def test_unclassified_where_both_sides_hold_a_real_age(self):
+        """A genuine disagreement between two recorded ages is a different
+        question, and must not be absorbed by this cause."""
+        m = CellMismatch(
+            key={"patient_id": "MM_QF001", "sheet_name": "Jan23"},
+            column="t1d_diagnosis_age",
+            r_value=10.0,
+            py_value=11,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "unclassified"
+
+    def test_unclassified_where_python_derived_nothing(self):
+        m = CellMismatch(
+            key={"patient_id": "TH_QB005", "sheet_name": "Jan23"},
+            column="t1d_diagnosis_age",
+            r_value=None,
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "unclassified"
+
+
+class TestSourceDateInDiagnosisAge:
+    """Ticket 54: a date typed into the `Age at Diagnosis` column -- R carries
+    the Excel serial into the age, Python nulls it."""
+
+    def test_flags_an_impossible_age_r_carried_where_python_nulled(self):
+        # 20668 is the Excel serial for 1956-08-01, the literal cell content
+        # of 2023 Chiang Mai's Patient List row for TH_QB005.
+        m = CellMismatch(
+            key={"patient_id": "TH_QB005", "sheet_name": "Jan23"},
+            column="t1d_diagnosis_age",
+            r_value=20668.0,
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "source_date_in_diagnosis_age"
+
+    def test_ignores_the_numeric_error_sentinel(self):
+        """999999 is R's "recorded but invalid" marker, not a date serial --
+        r_numeric_error_sentinel owns that shape."""
+        m = CellMismatch(
+            key={"patient_id": "MM_QE003", "sheet_name": "Sep23"},
+            column="t1d_diagnosis_age",
+            r_value=999999.0,
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "unclassified"
+
+    def test_ignores_a_plausible_age_python_happened_to_drop(self):
+        m = CellMismatch(
+            key={"patient_id": "MM_QE043", "sheet_name": "Sep23"},
+            column="t1d_diagnosis_age",
+            r_value=12.0,
+            py_value=None,
+        )
+
+        assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "unclassified"
