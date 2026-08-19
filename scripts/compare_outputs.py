@@ -45,6 +45,8 @@ from a4d.clean.validators import load_validation_rules
 from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS,
+    PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
@@ -506,6 +508,23 @@ CLASSIFIERS_BY_COLUMN |= {
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_YMD_FIRST_CLASSIFIERS
     for col in get_date_columns()
+}
+
+# ticket 52: a bare year typed into a date cell, which Python now resolves as
+# the year and R still reads as a 1905 Excel serial. parse_date_flexible is
+# Python's one date entry point, so the cause belongs to every date column
+# rather than to the two that carry it in the current tracker set.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_BARE_YEAR_CLASSIFIERS
+    for col in get_date_columns()
+}
+
+# ticket 52: the two ages derived from those dates. Named explicitly rather
+# than derived from a list: these are exactly the columns _fix_age and
+# _fix_t1d_diagnosis_age compute from dob and t1d_diagnosis_date.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS
+    for col in ("age", "t1d_diagnosis_age")
 }
 
 # ticket 51: Python's own beyond-tracker-year guard (_validate_dates), which

@@ -21,7 +21,7 @@ from typing import Any
 
 import polars as pl
 
-from a4d.clean.date_parser import parse_date_flexible
+from a4d.clean.date_parser import EXCEL_EPOCH, parse_date_flexible
 from a4d.clean.glucose import (
     GLUCOSE_COLUMNS as GLUCOSE_UNIT_COLUMNS,
 )
@@ -437,6 +437,14 @@ class CellMismatch:
     # supply -- the ledgers took different paths to the same closing figure
     # (ticket 36). Diagnostic only, like row_order_candidate.
     group_endpoint_matches: bool = False
+    # Set by compare_cells: True if any *other* column on this same row is
+    # itself a bare-year mismatch (ticket 52). age and t1d_diagnosis_age are
+    # derived from dob and t1d_diagnosis_date, so when one of those carries a
+    # bare year the two pipelines derive from different birth years -- a
+    # cascade of an already-decided cause, not a separate divergence. Keyed on
+    # the mechanism rather than on the derived values' shape, which alone
+    # cannot tell this apart from a genuine age disagreement.
+    row_has_bare_year_date: bool = False
 
 
 CELL_FLOAT_REL_TOL = 1e-9
@@ -493,6 +501,12 @@ def compare_cells(
     for row in joined.iter_rows(named=True):
         key = {k: row[k] for k in key_cols}
         gkey = tuple(row[c] for c in order_group_cols) if order_group_cols else None
+        has_bare_year = any(
+            _is_python_reads_bare_year(
+                CellMismatch(key=key, column=c, r_value=row[c], py_value=row[f"{c}_py"])
+            )
+            for c in value_cols
+        )
         for col in value_cols:
             r_value, py_value = row[col], row[f"{col}_py"]
             if _values_differ(r_value, py_value):
@@ -508,6 +522,7 @@ def compare_cells(
                         py_value=py_value,
                         row_order_candidate=row_order_candidate,
                         group_endpoint_matches=group_endpoint_agrees.get((gkey, col), False),
+                        row_has_bare_year_date=has_bare_year,
                     )
                 )
     return mismatches
@@ -1348,6 +1363,65 @@ def _is_r_ymd_first_misparse(m: CellMismatch) -> bool:
 
 PATIENT_YMD_FIRST_CLASSIFIERS: dict[str, Classifier] = {
     "r_ymd_first_misparse": _is_r_ymd_first_misparse,
+}
+
+
+def _is_python_reads_bare_year(m: CellMismatch) -> bool:
+    """A bare four-digit year in a date cell: Python reads the year, R the serial.
+
+    Nine trackers type a year alone where the template asks for
+    ``(dd-mmm-yyyy)`` -- 590 D.O.B. cells across four Yangon Children's
+    trackers and 425 diagnosis dates across Sarawak, Uni Med Center, VNCH,
+    Heart of Jesus and MMMHMC. Both pipelines used to read that number as an
+    Excel serial, which lands in 1905; ``parse_date_flexible`` now resolves
+    it as the year (ticket 52), so only R still does.
+
+    Python is right, and the source says so rather than the shape of the diff:
+    Sarawak General Hospital's **2024** workbook writes the same patients'
+    diagnoses as real 1-January dates (``Patient List!G10`` is 2011-01-01 for
+    MY_QJ001) where its 2025 and 2026 workbooks write the bare year, so the
+    first of January is the clinic's own convention for a year with no day,
+    and the recovered ages agree across the three years. R's reading has every
+    such patient born or diagnosed in 1905, which drove ``age`` to the 999999
+    sentinel and ``t1d_diagnosis_age`` negative.
+
+    The test is the serial arithmetic itself: R's date must be exactly the
+    Excel serial of the year Python read, which no coincidentally-1-January
+    date can satisfy.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None:
+        return False
+    if (py_date.month, py_date.day) != (1, 1):
+        return False
+    return r_date == EXCEL_EPOCH + datetime.timedelta(days=py_date.year)
+
+
+PATIENT_BARE_YEAR_CLASSIFIERS: dict[str, Classifier] = {
+    "python_reads_bare_year": _is_python_reads_bare_year,
+}
+
+
+def _is_age_from_bare_year(m: CellMismatch) -> bool:
+    """An age derived from a date whose bare year only Python recovered.
+
+    ``age`` comes from ``dob`` and ``t1d_diagnosis_age`` from ``dob`` plus
+    ``t1d_diagnosis_date`` (``_fix_age``/``_fix_t1d_diagnosis_age``,
+    clean/patient.py). Where one of those dates is a bare year (see
+    ``python_reads_bare_year``), R derives from its 1905 reading and Python
+    from the real one, so the two ages *must* differ -- R's lands around 113
+    and its own 0-100 range check then stamps the 999999 sentinel.
+
+    This is the same decided cause one step downstream, not a second one, so
+    it is keyed on the mechanism: the row must itself carry a bare-year date
+    mismatch. The derived values' shape alone (R sentinel, Python plausible)
+    would also match a genuine age disagreement.
+    """
+    return m.row_has_bare_year_date
+
+
+PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS: dict[str, Classifier] = {
+    "python_age_from_bare_year": _is_age_from_bare_year,
 }
 
 # A month sheet is named "Jan22", "Sept22" or "Oct'22" -- the trailing two

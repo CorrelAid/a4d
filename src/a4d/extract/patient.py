@@ -324,11 +324,13 @@ def _carries_data_beyond_identifier(row: tuple) -> bool:
 
 # Excel's serial epoch starts at 1899-12-30, so a "date" in the first years
 # of the 1900s is a small number that inherited a date number format from a
-# neighbouring cell, not a date anyone could have entered. 1903 leaves room
-# for the largest such number observed (serial 120, a systolic reading) with
-# no real date anywhere near it -- the earliest genuine date in the
+# neighbouring cell, not a date anyone could have entered. Raised from 1903
+# to 1906 (ticket 52): a bare four-digit year typed into a date-formatted
+# cell is a serial of 1900-2100, which resolves into March-September 1905 and
+# so escaped the old bound -- 2019 Yangon Children's writes 163 D.O.B. cells
+# that way. Still nowhere near a real date: the earliest genuine one in the
 # 254-tracker set is a 1956 D.O.B.
-_IMPOSSIBLE_DATE_BEFORE = datetime.datetime(1903, 1, 1)
+_IMPOSSIBLE_DATE_BEFORE = datetime.datetime(1906, 1, 1)
 
 
 def _recover_number_typed_as_date(value: object) -> object:

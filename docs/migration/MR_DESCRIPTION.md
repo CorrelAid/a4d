@@ -32,16 +32,16 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 37 of 51 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 38 of 52 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 5,474 unclassified<br/>tickets 44, 52"]
+    L["Patient cleaned: 5,214 unclassified<br/>tickets 44, 53"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["51 - patient cleaned triage, round 4"]
+    O["53 - patient cleaned triage, round 6"]
     O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
@@ -509,22 +509,27 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **52 — patient cleaned triage, round 5.** 2,538 in-scope cells left after
-  round 4 cut the residual in half (whole cleaned stage 7,967 -> 5,474),
-  excluding the FBG population ticket 44 already owns. `t1d_diagnosis_age`
-  (558) is the largest untouched shape; ~533 date cells are parse failures
-  where Python refused the source and R guessed, part of which is ticket 39's
-  open question about dates buried in clinical notes.
+- **53 — patient cleaned triage, round 6.** 2,278 in-scope cells left after
+  round 5, excluding the FBG population ticket 44 already owns.
+  `hospitalisation_date` (546) is now the largest shape, most of it parse
+  failures where Python refused the source and R guessed; part of that
+  population is ticket 39's open question about dates buried in clinical notes.
+  Blood pressure (491), the 298 diagnosis-age cells that did not trace to a
+  bare year, `height` (114) and `fbg_updated_mg` (113) are the rest.
 
-  Round 4 landed three causes, all verified in the source workbooks:
-  `r_ymd_first_misparse` (1,714 — R's `parse_date_string` orders `ymd` before
-  `dmy`, reading `30.1.18` as 2030-01-18 and putting 1,236 cells in the future
-  relative to their own tracker year), `python_rejects_beyond_tracker_year`
-  (722 — a deliberate Python guard R has no equivalent of, which exposed 2022
-  VNCH recording every diagnosis date as a 2023 one for patients recruited in
-  2017), and `r_unicode_sanitizer_rejects_accent` (57 — R's `[^[:alnum:]]`
-  keeps accents where Python's `[^a-z0-9]` folds them, so Python recovers a
-  province R discards).
+  Round 5 broke the pattern of the four rounds before it: its largest shape
+  was not a divergence to explain but **two real Python bugs to fix**, both
+  live in production BigQuery. A bare four-digit year typed into a date cell
+  (590 `dob` cells, 425 `t1d_diagnosis_date` cells, nine trackers) was read as
+  an Excel serial and became a 1905 date, driving `age` to the 999999 sentinel
+  and `t1d_diagnosis_age` to -95; and the diagnosis-age derivation emitted
+  negative ages where a workbook records a diagnosis before the birth date.
+  The cleaned output now holds zero pre-1930 birth dates and zero negative
+  diagnosis ages, where it held 590 and 264. Fixing the date parser alone was
+  not enough — it left the one file whose D.O.B. column is date-formatted
+  unrecovered, and the 163-cell raw-stage regression that exposed is what
+  located the second half of the bug in `read_patient_rows`.
+
 - **47 — four trackers where cleaning merges several patients into one ID.**
   `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
   9 identities in total, row counts preserved. R does the same, so the
