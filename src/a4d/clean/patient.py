@@ -107,8 +107,8 @@ def clean_patient_data(
     # Must happen before range validation so validated age is correct
     df = _fix_age_from_dob(df, error_collector)
 
-    # Step 5.5b: Calculate t1d_diagnosis_age from dob and t1d_diagnosis_date
-    # Replaces any existing value (including Excel errors like #NUM!)
+    # Step 5.5b: Fill t1d_diagnosis_age from dob and t1d_diagnosis_date, but
+    # only where the tracker recorded no usable age of its own (ticket 52)
     df = _fix_t1d_diagnosis_age(df)
 
     # Step 5.6: Validate dates (replace future dates with error value)

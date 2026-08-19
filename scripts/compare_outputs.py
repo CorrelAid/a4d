@@ -49,6 +49,7 @@ from a4d.migration.compare import (
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
     PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
@@ -89,6 +90,7 @@ from a4d.migration.compare import (
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
+    string_numeric_normalize_targets,
     summarize_directory,
     whitespace_normalize_targets,
 )
@@ -119,9 +121,11 @@ class Sentinel(Enum):
     """Marks a normalization that resolves against each frame's own columns."""
 
     ALL_RAW_COLUMNS = auto()
+    ALL_STRING_COLUMNS = auto()
 
 
 ALL_RAW_COLUMNS = Sentinel.ALL_RAW_COLUMNS
+ALL_STRING_COLUMNS = Sentinel.ALL_STRING_COLUMNS
 
 PATIENT_KEY_COLS = ["patient_id", "sheet_name"]
 PATIENT_ID_COL = "patient_id"
@@ -264,6 +268,12 @@ PATIENT_WHITESPACE_NORMALIZE_COLS = get_patient_string_columns()
 # keeps the schema-derived list: there the dtypes are real, and a column
 # typed Float64 genuinely holds floats rather than text.
 PATIENT_RAW_WHITESPACE_NORMALIZE_COLS = ALL_RAW_COLUMNS
+
+# Ticket 54: cleaning casts its numeric columns, so the cleaned stage needs
+# numeric normalization only where the schema keeps a measurement as a string
+# (a screening value that can also read "normal"). Resolved per frame against
+# the frame's own dtypes -- see string_numeric_normalize_targets.
+PATIENT_CLEANED_NUMERIC_NORMALIZE_COLS = ALL_STRING_COLUMNS
 
 CLASSIFIERS_BY_COLUMN = {
     # ticket 28: R's static "Patient List" recruitment-date extraction fails
@@ -535,6 +545,16 @@ CLASSIFIERS_BY_COLUMN |= {
     for col in get_date_columns()
 }
 
+# ticket 54: R never derives a diagnosis age at all (its call site is
+# commented out), and a date typed into that column reaches R as a serial.
+# Scoped to the one column _fix_t1d_diagnosis_age computes, and appended after
+# PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS so the bare-year subset -- which is
+# the same mechanism already decided under a narrower, row-flagged test --
+# keeps its own name rather than being absorbed by the general one.
+CLASSIFIERS_BY_COLUMN["t1d_diagnosis_age"] = (
+    CLASSIFIERS_BY_COLUMN.get("t1d_diagnosis_age", {}) | PATIENT_DIAGNOSIS_AGE_CLASSIFIERS
+)
+
 # ticket 51: the two sanitizers disagree on accented letters, so the cause
 # belongs to every allowed-value column rather than to province alone -- it is
 # only province today because province is the one whose canonical values carry
@@ -633,6 +653,7 @@ STAGES = [
         alignment=RowAlignment.IDENTITY,
         ordinal_group_cols=PATIENT_KEY_COLS,
         whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
+        numeric_normalize_cols=PATIENT_CLEANED_NUMERIC_NORMALIZE_COLS,
     ),
     Stage(
         label="Product (raw)",
@@ -699,7 +720,9 @@ def _compare_arm(r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison
                     frames[name] = normalize_boolean_literal_column(frames[name], column)
     for frames in (r_frames, py_frames):
         for name, df in frames.items():
-            if stage.numeric_normalize_cols is ALL_RAW_COLUMNS:
+            if stage.numeric_normalize_cols is ALL_STRING_COLUMNS:
+                columns = string_numeric_normalize_targets(df, exclude=stage.ordinal_group_cols)
+            elif stage.numeric_normalize_cols is ALL_RAW_COLUMNS:
                 # The ordinal's group columns are excluded because
                 # normalize_numeric_column widens a column to pl.Object the
                 # moment any value parses, which would stop add_row_ordinal

@@ -106,6 +106,29 @@ def numeric_normalize_targets(df: pl.DataFrame, exclude: Sequence[str]) -> list[
     return [c for c in df.columns if c not in excluded and not c.startswith("__")]
 
 
+def string_numeric_normalize_targets(df: pl.DataFrame, exclude: Sequence[str]) -> list[str]:
+    """Cleaned-stage columns to parse back to ``float`` before diffing.
+
+    Cleaning casts its numeric columns, which is why ticket 22 scoped numeric
+    normalization to the raw stage. The exception is a column the cleaned
+    schema types as a **string** -- a screening measurement that can also read
+    "normal", an hba1c that can read "<7" -- which cleaning therefore never
+    casts, so R's and Python's differing float-to-string rounding
+    (``4.8600000000000003`` against ``4.86``) survives into the cleaned output
+    exactly as it does at the raw stage.
+
+    Derived from the frame's own dtypes rather than named, for the same reason
+    ``numeric_normalize_targets`` is: which columns are string-typed is the
+    schema's decision, and a hand-written copy of it drifts.
+    """
+    excluded = set(exclude)
+    return [
+        name
+        for name, dtype in df.schema.items()
+        if dtype == pl.String and name not in excluded and not name.startswith("__")
+    ]
+
+
 def normalize_boolean_literal_column(df: pl.DataFrame, column: str) -> pl.DataFrame:
     """Fold R's and Python's spellings of a boolean cell together.
 
@@ -1422,6 +1445,96 @@ def _is_age_from_bare_year(m: CellMismatch) -> bool:
 
 PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS: dict[str, Classifier] = {
     "python_age_from_bare_year": _is_age_from_bare_year,
+}
+
+
+# No human has lived past 123, so a diagnosis age this large is not an age at
+# all. Both populations that clear it decode as Excel serials to real dates --
+# 20668 to 1956-08-01 and 42859 to 2017-05-04 -- confirmed in the source
+# workbooks themselves (see source_date_in_diagnosis_age).
+_MAX_PLAUSIBLE_AGE_YEARS = 130
+
+
+def _numeric(value: Any) -> float | None:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return None
+
+
+def _is_r_never_derives_diagnosis_age(m: CellMismatch) -> bool:
+    """Python computes a diagnosis age from the two dates; R never computes one.
+
+    R's ``fix_t1d_diagnosis_age`` (script2_helper_patient_data_fix.R) exists
+    and is unit-tested against exactly the strings the trackers carry -- "At
+    birth", "4 months", "5y", "10y10m" -- but its **call site is commented
+    out** (script2_process_patient_data.R:251, read directly). So R's
+    ``t1d_diagnosis_age`` is only ever the source column put through
+    ``as.numeric``: a blank cell stays NA, and a cell written in words becomes
+    R's 999999 "recorded but invalid" sentinel. Python's
+    ``_fix_t1d_diagnosis_age`` (clean/patient.py) fills from ``dob`` and
+    ``t1d_diagnosis_date`` in exactly those two cases and otherwise keeps what
+    the clinic recorded.
+
+    Python is right, and the source says so rather than the shape of the diff.
+    Where the source wrote the age in words, Python's derived figure agrees
+    with the words: 2017 Mandalay's MM_MD010 reads "11yr" against a D.O.B. of
+    2004-03-01 and a diagnosis of 2016-01-01, and Python derives 11; MM_MD011
+    reads "4mth" against 2013-10-23 and 2014-02-01, and Python derives 0.
+    Where the cell is blank, both pipelines hold the same two dates and only
+    Python uses them -- 2024 Sarawak's MY_SW001 (2000-06-30, 2011-01-01 on
+    both sides) is null in R and 10 in Python. R keeps nothing a clinic
+    recorded; Python recovers information R discards.
+
+    The bare-year subset of this shape is already ``python_age_from_bare_year``
+    (ticket 52), which fires only where the row's own date cells disagree. The
+    rest of the population has no date mismatch at all, so it needs the
+    mechanism stated directly.
+    """
+    if m.py_value is None:
+        return False
+    if m.r_value is None:
+        return True
+    r_numeric = _numeric(m.r_value)
+    return r_numeric is not None and r_numeric == settings.error_val_numeric
+
+
+def _is_source_date_in_diagnosis_age(m: CellMismatch) -> bool:
+    """A date typed into the `Age at Diagnosis` column: R carries the serial.
+
+    The template's ``Age at\\nDiagnosis*`` column is formula-derived, so most
+    cells hold either a number or an Excel error string. Two clinics have a
+    date sitting there instead, confirmed by reading the source workbooks:
+    2023 Chiang Mai's Patient List row for TH_CP005 holds 1956-08-01 (serial
+    20668) in a workbook whose ``Date of T1D Diagnosis`` column is empty for
+    every patient, so its age formula reads ``#NUM!`` throughout; and 2023
+    Yangon General's row for MM_YC043_YG holds 2017-05-04 (serial 42859)
+    against a D.O.B. of 2008-01-01 and a diagnosis date of 2007-06-01 --
+    a diagnosis a year before the birth.
+
+    R's readxl reads the column as numeric and carries the raw serial into the
+    age. Python's cast fails and the cell ends up null, which is the correct
+    side: 20,668 is not an age, and no arithmetic recovers one here because
+    the diagnosis date these clinics would need is itself missing or
+    impossible. Both are source defects for ticket 40, not pipeline
+    divergences to reconcile.
+
+    The test is that R's value is too large to be an age, rather than that it
+    decodes to a date -- an age column has no legitimate value in that range,
+    and R's own 999999 sentinel is excluded because ``r_numeric_error_sentinel``
+    owns it.
+    """
+    if m.py_value is not None:
+        return False
+    r_numeric = _numeric(m.r_value)
+    if r_numeric is None or r_numeric == settings.error_val_numeric:
+        return False
+    return r_numeric > _MAX_PLAUSIBLE_AGE_YEARS
+
+
+PATIENT_DIAGNOSIS_AGE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_never_derives_diagnosis_age": _is_r_never_derives_diagnosis_age,
+    "source_date_in_diagnosis_age": _is_source_date_in_diagnosis_age,
 }
 
 # A month sheet is named "Jan22", "Sept22" or "Oct'22" -- the trailing two
