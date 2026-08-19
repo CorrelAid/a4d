@@ -4,8 +4,8 @@ title: Triage the residual patient cleaned-stage mismatches (round 6)
 labels: [wayfinder:task]
 status: open
 blocked_by: []
-assignee: null
-claimed_at: null
+assignee: session-2026-08-19c
+claimed_at: 2026-08-19T18:00:00+02:00
 resolution: null
 evidence: null
 closed_by: null

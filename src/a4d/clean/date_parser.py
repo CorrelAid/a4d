@@ -166,11 +166,19 @@ def _parse_longest_parseable_prefix(date_str: str) -> date | None:
 
     A purely alphabetic prefix is skipped: dateutil would complete a bare
     month name from *today*, making the result depend on the run date.
+
+    A small bare number is skipped for the mirror-image reason (ticket 53):
+    truncating "26 Jun (ceton urine high)" down to "26" leaves a day-of-month,
+    which ``_parse_date_str`` would read as an Excel serial and turn into a
+    1900 date. A four-digit year is still a legitimate prefix ("2019 DKA"), so
+    the cut is at the bare-year floor rather than at "is it numeric".
     """
     tokens = date_str.split()
     for end in range(len(tokens) - 1, 0, -1):
         prefix = " ".join(tokens[:end]).rstrip(",;.-/ ")
         if prefix.replace("-", "").replace(",", "").isalpha():
+            continue
+        if prefix.isdigit() and int(prefix) < BARE_YEAR_MIN:
             continue
         result = _parse_date_str(prefix)
         if result is not None:
@@ -216,7 +224,10 @@ def _parse_date_str(date_str: str) -> date | None:
     # missing day from datetime.now(), which makes the parse depend on the day
     # the pipeline runs -- and can push a genuinely historical date past the
     # tracker year, where _validate_dates then sentinels it (ticket 37).
-    month_year_pattern = r"^([A-Za-z]{3})[-\s]?(\d{2}|\d{4})$"
+    # The apostrophe spelling ("Jun'09", "Apr'21") is admitted alongside the
+    # hyphen and the space (ticket 53): without it the value fell through to
+    # dateutil, which read the two digits as a day-of-month in the current year.
+    month_year_pattern = r"^([A-Za-z]{3})[-\s']?(\d{2}|\d{4})$"
     match = re.match(month_year_pattern, date_str)
     if match:
         month_abbr, year_digits = match.groups()
@@ -258,9 +269,48 @@ def _parse_date_str(date_str: str) -> date | None:
 
     # Fall back to dateutil.parser for other formats (month names, etc.)
     # dayfirst=True is still useful for remaining ambiguous cases
+    return _parse_with_dateutil(date_str)
+
+
+# Two defaults that share no field value, so any component dateutil takes from
+# the default differs between the two parses and can be told apart from one the
+# string actually supplied. Both are far outside the trackers' range, so a
+# genuine value can never coincide with either.
+_PROBE_DEFAULT_A = datetime(1111, 1, 1)
+_PROBE_DEFAULT_B = datetime(2222, 2, 2)
+
+
+def _parse_with_dateutil(date_str: str) -> date | None:
+    """dateutil's reading, with every component it invented from today rejected.
+
+    ``dateutil.parser.parse`` fills any field the string omits from
+    ``datetime.now()``, so "10/2019" becomes the 19th of October on the 19th
+    and the 3rd on the 3rd -- the cleaned output changes with no input change.
+    Ticket 50 hit this through a rich-text-damaged "July2014" and fixed that one
+    route into it; ticket 53 found the same fill still reachable through the
+    numeric ("10/2019") and comma-separated ("Mar, 2017") month-year spellings,
+    which the alphabetic month-year branch above does not match, and through a
+    bare month name inside a longer string.
+
+    Parsing twice against two disjoint defaults tells a supplied component from
+    an invented one without having to enumerate the spellings that reach here:
+    - an invented **day** resolves to the 1st, the same convention the
+      alphabetic month-year branch already uses;
+    - an invented **month or year** makes the cell unparseable, because
+      neither can be recovered from the string and the current date is not an
+      answer.
+    """
     try:
-        result = date_parser.parse(date_str, dayfirst=True).date()
-        logger.debug(f"Parsed '{date_str}' with dateutil → {result}")
-        return result
+        probe_a = date_parser.parse(date_str, dayfirst=True, default=_PROBE_DEFAULT_A)
+        probe_b = date_parser.parse(date_str, dayfirst=True, default=_PROBE_DEFAULT_B)
     except ValueError, date_parser.ParserError, OverflowError:
         return None
+
+    if probe_a.year != probe_b.year or probe_a.month != probe_b.month:
+        logger.debug(f"Rejected '{date_str}': dateutil would supply the month/year from today")
+        return None
+
+    day = probe_a.day if probe_a.day == probe_b.day else 1
+    result = date(probe_a.year, probe_a.month, day)
+    logger.debug(f"Parsed '{date_str}' with dateutil → {result}")
+    return result
