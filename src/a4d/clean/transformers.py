@@ -394,10 +394,21 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
             f"Values were replaced with {error_val_int}."
         )
 
-    # Split the column
+    # Split the column, trimming each fragment. R's separate_wider_delim leaves
+    # the padding on too, but R's as.numeric ignores surrounding whitespace
+    # where Polars' cast fails on it -- so "70 / 40" reached the cleaned output
+    # as the 999999 error sentinel on Python's side alone (ticket 53).
     df = df.with_columns(
-        pl.col("blood_pressure_mmhg").str.split("/").list.get(0).alias("blood_pressure_sys_mmhg"),
-        pl.col("blood_pressure_mmhg").str.split("/").list.get(1).alias("blood_pressure_dias_mmhg"),
+        pl.col("blood_pressure_mmhg")
+        .str.split("/")
+        .list.get(0)
+        .str.strip_chars()
+        .alias("blood_pressure_sys_mmhg"),
+        pl.col("blood_pressure_mmhg")
+        .str.split("/")
+        .list.get(1)
+        .str.strip_chars()
+        .alias("blood_pressure_dias_mmhg"),
     )
 
     # Drop the original combined column

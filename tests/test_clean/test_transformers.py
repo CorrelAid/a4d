@@ -747,6 +747,28 @@ def test_split_bp_valid_format():
     assert result["blood_pressure_dias_mmhg"].to_list() == ["55", "57", "80"]
 
 
+def test_split_bp_strips_whitespace_around_the_separator():
+    """A clinician who writes "70 / 40" has recorded a blood pressure, and the
+    fragments must reach numeric conversion without their padding (ticket 53).
+
+    R's ``as.numeric`` ignores surrounding whitespace, so R keeps these values;
+    Polars' cast does not, so ``" 40"`` failed conversion and the cleaned output
+    carried the 999999 error sentinel instead. 465 cells across 7 real trackers
+    were lost this way -- every affected source value has a space beside the
+    slash and none has anything else wrong with it.
+    """
+    df = pl.DataFrame(
+        {
+            "blood_pressure_mmhg": ["70 / 40", "103/  69", "116  / 66", "105/ 62"],
+        }
+    )
+
+    result = split_bp_in_sys_and_dias(df)
+
+    assert result["blood_pressure_sys_mmhg"].to_list() == ["70", "103", "116", "105"]
+    assert result["blood_pressure_dias_mmhg"].to_list() == ["40", "69", "66", "62"]
+
+
 def test_split_bp_invalid_no_slash():
     """Test that values without slash are replaced with error value."""
     df = pl.DataFrame(

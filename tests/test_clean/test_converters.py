@@ -576,6 +576,36 @@ def test_parse_date_flexible_recovers_a_date_followed_by_free_text():
     assert parse_date_flexible("May 2019, Dec 2019 DKA") == date(2019, 5, 1)
 
 
+def test_parse_date_flexible_never_completes_a_missing_day_from_today():
+    """A cell that records only a month and a year must resolve to the first of
+    that month, whatever day the pipeline happens to run on (ticket 53).
+
+    The month-year branch only ever recognised an alphabetic month, so the
+    numeric and comma-separated spellings fell through to dateutil, which fills
+    an absent day from ``datetime.now()``. On the real 248-tracker set that put
+    42 production cells on the run date's own day-of-month -- "10/2019" read as
+    the 19th of October because the comparison ran on the 19th -- and made the
+    cleaned output differ from one run to the next with no input change.
+    """
+    for text in ("10/2019", "06/2020", "4/2018", "10-2019"):
+        parsed = parse_date_flexible(text)
+        assert parsed is not None, text
+        assert parsed.day == 1, text
+    assert parse_date_flexible("10/2019") == date(2019, 10, 1)
+    assert parse_date_flexible("Mar, 2017") == date(2017, 3, 1)
+    assert parse_date_flexible("August,2015") == date(2015, 8, 1)
+    assert parse_date_flexible("June ,2016") == date(2016, 6, 1)
+
+
+def test_parse_date_flexible_rejects_a_month_with_no_year_at_all():
+    """A bare "Sep" carries no year, so dateutil supplies the current one and the
+    result moves every January. There is no year to recover, so the cell is
+    unparseable rather than a date (ticket 53).
+    """
+    assert parse_date_flexible("Sep") == date(9999, 9, 9)
+    assert parse_date_flexible("Jan") == date(9999, 9, 9)
+
+
 def test_parse_date_flexible_still_sentinels_genuine_garbage():
     assert parse_date_flexible("garbage_value_xyz") == date(9999, 9, 9)
     assert parse_date_flexible("NA") is None
