@@ -47,7 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T53["<b>53</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
+    T54["<b>54</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 7)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +55,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 39"]
+  subgraph DECIDED["Decided · 40"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -96,6 +96,7 @@ flowchart TD
     T50["<b>50</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
     T51["<b>51</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 4)"]
     T52["<b>52</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
+    T53["<b>53</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -138,14 +139,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T45 --> T46
-  T53 --> T12
+  T54 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T53 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T54 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -1898,6 +1899,55 @@ parse-failure date family, blood pressure (491), the 298 diagnosis-age cells
 that did *not* trace to a bare year, and the long tail. Ticket 12's
 `blocked_by` swaps `52` for `53` on the same standing precedent.
 
+**[Round 6](tickets/53-triage-patient-cleaned-residual-6.md) is closed, and
+like round 5 its work was fixing Python rather than explaining R.** The
+in-scope cleaned residual went **2,278 -> 1,689** and the raw stage held at 0.
+Two defects, both live in production output.
+
+The first is the third appearance of one root cause and was finally closed as
+a class. `parse_date_flexible` has an alphabetic month-year branch precisely so
+a month-and-year cell resolves to the first of the month instead of reaching
+`dateutil`, which fills any absent field from `datetime.now()`. The branch's
+pattern never matched the numeric (`10/2019`), comma-separated (`Mar, 2017`) or
+apostrophe (`Jun'09`) spellings, so 42 production cells carried **the run
+date's own day of month** — `parse_date_flexible("10/2019")` returned
+2019-10-19 on the 19th. Ticket 50 had already closed one route into this same
+fill. The fix stops enumerating spellings: the string is parsed twice against
+two disjoint defaults, and any component that differs between the two parses is
+one dateutil invented rather than read — an invented day becomes the 1st, an
+invented month or year makes the cell unparseable. Checked by running the old
+and new parser over all 5,185 distinct raw date strings: 36 differ, all of them
+either a today-filled day becoming the correct 1st or a confidently wrong date
+becoming the sentinel.
+
+The second is a plain data loss. All 491 in-scope blood-pressure cells had R
+holding a plausible reading and Python holding the 999999 sentinel, and **every
+affected source value has whitespace beside the slash** (`70 / 40`, `103/  69`)
+and nothing else wrong with it. `split_bp_in_sys_and_dias` splits on `/` and
+left the padding on; R's `separate_wider_delim` does too, but R's `as.numeric`
+ignores surrounding whitespace where Polars' cast fails on it. Trimming the
+fragments restored 465 readings across 7 trackers and took both columns out of
+the residual entirely (302 -> 13, 215 -> 13).
+
+**`hospitalisation_date` turned out not to be this round's work at all.**
+Joining all 546 cells back to the raw stage and grouping by source value showed
+the column is **100%** clinical notes — the "mangled date token and nothing
+else" kind earlier rounds expected alongside them does not appear here. It is
+therefore entirely [ticket
+39](tickets/39-recover-dates-embedded-in-free-text.md)'s, and that ticket
+gained a sub-question nobody had stated: 179 of the cells run the *other* way
+(Python already recovers a date from the note and R sentinels), and 65 have
+both pipelines finding a date and disagreeing about **which of several recorded
+admissions** the cell means. The 489 cells were deliberately left
+`unclassified` rather than labelled, so the open decision stays visible.
+
+What is left became [round
+7](tickets/54-triage-patient-cleaned-residual-7.md): `t1d_diagnosis_age` (298,
+measured into three decidable sub-shapes but not decided), the smaller date
+columns, `height`/`fbg_updated_mg`/`bmi`, and the long tail. Ticket 12's
+`blocked_by` swaps `53` for `54` on the same standing precedent — round 6 read
+R's own `split_bp_in_sys_and_dias` to settle the blood-pressure verdict.
+
 ## Decisions so far
 
 - [Triage the residual patient raw-stage column mismatches (round
@@ -2641,6 +2691,23 @@ that did *not* trace to a bare year, and the long tail. Ticket 12's
   the derived values' shape. Cleaned output now holds zero pre-1930 birth
   dates and zero negative diagnosis ages. Residual split into [round
   6](tickets/53-triage-patient-cleaned-residual-6.md).
+- [Triage the residual patient cleaned-stage mismatches (round
+  6)](tickets/53-triage-patient-cleaned-residual-6.md) — 2,278 -> **1,689**
+  in-scope (26%), raw held at 0, on two Python defects fixed rather than
+  labelled. `parse_date_flexible` let `dateutil` complete an absent **day from
+  today** for every month-year spelling the alphabetic branch misses
+  (`10/2019`, `Mar, 2017`, `Jun'09`) — 42 production cells whose value changed
+  with the run date; closed as a *class* by parsing twice against two disjoint
+  defaults, so an invented day becomes the 1st and an invented month or year
+  makes the cell unparseable. `split_bp_in_sys_and_dias` left the padding on
+  each fragment, and Polars' cast fails where R's `as.numeric` tolerates it, so
+  every blood pressure written `70 / 40` reached the output as the 999999
+  sentinel — 465 cells across 7 trackers restored, both BP columns out of the
+  residual (302 -> 13, 215 -> 13). `hospitalisation_date` (489) was measured
+  and found to be **100%** [ticket
+  39](tickets/39-recover-dates-embedded-in-free-text.md)'s clinical-note
+  population — deliberately left unclassified. Residual split into [round
+  7](tickets/54-triage-patient-cleaned-residual-7.md).
 
 ## Assumptions in force
 
@@ -2906,6 +2973,10 @@ flowchart TB
     direction LR
     U52["<b>52</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 5)"]
   end
+  subgraph S2026_08_19c["Session 2026-08-19c"]
+    direction LR
+    U53["<b>53</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -2920,7 +2991,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U53["<b>53</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 6)"]
+    U54["<b>54</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 7)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -2956,7 +3027,8 @@ flowchart TB
   S2026_08_18 ~~~ S2026_08_18b
   S2026_08_18b ~~~ S2026_08_19
   S2026_08_19 ~~~ S2026_08_19b
-  S2026_08_19b ~~~ Sopen
+  S2026_08_19b ~~~ S2026_08_19c
+  S2026_08_19c ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -2994,7 +3066,7 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U53 --->|blocked| U12
+  U54 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3036,13 +3108,14 @@ flowchart TB
   U50 -.->|spawned| U51
   U51 -.->|spawned| U52
   U52 -.->|spawned| U53
+  U53 -.->|spawned| U54
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U53 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U54 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

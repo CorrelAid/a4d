@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 53]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 54]
 assignee: null
 claimed_at: null
 resolution: null
@@ -191,3 +191,10 @@ Unicode-aware character class, and a grep proving R has no future-date guard at
 all). R cannot be retired while triage still needs to read it. `blocked_by`
 swaps `51` for [ticket 52](52-triage-patient-cleaned-residual-5.md), the round
 it spawned. Same precedent as every swap above.
+
+**2026-08-19c (ticket 53 closed).** `blocked_by` swaps `53` for [ticket
+54](54-triage-patient-cleaned-residual-7.md) on the same standing precedent:
+round 6 read R's own `split_bp_in_sys_and_dias`
+(`script2_helper_patient_data_fix.R:623-653`) to establish why R keeps a blood
+pressure Python was discarding, so triage still depends on `r-archive/` being
+present.

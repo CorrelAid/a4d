@@ -105,3 +105,40 @@ undecidable on available evidence is recorded as an open question, not closed
 with a label; where the evidence shows the source file itself is corrupt,
 "the source is wrong, this tracker needs human inspection" is a legitimate
 final conclusion.
+
+## Addendum (2026-08-19c, from [round 6](53-triage-patient-cleaned-residual-6.md))
+
+Round 6 measured `hospitalisation_date`'s whole cleaned-stage residual -- 546
+cells at the time, 489 after that round's parser fix -- by joining every
+flagged cell back to Python's raw stage and grouping by the source value.
+**Every distinct source is a clinical note; the "mangled date token and nothing
+else" kind that earlier rounds expected alongside them does not appear in this
+column at all.** So this ticket owns the entire column, not a share of it.
+
+The population runs in three directions, and the third is new to this ticket:
+
+- **Python sentinels, R has a date (302).** `DKA - Feb-2020`, `DKA; Jul 2018`,
+  `Passed away 28/10/2019 due to DKA`, `DKA 2020: June, Aug, Nov`. The
+  direction this ticket was written about.
+- **R sentinels, Python has a date (179).** `April 19 (due to very high
+  Hba1c)` -> Python 2019-04-01, `19th-29th Aug 2019` -> 2019-08-19,
+  `7/2020 DKA Admit Ratchaburi Hospital 5 Days` -> 2020-07-01. **Python already
+  recovers dates from free text here**, via ticket 37's longest-parseable-prefix
+  fallback, and R does not. So the question is not "should Python start doing
+  this" -- it partly does, inconsistently, depending on where in the string the
+  date sits.
+- **Both find a date and they differ (65).** `May 2019, Dec 2019 DKA, August
+  2020 DKA`, `Dec 2019, Mar 2020 DKA Jan 2021 DKA`. The cell records *several*
+  admissions and the two pipelines pick different ones.
+
+That last group adds a sub-question this ticket should decide alongside the
+first: **when a note records more than one date, which one does a single date
+column mean** -- the first, the latest, or is a single column simply the wrong
+shape for the data? Answering "recover" without answering this leaves the
+recovery non-deterministic in exactly the cells clinicians cared enough to
+write out.
+
+Round 6 deliberately left all 489 cells `unclassified` rather than naming a
+cause for them: a label would read as "understood and settled" while this
+decision is open, and would hide the largest single column on the cleaned-stage
+report from the next round's re-measurement.

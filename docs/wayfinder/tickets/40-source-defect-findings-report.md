@@ -168,3 +168,18 @@ trackers write `Thái Nguyễn` where the allowed list has `Thái Nguyên`, and 
 more spellings (`Thai Nguyen`, `Thai nguyen`) that **neither** pipeline
 recovers -- those rows are "Undefined" in both, so the comparison never flags
 them but the data is lost all the same.
+
+## Findings added 2026-08-19c (from [round 6](53-triage-patient-cleaned-residual-6.md))
+
+Two more source-workbook defects, both found while triaging the patient cleaned
+stage and both deliberately left uncorrected in the pipeline:
+
+- **A date typed into the diagnosis-age column.** 2023 Chiang Mai Maharaj
+  Nakorn records `1956-08-01` in `t1d_diagnosis_age`; R carries the Excel
+  serial (20668) through into the age, Python nulls it. The cell needs a number
+  of years, not a date.
+- **A date broken by a stray space inside it.** `26-05- 2007` is legible to a
+  human as 26 May 2007 but parses as neither pipeline's answer — R and the old
+  Python both produced a wrong date, and Python now produces the error
+  sentinel. Round 6 rejected normalizing whitespace around date separators as
+  an untested third change in one session, so the workbook is the fix.
