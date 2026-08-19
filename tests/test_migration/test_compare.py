@@ -15,6 +15,8 @@ from a4d.migration.compare import (
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
+    PATIENT_FBG_TEXT_CLASSIFIERS,
+    PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_JOIN_SUFFIX_COLLISION_CLASSIFIERS,
@@ -2407,3 +2409,85 @@ class TestSourceDateInDiagnosisAge:
         )
 
         assert classify(m, PATIENT_DIAGNOSIS_AGE_CLASSIFIERS) == "unclassified"
+
+
+class TestFbgTextReading:
+    """Ticket 55: R's fix_fbg turns non-numeric text into a manufactured mg/dL
+    reading, and fails on a reading that carries its unit. Python does neither."""
+
+    def test_flags_r_manufacturing_a_category_value(self):
+        m = CellMismatch(
+            key={"patient_id": "MM_QE026", "sheet_name": "Apr17"},
+            column="fbg_updated_mg",
+            r_value=140.0,
+            py_value=999999.0,
+        )
+
+        assert classify(m, PATIENT_FBG_TEXT_CLASSIFIERS) == "r_fbg_text_category_invention"
+
+    def test_flags_r_manufacturing_the_high_value(self):
+        m = CellMismatch(
+            key={"patient_id": "MM_QE031", "sheet_name": "Jun17"},
+            column="fbg_updated_mg",
+            r_value=200.0,
+            py_value=999999.0,
+        )
+
+        assert classify(m, PATIENT_FBG_TEXT_CLASSIFIERS) == "r_fbg_text_category_invention"
+
+    def test_ignores_a_category_value_python_also_produced(self):
+        """Both sides landing on 200 is agreement, not this cause."""
+        m = CellMismatch(
+            key={"patient_id": "MM_QE031", "sheet_name": "Jun17"},
+            column="fbg_updated_mg",
+            r_value=200.0,
+            py_value=201.0,
+        )
+
+        assert classify(m, PATIENT_FBG_TEXT_CLASSIFIERS) == "unclassified"
+
+    def test_flags_python_reading_a_unit_suffixed_value_r_could_not(self):
+        m = CellMismatch(
+            key={"patient_id": "MM_QA007", "sheet_name": "Mar18"},
+            column="fbg_updated_mg",
+            r_value=999999.0,
+            py_value=148.0,
+        )
+
+        assert classify(m, PATIENT_FBG_TEXT_CLASSIFIERS) == "r_unit_suffix_not_stripped"
+
+    def test_ignores_a_python_sentinel_on_both_sides(self):
+        m = CellMismatch(
+            key={"patient_id": "MM_QA007", "sheet_name": "Mar18"},
+            column="fbg_updated_mg",
+            r_value=999999.0,
+            py_value=999999.0,
+        )
+
+        assert classify(m, PATIENT_FBG_TEXT_CLASSIFIERS) == "unclassified"
+
+
+class TestInsulinSubtypeFromDrugName:
+    """Ticket 55: 2024 Sarawak ticks the insulin columns by writing the drug's
+    name, which R never reads."""
+
+    def test_flags_a_subtype_only_python_recovers(self):
+        m = CellMismatch(
+            key={"patient_id": "MY_QJ001", "sheet_name": "Jan24"},
+            column="insulin_subtype",
+            r_value=None,
+            py_value="Rapid-acting,Long-acting",
+        )
+
+        assert classify(m, PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS) == "r_drops_drug_name_tick"
+
+    def test_ignores_the_undefined_sentinel(self):
+        """An unticked row is a different question, still open."""
+        m = CellMismatch(
+            key={"patient_id": "PH_QB001", "sheet_name": "Jan25"},
+            column="insulin_subtype",
+            r_value=None,
+            py_value="Undefined",
+        )
+
+        assert classify(m, PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS) == "unclassified"

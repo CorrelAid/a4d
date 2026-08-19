@@ -50,8 +50,10 @@ from a4d.migration.compare import (
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
+    PATIENT_FBG_TEXT_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
     PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
+    PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
     PATIENT_INSULIN_TYPE_CLASSIFIERS,
@@ -554,6 +556,22 @@ CLASSIFIERS_BY_COLUMN |= {
 CLASSIFIERS_BY_COLUMN["t1d_diagnosis_age"] = (
     CLASSIFIERS_BY_COLUMN.get("t1d_diagnosis_age", {}) | PATIENT_DIAGNOSIS_AGE_CLASSIFIERS
 )
+
+# ticket 55: the 2024+ insulin tick boxes that one clinic ticks by naming the
+# drug. Appended after the existing insulin_subtype causes so the narrower
+# multi-value shape keeps its own name.
+CLASSIFIERS_BY_COLUMN["insulin_subtype"] = (
+    CLASSIFIERS_BY_COLUMN.get("insulin_subtype", {}) | PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS
+)
+
+# ticket 55: R's fix_fbg manufactures a reading from text and cannot read a
+# reading that carries its unit. Scoped to the two mg/dL columns fix_fbg runs
+# over -- the mmol pair is ticket 44's, and its R-null shape is a different
+# mechanism.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_FBG_TEXT_CLASSIFIERS
+    for col in ("fbg_updated_mg", "fbg_baseline_mg")
+}
 
 # ticket 51: the two sanitizers disagree on accented letters, so the cause
 # belongs to every allowed-value column rather than to province alone -- it is
