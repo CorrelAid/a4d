@@ -46,7 +46,7 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
-    T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
+    T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -54,7 +54,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 44"]
+  subgraph DECIDED["Decided · 45"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -90,6 +90,7 @@ flowchart TD
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
     T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
+    T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
     T48["<b>48</b> · task<br/>Python drops complication-<br/>screening results and<br/>dates where a merged<br/>header spans the block"]
     T49["<b>49</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 5)"]
     T50["<b>50</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 6)"]
@@ -145,14 +146,13 @@ flowchart TD
   T39 --> T12
   T44 --> T12
   T45 --> T46
-  T47 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T58 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2105,17 +2105,76 @@ as residuals of closed scope, was the alternative -- rejected because this
 ticket was already unblocked prematurely once on that reasoning and the
 correction cost a session. It is a one-line edit to reverse per ticket.
 
-**The frontier is nine tickets, down from ten.** [Merged patient
-IDs](tickets/47-patient-ids-merged-at-cleaning.md) is now the most serious in
-its own right -- a merged identity attributes one patient's records to another
-in production output -- and is also, with tickets 32, 39 and 44, on the route
-to the destination for the first time, since all four now block R's retirement.
-The remaining five ([the classifier
-audit](tickets/32-audit-classifiers-against-decision-bar.md) aside, which is
-also a blocker) are standing decisions, the source-defect report and a separate
-feature (ticket 16), takeable in any order.
+**[Merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md) is closed,
+and it was the first ticket on this map to fix a defect in *identity* rather
+than in a measurement.** The pipeline was publishing `KH_NPH02` -- an ID no
+tracker contains -- with four patients' September records under it. It no
+longer truncates: an ID that fails the format is recovered from the tracker's
+own correct spelling where exactly one candidate sits an edit away, and
+sentinelled where none does. The user set that policy explicitly ("C as first
+rule and B as fall back"), and the NOGH case shows why the fallback matters --
+its Patient List writes the malformed IDs too, so there is nothing to recover
+against and three patients stay merged under `Undefined` until the clinic fixes
+the workbook.
+
+The fix did **not** restore the recovered rows' demographics -- extraction
+joins the Patient List on the unfixed ID, which is now [ticket
+58](tickets/58-patient-list-join-uses-unfixed-id.md).
+
+**The comparison was re-run at the user's request, in the same session.** The
+patient arm was regenerated against the real 254-tracker set and diffed against
+the frozen `output_r/`. The result is worth carrying forward as a shape, not
+just a number: **this divergence never reaches a cell comparison.** Patient's
+row-alignment key is `patient_id` + `sheet_name`, so R's `KH_NPH02` rows and
+Python's recovered `KH_NP026`-`KH_NP029` rows simply stop pairing -- row-key
+divergence 6 files/121/15 -> 7 files/125/19, the whole delta being
+`2023_NPH`'s 4+4, while cell mismatches went *down* 114,373 -> 114,371 and no
+column or cause moved beyond two FBG cells. Patient raw: zero delta. A future
+session scanning the `cell_mismatches` sheet will not find this there, which is
+why it is written here; no classifier was added, since the cause registry
+classifies cell mismatches and there is no cell mismatch to classify.
+
+**The frontier is nine tickets.** Ticket 47's closure drops it out and ticket
+58 replaces it, so the count holds. Ticket 12's `blocked_by` loses `47` and
+keeps `[32, 39, 44]` -- ticket 58 is **not** wired as a blocker, because unlike
+those three it does not need `r-archive/`'s source to answer: its evidence is
+Python's own join and the source workbooks. Of the nine, [the classifier
+audit](tickets/32-audit-classifiers-against-decision-bar.md), [dates in
+clinical notes](tickets/39-recover-dates-embedded-in-free-text.md) and [the FBG
+R-null residual](tickets/44-triage-cleaned-fbg-r-null-residual.md) are on the
+route to the destination; the rest are standing decisions, the source-defect
+report, a separate feature (ticket 16) and ticket 58.
 
 ## Decisions so far
+
+- [Four trackers where cleaning merges several patients into one patient
+  ID](tickets/47-patient-ids-merged-at-cleaning.md) -- decided and implemented.
+  The mechanism was `fix_patient_id`'s R-inherited truncation, not the
+  preprocessing regex the premise suspected: a non-conforming ID over 8
+  characters was cut to its first 8, so `2023_NPH`'s `KH_NPH026`-`KH_NPH029`
+  became one `KH_NPH02` -- an identifier present in **no** source workbook,
+  holding four different people's September records. The workbook is defective
+  (only its `Sep23` sheet carries the stray `H`; its Patient List and three
+  other month sheets spell the same four patients correctly), but truncation
+  turned a recoverable typo into a false merge. Truncation is now dropped: a
+  malformed ID is **recovered** against the well-formed IDs the same tracker
+  carries -- edit distance 1, unique candidate only -- and **sentinelled**
+  otherwise, so the pipeline never publishes an identity no tracker contains.
+  Measured by re-cleaning all 254 raw parquets: exactly one file changes, the
+  four patients each gain their September row, and zero non-conforming IDs
+  remain corpus-wide. Ticket 45's "4 files, 9 identities" turned out to be
+  three different mechanisms, two of them the pipeline working correctly
+  (hyphen-vs-underscore spellings of the same patient in Mahosot DC and Surat
+  Thani) and one a source defect nothing can repair (`2026_NOGH`'s `MM_NO97/98/
+  99`, spelled that way in its own Patient List, with no `MM_NO097` to recover
+  to -- three patients still sharing `Undefined`). Five source-defect findings
+  went to [ticket 40](tickets/40-source-defect-findings-report.md). Spawned
+  [ticket 58](tickets/58-patient-list-join-uses-unfixed-id.md): extraction
+  joins the Patient List on the *unfixed* ID, so the recovered rows have their
+  identity back but not their demographics. The comparison was re-run against
+  the regenerated output: the divergence lands entirely as **row-key
+  non-overlap** (7 files/125/19, up from 6/121/15, all of it `2023_NPH`'s 4+4)
+  rather than as cell mismatches, which fell 114,373 -> 114,371.
 
 - [Triage the residual patient cleaned-stage mismatches (round
   10)](tickets/57-triage-patient-cleaned-residual-10.md) -- the in-scope cleaned
@@ -3289,6 +3348,10 @@ flowchart TB
     direction LR
     U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
+  subgraph S2026_08_20b["Session 2026-08-20b"]
+    direction LR
+    U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -3302,7 +3365,7 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+    U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3343,7 +3406,8 @@ flowchart TB
   S2026_08_19d ~~~ S2026_08_19e
   S2026_08_19e ~~~ S2026_08_19f
   S2026_08_19f ~~~ S2026_08_20
-  S2026_08_20 ~~~ Sopen
+  S2026_08_20 ~~~ S2026_08_20b
+  S2026_08_20b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -3384,7 +3448,6 @@ flowchart TB
   U32 --->|blocked| U12
   U39 --->|blocked| U12
   U44 --->|blocked| U12
-  U47 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3430,13 +3493,14 @@ flowchart TB
   U54 -.->|spawned| U55
   U55 -.->|spawned| U56
   U56 -.->|spawned| U57
+  U47 -.->|spawned| U58
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U58 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

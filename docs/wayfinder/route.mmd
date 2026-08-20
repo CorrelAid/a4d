@@ -161,6 +161,10 @@ flowchart TB
     direction LR
     U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
+  subgraph S2026_08_20b["Session 2026-08-20b"]
+    direction LR
+    U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -174,7 +178,7 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
+    U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -215,7 +219,8 @@ flowchart TB
   S2026_08_19d ~~~ S2026_08_19e
   S2026_08_19e ~~~ S2026_08_19f
   S2026_08_19f ~~~ S2026_08_20
-  S2026_08_20 ~~~ Sopen
+  S2026_08_20 ~~~ S2026_08_20b
+  S2026_08_20b ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -256,7 +261,6 @@ flowchart TB
   U32 --->|blocked| U12
   U39 --->|blocked| U12
   U44 --->|blocked| U12
-  U47 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -302,12 +306,13 @@ flowchart TB
   U54 -.->|spawned| U55
   U55 -.->|spawned| U56
   U56 -.->|spawned| U57
+  U47 -.->|spawned| U58
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U58 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

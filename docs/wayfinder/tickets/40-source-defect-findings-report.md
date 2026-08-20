@@ -243,3 +243,30 @@ than something either pipeline can infer.
   are rejected. Read as mg/dL they would be ordinary. Either those two cells
   are mg/dL in an otherwise-mmol column, or they are mis-keyed; the workbook is
   the only place that can say.
+- **Patient IDs that do not match the template's `XX_YY###` format**, found
+  while closing [ticket 47](47-patient-ids-merged-at-cleaning.md). These are
+  identity defects, not measurement defects, so they are worth listing first in
+  the report: an unrepairable one costs the clinic a whole patient's history.
+  - `2023_NPH A4D Tracker`, sheet `Sep23`, rows 128-131: `KH_NPH026`,
+    `KH_NPH027`, `KH_NPH028`, `KH_NPH029` carry a stray `H`. The same
+    workbook's `Patient List`, `Oct23`, `Nov23` and `Dec23` sheets all spell
+    the same four patients `KH_NP026`-`KH_NP029`. The pipeline now recovers
+    these, so the data is not lost -- but the workbook should be corrected so
+    it stops relying on recovery.
+  - `2026_NOGH T1D Tracker_June_26`: `MM_NO97`, `MM_NO98`, `MM_NO99` are
+    7 characters where the template wants 8, in the `Patient List` **and**
+    every month sheet. The workbook has `MM_NO090`-`MM_NO096` and no
+    `MM_NO097`, so nothing in it says whether the intended IDs are `MM_NO097`
+    -`MM_NO099` or something else. **Unrepairable in the pipeline**: three
+    distinct patients, 18 rows, all published as `Undefined` today. This one
+    needs a human at the clinic.
+  - `2026_YGH T1D Tracker_June_26`: `MM_NO55_MW_YG` reduces to `MM_NO55`,
+    again 7 characters. One patient, 3 rows, published as `Undefined`. Same
+    situation as above.
+  - `2021_Mahosot Hospital A4D Tracker_DC`: `LA-MH056`, `LA-MH057`,
+    `LA-MH058` on the Jun-Nov sheets vs `LA_MH056`-`LA_MH058` on `Dec21` --
+    the same three patients spelled two ways inside one workbook. The pipeline
+    merges them correctly; the workbook should still be made consistent.
+  - `2026_Surat Thani Hospital A4D Tracker_Jun_26`: `TH-ST029` and `TH_ST029`
+    both appear on `May26`, so that patient ends up with two rows for one
+    month once the spellings are normalized. Likely a duplicated entry.
