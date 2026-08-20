@@ -415,11 +415,28 @@ def align_duplicate_rows(
     return r_keyed, py_keyed, key_cols
 
 
+UnmatchedKey = tuple[tuple[Any, ...], int]
+
+
 @dataclass(frozen=True)
 class RowKeyOverlap:
+    """How many rows found a partner via the row-alignment key -- and which
+    did not.
+
+    The counts alone proved insufficient in practice (ticket 47): the four
+    patient rows this measure newly flagged could only be named by querying
+    the parquets by hand, because a row that finds no partner never reaches a
+    cell comparison and so appears in no other sheet of the report. The keys
+    are therefore carried alongside the counts, each with the number of
+    surplus rows on that side, so a divergence can be triaged from the report
+    itself.
+    """
+
     matched: int
     r_unmatched: int
     py_unmatched: int
+    r_only_keys: tuple[UnmatchedKey, ...] = ()
+    py_only_keys: tuple[UnmatchedKey, ...] = ()
 
 
 def compare_row_key_overlap(
@@ -431,13 +448,31 @@ def compare_row_key_overlap(
     matched = 0
     r_unmatched = 0
     py_unmatched = 0
+    r_only: list[UnmatchedKey] = []
+    py_only: list[UnmatchedKey] = []
     for key in r_counts.keys() | py_counts.keys():
         r_count, py_count = r_counts.get(key, 0), py_counts.get(key, 0)
-        matched += min(r_count, py_count)
-        r_unmatched += r_count - min(r_count, py_count)
-        py_unmatched += py_count - min(r_count, py_count)
+        paired = min(r_count, py_count)
+        matched += paired
+        r_unmatched += r_count - paired
+        py_unmatched += py_count - paired
+        if r_count > paired:
+            r_only.append((key, r_count - paired))
+        if py_count > paired:
+            py_only.append((key, py_count - paired))
 
-    return RowKeyOverlap(matched=matched, r_unmatched=r_unmatched, py_unmatched=py_unmatched)
+    # Sorted on the rendered key so a report diffs cleanly run over run, and
+    # so a key holding nulls or mixed types cannot raise on comparison.
+    def rendered(item: UnmatchedKey) -> tuple[str, ...]:
+        return tuple(str(part) for part in item[0])
+
+    return RowKeyOverlap(
+        matched=matched,
+        r_unmatched=r_unmatched,
+        py_unmatched=py_unmatched,
+        r_only_keys=tuple(sorted(r_only, key=rendered)),
+        py_only_keys=tuple(sorted(py_only, key=rendered)),
+    )
 
 
 @dataclass(frozen=True)
@@ -2296,6 +2331,7 @@ def build_mismatch_rows(
     id_overlap_rows = []
     categorical_overlap_rows = []
     row_key_overlap_rows = []
+    row_key_unmatched_rows = []
     totals_rows = []
     cell_mismatch_rows = []
     column_divergence_rows = []
@@ -2349,6 +2385,22 @@ def build_mismatch_rows(
             }
         )
 
+        # An unmatched row never reaches a cell comparison, so unless its key is
+        # named here it appears nowhere else in the report (ticket 47).
+        for side, keys in (
+            ("R only", file_comparison.row_key_overlap.r_only_keys),
+            ("Python only", file_comparison.row_key_overlap.py_only_keys),
+        ):
+            for key, surplus in keys:
+                row_key_unmatched_rows.append(
+                    {
+                        "file": name,
+                        "side": side,
+                        "key": " | ".join(str(part) for part in key),
+                        "rows": surplus,
+                    }
+                )
+
         if file_comparison.id_overlap is not None:
             for value in file_comparison.id_overlap.only_in_r:
                 id_overlap_rows.append({"file": name, "side": "R only", "value": value})
@@ -2399,6 +2451,7 @@ def build_mismatch_rows(
         "id_overlap": id_overlap_rows,
         "categorical_overlap": categorical_overlap_rows,
         "row_key_overlap": row_key_overlap_rows,
+        "row_key_unmatched": row_key_unmatched_rows,
         "totals": totals_rows,
         "cell_mismatches": cell_mismatch_rows,
     }
