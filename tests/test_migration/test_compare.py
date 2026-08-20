@@ -510,9 +510,10 @@ class TestPatientOccurrenceOrdinalKey:
 
         r_keyed, py_keyed, key_cols = align_duplicate_rows(r_df, py_df, self.PATIENT_KEY)
 
-        assert compare_row_key_overlap(r_keyed, py_keyed, key_cols) == RowKeyOverlap(
-            matched=2, r_unmatched=1, py_unmatched=0
-        )
+        overlap = compare_row_key_overlap(r_keyed, py_keyed, key_cols)
+
+        assert (overlap.matched, overlap.r_unmatched, overlap.py_unmatched) == (2, 1, 0)
+        assert overlap.r_only_keys == ((("A", "Jan24", 1), 1),)
 
     def test_a_patient_on_another_sheet_never_pairs(self):
         """Sheet is the data's monthly granularity, so it stays part of the key:
@@ -523,9 +524,11 @@ class TestPatientOccurrenceOrdinalKey:
         r_keyed, key_cols = add_row_ordinal(r_df, self.PATIENT_KEY)
         py_keyed, _ = add_row_ordinal(py_df, self.PATIENT_KEY)
 
-        assert compare_row_key_overlap(r_keyed, py_keyed, key_cols) == RowKeyOverlap(
-            matched=0, r_unmatched=1, py_unmatched=1
-        )
+        overlap = compare_row_key_overlap(r_keyed, py_keyed, key_cols)
+
+        assert (overlap.matched, overlap.r_unmatched, overlap.py_unmatched) == (0, 1, 1)
+        assert overlap.r_only_keys == ((("A", "Jun24", 0), 1),)
+        assert overlap.py_only_keys == ((("A", "Jul24", 0), 1),)
 
 
 class TestCompareShape:
@@ -708,7 +711,13 @@ class TestCompareRowKeyOverlap:
 
         result = compare_row_key_overlap(r_df, py_df, key_cols=["id"])
 
-        assert result == RowKeyOverlap(matched=1, r_unmatched=1, py_unmatched=1)
+        assert result == RowKeyOverlap(
+            matched=1,
+            r_unmatched=1,
+            py_unmatched=1,
+            r_only_keys=(((2,), 1),),
+            py_only_keys=(((3,), 1),),
+        )
 
     def test_fan_out_excess_counts_as_unmatched_on_the_heavier_side(self):
         r_df = pl.DataFrame({"id": [1, 1, 1]})
@@ -716,7 +725,31 @@ class TestCompareRowKeyOverlap:
 
         result = compare_row_key_overlap(r_df, py_df, key_cols=["id"])
 
-        assert result == RowKeyOverlap(matched=1, r_unmatched=2, py_unmatched=0)
+        assert result == RowKeyOverlap(
+            matched=1, r_unmatched=2, py_unmatched=0, r_only_keys=(((1,), 2),)
+        )
+
+    def test_names_the_unmatched_keys_not_just_their_count(self):
+        """A count alone cannot be triaged -- ticket 47's four recovered rows
+        were only findable by querying the parquets by hand."""
+        r_df = pl.DataFrame({"patient_id": ["KH_NPH02"] * 2, "sheet_name": ["Sep23", "Sep23"]})
+        py_df = pl.DataFrame({"patient_id": ["KH_NP026", "KH_NP027"], "sheet_name": ["Sep23"] * 2})
+
+        result = compare_row_key_overlap(r_df, py_df, key_cols=["patient_id", "sheet_name"])
+
+        assert result.r_only_keys == ((("KH_NPH02", "Sep23"), 2),)
+        assert result.py_only_keys == (
+            (("KH_NP026", "Sep23"), 1),
+            (("KH_NP027", "Sep23"), 1),
+        )
+
+    def test_unmatched_keys_are_sorted_so_reports_are_stable(self):
+        r_df = pl.DataFrame({"id": ["c", "a", "b"]})
+        py_df = pl.DataFrame({"id": ["z"]})
+
+        result = compare_row_key_overlap(r_df, py_df, key_cols=["id"])
+
+        assert [key for key, _ in result.r_only_keys] == [("a",), ("b",), ("c",)]
 
 
 class TestCompareCells:

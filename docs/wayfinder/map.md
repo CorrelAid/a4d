@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 10"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -47,6 +47,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
+    T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -148,7 +149,7 @@ flowchart TD
   T45 --> T46
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T58 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T58,T59 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
@@ -2134,6 +2135,21 @@ session scanning the `cell_mismatches` sheet will not find this there, which is
 why it is written here; no classifier was added, since the cause registry
 classifies cell mismatches and there is no cell mismatch to classify.
 
+**That last point turned out to be a tooling gap, not just a caveat, and the
+user caught it**: the comparison reported unmatched rows only as *counts*, so
+the four keys this fix introduced could be named only by querying the parquets
+by hand -- which is exactly what this session did. `RowKeyOverlap` now carries
+the unmatched keys themselves and the report gained a `row_key_unmatched`
+sheet (file, side, key, surplus rows). Its first run named a population nobody
+had looked at: **144 unmatched rows across 7 patient cleaned files and 130 at
+the raw stage, of which only 8 are ticket 47's** -- the largest being 98 R-only
+rows in `2026_Preah Kossamak`. Product is 0 at both stages, resolved by ticket
+17's ordinal key. That population is structurally invisible to every triage
+ticket run so far, because a row with no partner never reaches a cell
+comparison; it became [ticket
+59](tickets/59-triage-unmatched-row-keys.md), the same shape of gap
+`compare_columns` was before ticket 26.
+
 **The frontier is nine tickets.** Ticket 47's closure drops it out and ticket
 58 replaces it, so the count holds. Ticket 12's `blocked_by` loses `47` and
 keeps `[32, 39, 44]` -- ticket 58 is **not** wired as a blocker, because unlike
@@ -3366,6 +3382,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
+    U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3494,9 +3511,10 @@ flowchart TB
   U55 -.->|spawned| U56
   U56 -.->|spawned| U57
   U47 -.->|spawned| U58
+  U47 -.->|spawned| U59
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U58 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U58,U59 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
