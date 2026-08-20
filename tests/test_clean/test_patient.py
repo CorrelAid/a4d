@@ -10,6 +10,7 @@ from a4d.clean.patient import (
     _apply_range_validation,
     _apply_type_conversions,
     _derive_insulin_fields,
+    _extract_date_from_measurement,
     _fix_age_from_dob,
     _fix_t1d_diagnosis_age,
     clean_patient_data,
@@ -637,3 +638,37 @@ class TestInsulinSubtypeDerivation:
         )
 
         assert result["insulin_subtype"].to_list() == [""]
+
+
+class TestExtractDateFromMeasurement:
+    """R's extract_date_from_measurement makes the closing parenthesis optional
+    (`[)]?`, script2_helper_patient_data_fix.R:124) and its own test suite covers
+    an unclosed cell. Python required the closer, so the 2017/2018 Mandalay, CDA
+    and Mahosot trackers -- which write `180(May-2017` without ever closing it --
+    lost the measurement date entirely.
+    """
+
+    @staticmethod
+    def _extract(value: str) -> tuple[str | None, str | None]:
+        df = pl.DataFrame({"fbg_updated_mg": [value]})
+        out = _extract_date_from_measurement(df, "fbg_updated_mg")
+        return out["fbg_updated_mg"][0], out["fbg_updated_date"][0]
+
+    def test_closed_parenthesis(self):
+        assert self._extract("8.53 (28/8/2017)") == ("8.53", "28/8/2017")
+
+    def test_unclosed_parenthesis(self):
+        assert self._extract("180(May-2017") == ("180", "May-2017")
+
+    def test_doubled_opening_parenthesis_uses_the_last_one(self):
+        """R's greedy `.*` prefix consumes the first `(`, so the date starts
+        after the second -- but Python does not keep the stray `(` in the value
+        the way R does, because R's own numeric cast then fails on it and the
+        reading of 196 is lost."""
+        assert self._extract("196((Dec-2017)") == ("196", "Dec-2017")
+
+    def test_no_parenthesis_leaves_the_value_alone(self):
+        assert self._extract("3") == ("3", None)
+
+    def test_units_inside_the_value_are_preserved(self):
+        assert self._extract("148 mg/dl   (Mar-18)") == ("148 mg/dl", "Mar-18")

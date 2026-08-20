@@ -32,7 +32,7 @@ from a4d.clean.glucose import (
     MMOL_ANALYTICAL_MIN,
     MMOL_TO_MG_FACTOR,
 )
-from a4d.clean.validators import load_validation_rules, sanitize_str
+from a4d.clean.validators import load_numeric_ranges, load_validation_rules, sanitize_str
 from a4d.config import settings
 
 SENTINEL_DATE = datetime.date(9999, 9, 9)
@@ -1309,6 +1309,29 @@ STRAY_DATE_ZEROED_CLASSIFIERS: dict[str, Classifier] = {
 }
 
 
+def _is_stray_date_dropped(m: CellMismatch) -> bool:
+    """The same cause again where the cleaned column is integer-typed.
+
+    Ticket 57, one cell: 2021 Khon Kaen Mar21 records a date in
+    ``testing_frequency``. R carries the Excel serial (44228) into a column
+    meaning "tests per day"; Python's cast fails and leaves null rather than the
+    0 its float columns get, so neither of the other two stray-date tests can
+    see it. Python is the correct side and the source cell is a defect for
+    ticket 40.
+    """
+    try:
+        r_serial = float(m.r_value)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return False
+    low, high = _PLAUSIBLE_DATE_SERIAL_RANGE
+    return low <= r_serial <= high and m.py_value is None
+
+
+STRAY_DATE_DROPPED_CLASSIFIERS: dict[str, Classifier] = {
+    "stray_date_dropped": _is_stray_date_dropped,
+}
+
+
 # Excel's own formula-error sentinels (ticket 27): a computed raw column
 # (e.g. bmi, t1d_diagnosis_age -- both formula-derived in the source
 # trackers) holds a literal "#DIV/0!"/"#VALUE!"/etc. string wherever the
@@ -1964,6 +1987,15 @@ def _is_python_glucose_unit_corrected(m: CellMismatch) -> bool:
         return r == 0.0
 
     if py == settings.error_val_numeric:
+        # Judged against the unit the header claims. Ticket 57 found six cells
+        # this cannot reach: 2020 Kantha Bopha's fbg_baseline_mg is 90.1%
+        # sub-30, so the column is read as mmol/L and its outliers 47.8 and
+        # 53.8 are rejected against the mmol ceiling -- while sitting inside
+        # the mg/dL range this test applies. Whether a column was swapped is a
+        # property of the whole column, which a per-cell classifier cannot see,
+        # so those six stay unclassified rather than being caught by widening
+        # this to "outside either unit" -- which would also claim every
+        # genuinely-rejected mg/dL reading above 45.
         low, high = (
             (MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
             if m.column.endswith("_mg")
@@ -1977,8 +2009,111 @@ def _is_python_glucose_unit_corrected(m: CellMismatch) -> bool:
     return False
 
 
+def _is_python_recovers_glucose_r_rejected(m: CellMismatch) -> bool:
+    """The unit swap moves a reading across that R had already sentinelled.
+
+    Ticket 57, one cell: 2022 Penang MY_QF004 Dec22 writes "-" in the mmol
+    column and 9 in the mg one. R's converter turns the "-" into its numeric
+    error value and stops there. Python's ``resolve_glucose_units`` finds that
+    column 145/145 sub-30 -- so it is mmol throughout -- and moves the 9 into
+    the mmol column, where it lands inside the advisor's analytical range.
+
+    Python is the correct side: the clinic recorded a reading and R published
+    an error code over it. Fires only where R holds the numeric error value and
+    Python holds a reading the analytical limits accept, so it cannot claim a
+    recovery the range check would itself have rejected.
+    """
+    if m.column not in GLUCOSE_UNIT_COLUMNS:
+        return False
+    r, py = _glucose_float(m.r_value), _glucose_float(m.py_value)
+    if r != settings.error_val_numeric or py is None:
+        return False
+    low, high = (
+        (MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
+        if m.column.endswith("_mg")
+        else (MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX)
+    )
+    return low <= py <= high
+
+
 PATIENT_GLUCOSE_UNIT_CLASSIFIERS: dict[str, Classifier] = {
     "python_glucose_unit_corrected": _is_python_glucose_unit_corrected,
+    "python_recovers_glucose_r_rejected": _is_python_recovers_glucose_r_rejected,
+}
+
+
+_HBA1C_RANGE_COLUMNS = ("hba1c_baseline", "hba1c_updated")
+
+
+def _is_python_rejects_out_of_range_hba1c(m: CellMismatch) -> bool:
+    """A glucose reading typed into the HbA1c column.
+
+    Ticket 57, eight cells across 2024 Preah Kossamak and two other clinics:
+    the source holds 240, 299 and 125 where an HbA1c percentage belongs. R has
+    no range check on this column and publishes the number as an HbA1c; Python
+    fails it against the bound ``reference_data/validation_rules.yaml`` declares
+    and stamps the numeric sentinel.
+
+    Python is the correct side -- an HbA1c of 240% is not a measurement, and
+    publishing it would carry a fasting-glucose reading into the HbA1c series.
+    The bound is read from the config rather than restated, so the classifier
+    cannot drift from the rule that produced the rejection. Each cell is also a
+    source defect for ticket 40: the number itself is real, it is in the wrong
+    column.
+    """
+    if m.column not in _HBA1C_RANGE_COLUMNS:
+        return False
+    ceiling = load_numeric_ranges().get(m.column, {}).get("max")
+    if ceiling is None:
+        return False
+    r, py = _numeric(m.r_value), _numeric(m.py_value)
+    if r is None or py != settings.error_val_numeric:
+        return False
+    return r > ceiling
+
+
+PATIENT_HBA1C_RANGE_CLASSIFIERS: dict[str, Classifier] = {
+    "python_rejects_out_of_range_hba1c": _is_python_rejects_out_of_range_hba1c,
+}
+
+
+def _is_python_declines_unreconstructable_date(m: CellMismatch) -> bool:
+    """R publishes a date from a token damaged past reading; Python refuses.
+
+    The other face of ``r_parse_order_cannot_read_cell``. Round 9 established by
+    running R 4.5 that ``parse_dates`` cannot fail quietly: it deletes the fourth
+    letter of any long word and then walks a fixed order list ending in ``my``
+    and ``y``, so *something* comes back for almost any input. Where the source
+    cell is damaged in a way no reading can be recovered from, that something is
+    an invention.
+
+    Ticket 57 measured 37 such cells and none is reconstructable:
+
+    - ``25-Ma4-2025`` (18 cells, 2025 Taunggyi) -- "Ma4" is Mar or May and the
+      workbook says neither; R reads the embedded 4 as the month and publishes
+      2025-04-25, an answer neither spelling supports.
+    - a separator swallowed or a digit group glued (``26/102022``, ``8/1023``,
+      ``3/10.23``, ``10-Oct-2-24``, ``13-Mar-0202``) -- where the missing
+      separator goes is a guess, and R's own answer is not stable: its frozen
+      output reads ``10/1023`` as 2010-10-23 while running its own parser over
+      that string in isolation returns 2023-10-10.
+    - ``e.g. xxx (mth-18)`` (2018 Penang DC) -- the tracker template's own
+      example text left in a patient row, which R turns into 2018-01-01.
+
+    Python is the correct side of all three: declining to publish a date the
+    source does not determine is right, and every cell here is a finding for
+    ticket 40 rather than something to infer. The test is the direction alone --
+    R on a real date, Python on the sentinel -- so it is wired only to the date
+    columns whose other causes are already classified ahead of it.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date != SENTINEL_DATE:
+        return False
+    return r_date != SENTINEL_DATE
+
+
+PATIENT_UNRECONSTRUCTABLE_DATE_CLASSIFIERS: dict[str, Classifier] = {
+    "python_declines_unreconstructable_date": _is_python_declines_unreconstructable_date,
 }
 
 

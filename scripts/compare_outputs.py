@@ -53,6 +53,7 @@ from a4d.migration.compare import (
     PATIENT_FBG_TEXT_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
     PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
+    PATIENT_HBA1C_RANGE_CLASSIFIERS,
     PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
@@ -67,6 +68,7 @@ from a4d.migration.compare import (
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
     PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
     PATIENT_UNREADABLE_MONTH_CLASSIFIERS,
+    PATIENT_UNRECONSTRUCTABLE_DATE_CLASSIFIERS,
     PATIENT_UNTRIMMED_VALIDATION_CLASSIFIERS,
     PATIENT_YMD_FIRST_CLASSIFIERS,
     PRODUCT_CATEGORY_CLASSIFIERS,
@@ -77,6 +79,7 @@ from a4d.migration.compare import (
     R_NUMERIC_ERROR_SENTINEL_CLASSIFIERS,
     ROW_ORDINAL_COL,
     STRAY_DATE_CLASSIFIERS,
+    STRAY_DATE_DROPPED_CLASSIFIERS,
     STRAY_DATE_ZEROED_CLASSIFIERS,
     WIDE_FORMAT_FRAGMENT_CLASSIFIERS,
     Delta,
@@ -593,6 +596,35 @@ CLASSIFIERS_BY_COLUMN |= {
     for col in get_date_columns()
     if col != "hospitalisation_date"
 }
+
+# ticket 57: the other face of the same parse_dates mechanism -- R publishing a
+# date from a token no reading can be recovered from, where Python declines.
+# Same domain argument and the same hospitalisation_date carve-out, and
+# appended after every column-specific and every reconstructable cause, because
+# its test is direction alone: it must only ever see what nothing narrower
+# claimed.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_UNRECONSTRUCTABLE_DATE_CLASSIFIERS
+    for col in get_date_columns()
+    if col != "hospitalisation_date"
+}
+
+# ticket 57: a fasting-glucose reading typed into the HbA1c column, which R has
+# no range check to catch. Scoped to the two columns validation_rules.yaml
+# declares an HbA1c range for -- the classifier reads that same config, so the
+# two cannot drift.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_HBA1C_RANGE_CLASSIFIERS
+    for col in ("hba1c_baseline", "hba1c_updated")
+}
+
+# ticket 57: the third face of the stray-date cause (ticket 24's raw shape,
+# ticket 36's zeroed shape). Where the column's cleaned type is an integer,
+# Python's failed cast leaves null rather than 0, which neither existing test
+# can see.
+CLASSIFIERS_BY_COLUMN["testing_frequency"] = (
+    CLASSIFIERS_BY_COLUMN.get("testing_frequency", {}) | STRAY_DATE_DROPPED_CLASSIFIERS
+)
 
 # ticket 51: the two sanitizers disagree on accented letters, so the cause
 # belongs to every allowed-value column rather than to province alone -- it is
