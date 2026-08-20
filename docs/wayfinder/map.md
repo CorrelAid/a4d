@@ -249,6 +249,13 @@ flowchart TD
   cemented the bug as "explained". A cause that is genuinely undecidable
   from the evidence available is recorded as an open question, not closed
   with a label.
+- **R retires only when nothing still needs to read it** (user, 2026-08-20).
+  [Ticket 12](tickets/12-retire-r-workspace.md)'s `blocked_by` is a derived
+  list of the open tickets that currently need the R *source* in `r-archive/`
+  -- re-derived whenever a ticket closes or a new one is spawned, so a
+  later ticket that needs R is added without re-arguing it. The frozen output
+  baseline on the data drive is out of scope: it is not in the repo and this
+  ticket never touches it.
 - Redraw command: `~/.claude/skills/wayfinder/scripts/render-map.sh docs/wayfinder`
 
 ## Where this map stands

@@ -12,6 +12,26 @@ closed_by: null
 spawned_by: null
 ---
 
+## Standing rule for this ticket's blocking
+
+**R is retired only when no open ticket, and nothing in the codebase, still
+needs to read the old R source for comparison** (stated by the user
+2026-08-20, confirming the wiring round 10 applied).
+
+`blocked_by` is therefore a *derived* list, not a fixed one: it holds whichever
+open tickets currently need R, and it is re-derived whenever a ticket closes or
+a new one is spawned. A ticket spawned later that needs to read `r-archive/`
+gets added here without further argument -- that is the rule working, not a
+delay. The frozen output baseline on the data drive
+(`/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/`) is not part of this: it
+lives outside the repo and this ticket never touches it. What is gated is the
+**R source** in `r-archive/`, which past triage has repeatedly had to read to
+root-cause a mismatch -- reading R's output alone has not been enough.
+
+This ticket was unblocked prematurely once (2026-08-15) by treating spawned
+residuals as out of scope, and the correction cost a session. When in doubt,
+it stays blocked.
+
 ## Premise
 
 Rests on the same destination redraw as [ticket 10](10-performance-profiling.md)
