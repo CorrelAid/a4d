@@ -6,6 +6,7 @@ import functools
 import polars as pl
 
 from a4d.clean.schema_product import get_product_data_schema
+from a4d.config import settings
 from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
@@ -52,6 +53,10 @@ from a4d.migration.compare import (
     RowKeyOverlap,
     ShapeResult,
     TotalsMismatch,
+    _is_python_declines_unreconstructable_date,
+    _is_python_glucose_unit_corrected,
+    _is_python_recovers_glucose_r_rejected,
+    _is_python_rejects_out_of_range_hba1c,
     add_row_ordinal,
     align_duplicate_rows,
     build_mismatch_rows,
@@ -2630,3 +2635,88 @@ class TestRParseOrderCannotReadCell:
         )
 
         assert classify(m, PATIENT_UNREADABLE_MONTH_CLASSIFIERS) == "unclassified"
+
+
+class TestPythonDeclinesUnreconstructableDate:
+    """Round 10's largest surviving group: R publishes a date, Python sentinels.
+
+    R's parse chain cannot fail loudly (round 9, executed against R 4.5), so a
+    source token damaged past reading still yields R *a* date. Python's parser
+    refuses. Every cell behind this is a source defect for ticket 40.
+    """
+
+    @staticmethod
+    def _m(r_value, py_value):
+        return CellMismatch(key={"id": 1}, column="lost_date", r_value=r_value, py_value=py_value)
+
+    def test_r_date_against_python_sentinel(self):
+        assert _is_python_declines_unreconstructable_date(
+            self._m(datetime.date(2025, 4, 25), SENTINEL_DATE)
+        )
+
+    def test_both_real_dates_are_not_this_cause(self):
+        assert not _is_python_declines_unreconstructable_date(
+            self._m(datetime.date(2025, 4, 25), datetime.date(2025, 3, 25))
+        )
+
+    def test_the_reverse_direction_is_a_different_cause(self):
+        assert not _is_python_declines_unreconstructable_date(
+            self._m(SENTINEL_DATE, datetime.date(2025, 4, 25))
+        )
+
+    def test_r_null_is_not_this_cause(self):
+        assert not _is_python_declines_unreconstructable_date(self._m(None, SENTINEL_DATE))
+
+
+class TestPythonRejectsOutOfRangeHba1c:
+    """A glucose reading typed into the HbA1c column: R passes 240 through,
+    Python fails it against the schema's HbA1c bound and sentinels."""
+
+    @staticmethod
+    def _m(r_value, py_value, column="hba1c_updated"):
+        return CellMismatch(key={"id": 1}, column=column, r_value=r_value, py_value=py_value)
+
+    def test_reading_above_the_declared_maximum(self):
+        assert _is_python_rejects_out_of_range_hba1c(self._m(240.0, settings.error_val_numeric))
+
+    def test_reading_inside_the_range_is_a_different_cause(self):
+        assert not _is_python_rejects_out_of_range_hba1c(self._m(9.4, settings.error_val_numeric))
+
+    def test_python_must_hold_the_sentinel(self):
+        assert not _is_python_rejects_out_of_range_hba1c(self._m(240.0, 240.0))
+
+    def test_only_the_hba1c_columns(self):
+        assert not _is_python_rejects_out_of_range_hba1c(
+            self._m(240.0, settings.error_val_numeric, column="weight")
+        )
+
+
+class TestGlucoseUnitSwapSurvivors:
+    """The two shapes the ticket-42 unit swap leaves that the original
+    classifier could not see, both measured on the real 254-tracker set."""
+
+    @staticmethod
+    def _m(r_value, py_value, column="fbg_baseline_mg"):
+        return CellMismatch(key={"id": 1}, column=column, r_value=r_value, py_value=py_value)
+
+    def test_a_swapped_columns_outlier_is_out_of_this_classifiers_reach(self):
+        """2020 Kantha Bopha: 90.1% of the column is sub-30, so it is read as
+        mmol/L and 47.8 is rejected against the mmol ceiling -- but 47.8 is a
+        fine mg/dL reading, and whether the column was swapped is not visible
+        from one cell. These six stay unclassified deliberately (ticket 57)."""
+        assert not _is_python_glucose_unit_corrected(self._m(47.8, settings.error_val_numeric))
+
+    def test_a_reading_outside_the_headers_unit_is_still_caught(self):
+        assert _is_python_glucose_unit_corrected(self._m(900.0, settings.error_val_numeric))
+
+    def test_swap_recovers_a_reading_r_rejected(self):
+        """2022 Penang: the mmol cell reads "-" (R sentinels it) while the mg
+        cell holds 9, which the swap moves across."""
+        assert _is_python_recovers_glucose_r_rejected(
+            self._m(settings.error_val_numeric, 9.0, column="fbg_baseline_mmol")
+        )
+
+    def test_an_implausible_recovery_is_not_claimed(self):
+        assert not _is_python_recovers_glucose_r_rejected(
+            self._m(settings.error_val_numeric, 999.0, column="fbg_baseline_mmol")
+        )

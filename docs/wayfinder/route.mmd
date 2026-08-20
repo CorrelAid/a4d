@@ -157,6 +157,10 @@ flowchart TB
     direction LR
     U56["<b>56</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
   end
+  subgraph S2026_08_20["Session 2026-08-20"]
+    direction LR
+    U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -171,7 +175,6 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -211,7 +214,8 @@ flowchart TB
   S2026_08_19c ~~~ S2026_08_19d
   S2026_08_19d ~~~ S2026_08_19e
   S2026_08_19e ~~~ S2026_08_19f
-  S2026_08_19f ~~~ Sopen
+  S2026_08_19f ~~~ S2026_08_20
+  S2026_08_20 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -249,7 +253,10 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U57 --->|blocked| U12
+  U32 --->|blocked| U12
+  U39 --->|blocked| U12
+  U44 --->|blocked| U12
+  U47 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -297,10 +304,10 @@ flowchart TB
   U56 -.->|spawned| U57
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U57 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

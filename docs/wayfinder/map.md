@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 10"]
+  subgraph FRONTIER["Frontier · 9"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -47,7 +47,6 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
-    T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -55,7 +54,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 43"]
+  subgraph DECIDED["Decided · 44"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -100,6 +99,7 @@ flowchart TD
     T54["<b>54</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 7)"]
     T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
     T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
+    T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -141,15 +141,18 @@ flowchart TD
   T28 --> T12
   T30 --> T12
   T31 --> T12
+  T32 --> T12
+  T39 --> T12
+  T44 --> T12
   T45 --> T46
-  T57 --> T12
+  T47 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T47,T57 frontier
+  class T16,T32,T34,T35,T39,T40,T41,T44,T47 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53,T54,T55,T56 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2072,16 +2075,61 @@ and the 13 `Undefined` cells the fog owns. Ticket 12's `blocked_by` swaps `56`
 for `57` on the same standing precedent -- this round could not have been
 closed without running R.
 
-**The frontier is ten tickets and its shape is unchanged**: [round
-10](tickets/57-triage-patient-cleaned-residual-10.md) takes round 9's place as
-ticket 12's last remaining blocker and so is the one on the route to the
-destination; [merged patient IDs](tickets/47-patient-ids-merged-at-cleaning.md)
-remains the most serious in its own right, since a merged identity attributes
-one patient's records to another in production output; and the other eight are
-independent triage residuals, standing decisions and a separate feature
-(ticket 16), takeable in any order.
+**Round 10 ends the round chain: 96 -> 19 in-scope, and no round 11.** The
+last real Python defect in the patient cleaned stage was a single character --
+R's `extract_date_from_measurement` makes the closing parenthesis optional and
+Python's did not, so a measurement cell written `180(May-2017` (25 of that
+group's 30 source cells) lost its date. 24 cells recovered. The remaining 19
+are not unexplained: 13 are the standing `Undefined` fog and 6 are six Kantha
+Bopha readings whose cause is a *column-level* property (the ticket-42 unit
+swap) that no per-cell classifier can see -- a widening that would have caught
+them was written, measured, and backed out for claiming far too much. Everything
+else resolved to source defects, now on ticket 40.
+
+**Ticket 12's blocking changes kind rather than contents.** For ten rounds it
+swapped round N for round N+1 on one standing precedent: R cannot be retired
+while triage still needs to read it. With the rounds finished, `blocked_by`
+drops `57` and gains `[32, 39, 44, 47]` -- the four open tickets that inherit
+that precedent (the classifier re-audit reads R's source by definition; ticket
+39's 478 clinical-note cells and ticket 44's 2,936 FBG cells are the two
+largest unexplained populations left; ticket 47 is a correctness question whose
+evidence includes R's row handling). Letting R retire now, treating those four
+as residuals of closed scope, was the alternative -- rejected because this
+ticket was already unblocked prematurely once on that reasoning and the
+correction cost a session. It is a one-line edit to reverse per ticket.
+
+**The frontier is nine tickets, down from ten.** [Merged patient
+IDs](tickets/47-patient-ids-merged-at-cleaning.md) is now the most serious in
+its own right -- a merged identity attributes one patient's records to another
+in production output -- and is also, with tickets 32, 39 and 44, on the route
+to the destination for the first time, since all four now block R's retirement.
+The remaining five ([the classifier
+audit](tickets/32-audit-classifiers-against-decision-bar.md) aside, which is
+also a blocker) are standing decisions, the source-defect report and a separate
+feature (ticket 16), takeable in any order.
 
 ## Decisions so far
+
+- [Triage the residual patient cleaned-stage mismatches (round
+  10)](tickets/57-triage-patient-cleaned-residual-10.md) -- the in-scope cleaned
+  residual falls 96 -> **19** (80%), raw stays byte-identical at 26,172, product
+  untouched, and **the ten-round chain ends here**: all 19 carry written
+  verdicts (13 the standing `Undefined` fog, 6 a named tooling limitation), so
+  there is no round 11. One real Python defect, found by disproving this
+  ticket's own premise: `_extract_date_from_measurement` existed all along, but
+  R makes the closing parenthesis optional (`[)]?`, and R's own test suite
+  covers an unclosed cell) where Python required it -- so `180(May-2017`, which
+  is how 25 of that group's 30 source cells are written, lost its date
+  entirely. 24 cells recovered. Matching R *exactly* was measured and rejected:
+  R's greedy prefix leaves `196(` as the value and then fails its own numeric
+  cast, so Python strips the stray `(` and keeps the 196 R throws away. The two
+  FBG cells the ticket suspected of being wrongly sentinelled are correctly
+  sentinelled -- 2020 Kantha Bopha's baseline column is 90.1% sub-30, so it is
+  read as mmol/L and 47.8 is past the mmol ceiling, not inside the mg/dL range
+  the header implies. The remaining 37 date cells are all source defects (R
+  invents a reading from a damaged token; its answer for `10/1023` is not even
+  stable between its frozen output and its own parser), reported to ticket 40.
+  Four classifiers added; a fifth was written, measured and backed out.
 
 - [Triage the residual patient cleaned-stage mismatches (round
   9)](tickets/56-triage-patient-cleaned-residual-9.md) -- the in-scope cleaned
@@ -3009,6 +3057,16 @@ folded into Decisions so far above.)
   `ifelse(x == "Y", ...)` yields `""` for `-` and `NA` for null, and only the
   second survives to become `Undefined` -- so R's null cannot be cited as
   evidence for what the output should say.
+- Whether a **column-level** finding can be classified at all. Ticket 42's unit
+  swap is a property of a whole column, so a per-cell classifier cannot see
+  which columns it fired on -- which is why six 2020 Kantha Bopha cells stay
+  unclassified with their cause written out instead. Round 10 measured the
+  obvious widening ("outside either unit's range") and backed it out: it would
+  claim every genuinely-rejected mg/dL reading between 45 and 800. Giving
+  `compare_cells` column-level context, or reading the pipeline's own
+  `glucose_unit_swapped` log, would both work; nobody has judged whether six
+  cells justify either. Surfaced by [round
+  10](tickets/57-triage-patient-cleaned-residual-10.md).
 - Whether the **numeric** conversion path should treat absence-written-as-a-
   word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
   (ticket 38). Correct in principle -- 999999 makes the same false claim there
@@ -3220,6 +3278,10 @@ flowchart TB
     direction LR
     U56["<b>56</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
   end
+  subgraph S2026_08_20["Session 2026-08-20"]
+    direction LR
+    U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -3234,7 +3296,6 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
-    U57["<b>57</b><br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3274,7 +3335,8 @@ flowchart TB
   S2026_08_19c ~~~ S2026_08_19d
   S2026_08_19d ~~~ S2026_08_19e
   S2026_08_19e ~~~ S2026_08_19f
-  S2026_08_19f ~~~ Sopen
+  S2026_08_19f ~~~ S2026_08_20
+  S2026_08_20 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -3312,7 +3374,10 @@ flowchart TB
   U28 --->|blocked| U12
   U30 --->|blocked| U12
   U31 --->|blocked| U12
-  U57 --->|blocked| U12
+  U32 --->|blocked| U12
+  U39 --->|blocked| U12
+  U44 --->|blocked| U12
+  U47 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3360,11 +3425,11 @@ flowchart TB
   U56 -.->|spawned| U57
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U47,U57 tfrontier
+  class U16,U32,U34,U35,U39,U40,U41,U44,U47 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

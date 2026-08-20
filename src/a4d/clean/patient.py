@@ -167,14 +167,23 @@ def _extract_date_from_measurement(df: pl.DataFrame, col_name: str) -> pl.DataFr
     if date_col_name in df.columns:
         return df
 
-    # Extract value before '(' and date between '(' and ')'
-    # Using regex: everything before '(', then '(', then capture date, then optional ')'
+    # R splits on a greedy `.*` prefix, then `[(]`, then a lazy date, then an
+    # OPTIONAL `[)]` -- so it recovers a cell whose parenthesis is never closed
+    # (`180(May-2017`, near-universal in the 2017/2018 trackers) and, because the
+    # prefix is greedy, reads the date after the LAST `(` in `196((Dec-2017)`.
     df = df.with_columns(
         [
-            # Extract value (everything before parenthesis, or entire value if no parenthesis)
-            pl.col(col_name).str.extract(r"^([^(]+)", 1).str.strip_chars().alias(col_name),
-            # Extract date (everything between parentheses, if present)
-            pl.col(col_name).str.extract(r"\(([^)]+)\)", 1).alias(date_col_name),
+            # The greedy prefix is R's, but the trailing "(" it leaves behind on
+            # a doubled parenthesis is not kept: R publishes "196(" for
+            # `196((Dec-2017)` and then fails its own numeric cast, losing the
+            # reading. Python strips it and keeps the 196.
+            pl.when(pl.col(col_name).str.contains(r"\(", literal=False))
+            .then(
+                pl.col(col_name).str.extract(r"^(.*)\(", 1).str.strip_chars().str.strip_chars("(")
+            )
+            .otherwise(pl.col(col_name))
+            .alias(col_name),
+            pl.col(col_name).str.extract(r".*\(([^)]*)\)?$", 1).alias(date_col_name),
         ]
     )
 

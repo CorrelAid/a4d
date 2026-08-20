@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 57]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 39, 44, 47]
 assignee: null
 claimed_at: null
 resolution: null
@@ -224,3 +224,32 @@ source strings, because reading the function was not enough to predict which
 cells it would sentinel and which it would misread. Round 10's largest group is
 R's `extract_date_from_measurement`, which will need the same treatment.
 Triage still depends on `r-archive/` being present.
+
+**2026-08-20 (ticket 57 closed -- the round chain ends).** Round 10 converged:
+the patient cleaned-stage residual is 19 cells, all with written verdicts, and
+there is no round 11. So `blocked_by` does not swap `57` for a successor -- it
+drops `57` and gains `[32, 39, 44, 47]`.
+
+That is a change of kind, not just of contents, so it is argued rather than
+applied. This ticket has been swapping one round for the next on a standing
+precedent: **R cannot be retired while triage still needs to read it.** With the
+rounds finished, the four open tickets that still need R as a live reference
+are the ones that inherit that precedent:
+
+- [Re-audit every existing cause classifier](32-audit-classifiers-against-decision-bar.md)
+  -- by definition it re-reads R's source to check each verdict.
+- [Dates buried in clinical notes](39-recover-dates-embedded-in-free-text.md)
+  -- 478 cells, still an open question, and round 6 measured 179 of them running
+  the opposite direction.
+- [The cleaned-stage FBG R-null residual](44-triage-cleaned-fbg-r-null-residual.md)
+  -- 2,936 cells, the single largest unexplained population left anywhere.
+- [Four trackers where cleaning merges several patients into one patient
+  ID](47-patient-ids-merged-at-cleaning.md) -- a correctness question whose
+  evidence includes R's own row handling.
+
+The alternative -- treating all four as residuals of already-closed scope and
+letting R retire now, which is the precedent this map used for tickets 24-28 --
+was rejected because this ticket has already been unblocked prematurely once
+(2026-08-15) on exactly that reasoning, and the correction cost a session.
+Reversible: dropping any of the four from `blocked_by` is a one-line edit if the
+user judges R unnecessary for it.

@@ -205,3 +205,41 @@ plus a second clinic with the same shape:
   `0.0252`. Whether these are a mis-keyed unit or plain data entry errors is
   [round 8](55-triage-patient-cleaned-residual-8.md)'s question, but no reading
   of them is a plausible height.
+
+## Findings added 2026-08-20 (from [round 10](57-triage-patient-cleaned-residual-10.md))
+
+Round 10's whole residual is source defects: 37 of its 72 remaining cells are a
+date cell damaged past reading, and every one of them is a workbook fix rather
+than something either pipeline can infer.
+
+- **`25-Ma4-2025` in a `Date Lost to Follow Up` cell.** 2025 Taunggyi, 18 cells
+  (one value, repeated down the months). "Ma4" is Mar or May and nothing in the
+  workbook decides which; R reads the embedded `4` as the month and publishes
+  2025-04-25, a third answer neither spelling supports, and Python declines.
+  The same row also carries `status = Active` while holding a lost-date at all,
+  so two cells need attention.
+- **Dates with a separator swallowed or a digit group glued.** `26/102022`
+  (2022/2023 Sunprasitthiprasong), `8/1023` (2023 Yangon General), `10/1023`,
+  `3/10.23` (2023 North Okkalapa), `10-Oct-2-24`, `13-Mar-0202` (2023 Penang
+  General). Where the missing separator belongs is a guess: R's frozen output
+  reads `10/1023` as 2010-10-23 while running R's own parser over that string
+  in isolation returns 2023-10-10 -- the same input, two answers, so R's number
+  is not evidence of the clinic's intent either.
+- **The tracker template's own example text left in a patient row.** 2018
+  Penang General DC, MY_PN001, `e.g. xxx (mth-18)` in both the HbA1c and FBG
+  measurement cells across Jul18/Aug18/Sep18. R turns it into 2018-01-01.
+- **A fasting-glucose reading typed into the HbA1c column.** 240 and 125, plus
+  299 at 2024 Preah Kossamak (KH_KB050, Jun24-Aug24). R has no range check on
+  this column and publishes them as HbA1c percentages; Python rejects them
+  against the declared 0-25 bound. The numbers look real -- they are in the
+  wrong column.
+- **A date typed into `testing_frequency`.** 2021 Khon Kaen, TH_KN008, Mar21
+  holds 2021-02-01 where a tests-per-day count belongs. R publishes the Excel
+  serial 44228 as the frequency.
+- **Two baseline-FBG readings that cannot be read in the unit their column
+  turned out to hold.** 2020 Kantha Bopha's `Baseline FBG` column is 90.1%
+  sub-30, so the pipeline reads the whole column as mmol/L (ticket 42) -- and
+  KH_KB056's 47.8 and KH_KB062's 53.8 are then past the analytical ceiling and
+  are rejected. Read as mg/dL they would be ordinary. Either those two cells
+  are mg/dL in an otherwise-mmol column, or they are mis-keyed; the workbook is
+  the only place that can say.
