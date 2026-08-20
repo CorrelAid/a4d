@@ -419,8 +419,12 @@ def test_fix_patient_id_hyphen_normalization():
     assert len(collector) == 0  # Normalization doesn't generate errors
 
 
-def test_fix_patient_id_truncation():
-    """Test that IDs > 8 chars are truncated."""
+def test_fix_patient_id_overlong_without_candidate_is_sentinelled():
+    """An over-length ID is never truncated into an identity nobody wrote.
+
+    R's fix_id truncates to 8 characters, which manufactures an ID that
+    appears in no source workbook (ticket 47: KH_QEH026 -> KH_QEH02).
+    """
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QB004XY", "KD_QB004ABC", "VERYLONGID"],
@@ -430,10 +434,59 @@ def test_fix_patient_id_truncation():
     collector = ErrorCollector()
     result = fix_patient_id(df, collector)
 
-    # First 8 characters
-    assert result["patient_id"].to_list() == ["KD_QB004", "KD_QB004", "VERYLONG"]
-    # Truncation generates warnings
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
     assert len(collector) == 3
+
+
+def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling():
+    """A one-edit typo resolves to the ID the same tracker spells correctly."""
+    df = pl.DataFrame(
+        {
+            "patient_id": ["KH_QEH026", "KH_QE026", "KH_QE027"],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["KH_QE026", "KH_QE026", "KH_QE027"]
+    # Recovery is still a defect in the source workbook, so it is reported.
+    assert len(collector) == 1
+    assert "KH_QEH026" in collector.errors[0].original_value
+
+
+def test_fix_patient_id_recovers_a_short_id_too():
+    """Recovery is not limited to the over-length branch."""
+    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD097"]})
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["MM_QD097", "MM_QD097"]
+
+
+def test_fix_patient_id_ambiguous_candidates_are_sentinelled():
+    """Two candidates one edit away means the intended patient is unknowable."""
+    df = pl.DataFrame({"patient_id": ["KH_QE02", "KH_QE021", "KH_QE023"]})
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"][0] == "Undefined"
+
+
+def test_fix_patient_id_candidate_must_be_in_the_same_tracker():
+    """No candidate in the frame means no recovery, however plausible the guess.
+
+    2026_NOGH writes MM_QD97 in its Patient List and every month sheet, and
+    has no MM_QD097 anywhere -- so nothing licenses inventing one.
+    """
+    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD096", "MM_QD001"]})
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"][0] == "Undefined"
 
 
 def test_fix_patient_id_invalid_too_short_first_part():
@@ -477,11 +530,9 @@ def test_fix_patient_id_invalid_wrong_digits():
     collector = ErrorCollector()
     result = fix_patient_id(df, collector)
 
-    # All invalid (2 digits, 1 digit, 4 digits)
-    assert result["patient_id"][0] == "Undefined"
-    assert result["patient_id"][1] == "Undefined"
-    # KD_QB0001 is > 8 chars, so truncated to KD_QB000
-    assert result["patient_id"][2] == "KD_QB000"
+    # All invalid (2 digits, 1 digit, 4 digits), and none has a well-formed
+    # ID in the same frame to recover against.
+    assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
 
 
 def test_fix_patient_id_invalid_digits_in_letter_positions():
@@ -581,7 +632,7 @@ def test_fix_patient_id_mixed_valid_invalid():
                 "KD_QB004",  # Valid
                 "KD-QA123",  # Valid after normalization
                 "INVALID",  # Invalid, replaced
-                "KD_QB004XY",  # Invalid, truncated
+                "KD_QB004XY",  # Invalid, two edits from KD_QB004
                 None,  # Null preserved
             ],
         }
@@ -593,9 +644,9 @@ def test_fix_patient_id_mixed_valid_invalid():
     assert result["patient_id"][0] == "KD_QB004"
     assert result["patient_id"][1] == "KD_QA123"
     assert result["patient_id"][2] == "Undefined"
-    assert result["patient_id"][3] == "KD_QB004"
+    assert result["patient_id"][3] == "Undefined"
     assert result["patient_id"][4] is None
-    assert len(collector) == 2  # 1 replacement + 1 truncation
+    assert len(collector) == 2
 
 
 def test_fix_patient_id_lowercase_letters():
@@ -614,19 +665,21 @@ def test_fix_patient_id_lowercase_letters():
     assert len(collector) == 3
 
 
-def test_fix_patient_id_matches_r_behavior():
-    """Test that fix_patient_id matches R's fix_id() exactly."""
+def test_fix_patient_id_follows_r_except_that_it_never_truncates():
+    """Ticket 47: R's shape is kept; its identity-manufacturing branch is not.
+
+    R's fix_id truncates anything over 8 characters to its first 8. Here every
+    malformed ID is either recovered against a well-formed ID in the same
+    tracker or sentinelled -- so the output only ever contains an ID some
+    tracker actually spells.
+    """
     df = pl.DataFrame(
         {
             "patient_id": [
                 "KD_QB004",  # Valid
                 "KD-QB004",  # Normalize - to _
-                "K_QB004",  # Too short first part
-                "KD_Q004",  # Too short second part
-                "KD_QBX04",  # Invalid format
-                "11_EW004",  # Digits instead of letters
-                "KD_Q1004",  # Digit in letter position
-                "KD_QB004XY",  # Truncate (> 8 chars)
+                "11_EW004",  # Digits instead of letters, two edits away
+                "KD_QB004XY",  # Over-length, two edits away
                 None,  # Null
                 "",  # Empty
             ],
@@ -639,18 +692,39 @@ def test_fix_patient_id_matches_r_behavior():
     expected = [
         "KD_QB004",  # Valid
         "KD_QB004",  # Normalized
-        "Undefined",  # Invalid
-        "Undefined",  # Invalid
-        "Undefined",  # Invalid
-        "Undefined",  # Invalid
-        "Undefined",  # Invalid
-        "KD_QB004",  # Truncated
+        "Undefined",  # No unambiguous candidate
+        "Undefined",  # Not truncated to KD_QB004, as R would
         None,  # Null
-        "Undefined",  # Empty → Other
+        "Undefined",  # Empty
     ]
     assert result["patient_id"].to_list() == expected
-    # Errors: 5 replacements + 1 truncation + 1 empty string = 7
-    assert len(collector) == 7
+    assert len(collector) == 3
+
+
+def test_fix_patient_id_recovers_a_single_character_typo():
+    """The other half of the same divergence: one edit, one candidate, recover.
+
+    These four spellings are all one edit from the valid `KD_QB004` the same
+    frame carries, which is the 2023_NPH shape that opened ticket 47.
+    """
+    df = pl.DataFrame(
+        {
+            "patient_id": [
+                "KD_QB004",  # Valid, the recovery target
+                "K_QB004",  # Dropped letter
+                "KD_Q004",  # Dropped letter
+                "KD_QBX04",  # Substituted character
+                "KD_Q1004",  # Substituted character
+            ],
+        }
+    )
+
+    collector = ErrorCollector()
+    result = fix_patient_id(df, collector)
+
+    assert result["patient_id"].to_list() == ["KD_QB004"] * 5
+    # Recovered, but still four defective source cells to report.
+    assert len(collector) == 4
 
 
 def test_validate_allowed_values_maps_a_configured_alias_to_its_canonical_form():

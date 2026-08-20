@@ -511,7 +511,17 @@ Nothing here blocks review of the code — it blocks the merge.
 - **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
   measured to be in files whose column the new unit resolution corrected;
   understood but not yet classifiable per-cell.
-- **57 — patient cleaned triage, round 10.** 96 in-scope cells left after
+**Closed since this section was last written** — kept here because the
+reasoning is the record of how the patient arm was verified.
+
+- **57 — patient cleaned triage, round 10, now closed.** It ended the
+  ten-round chain: 96 in-scope cells -> **19**, all of them carrying written
+  verdicts (13 the standing `Undefined` question, 6 a named tooling
+  limitation), so there is no round 11. The last real Python defect was one
+  character: R's `extract_date_from_measurement` makes the closing parenthesis
+  optional and Python's did not, so `180(May-2017` lost its date. 24 cells
+  recovered. What follows is the round-9/10 picture as it stood, which is where
+  the 96 came from — 96 in-scope cells left after
   round 9, excluding the FBG population ticket 44 owns and the
   `hospitalisation_date` population ticket 39 owns. Unlike every round before
   it these share no mechanism: ~27 are 2017/2018 trackers where R lifts a date
@@ -560,11 +570,31 @@ Nothing here blocks review of the code — it blocks the merge.
   so it cannot be cited as evidence for what the output should say — which
   makes these cells part of a standing open question, not a residual.
 
-- **47 — four trackers where cleaning merges several patients into one ID.**
-  `KH_QEH026`–`029` all arrive at the cleaned stage as `KH_QEH02`; 4 files lose
-  9 identities in total, row counts preserved. R does the same, so the
-  comparison never flagged it — found while chasing why the cleaned stage had
-  two duplicate-key files the raw stage did not.
+- **47 — four trackers where cleaning merged several patients into one ID, now
+  closed.** The pipeline was publishing `KH_QEH02` — an identifier in no source
+  workbook — with four different patients' September records filed under it.
+  Cause: `fix_patient_id` inherited R's rule of truncating any malformed ID
+  over 8 characters to its first 8, and `2023_NPH`'s `Sep23` sheet types a
+  stray `H` into four IDs its own Patient List and three other month sheets
+  spell correctly. **Truncation is now dropped** — a divergence from R, taken
+  deliberately: a malformed ID is recovered against the well-formed IDs the
+  same tracker carries (edit distance 1, unique candidate only) and sentinelled
+  to `Undefined` otherwise, so the pipeline never invents an identity. Measured
+  by re-cleaning all 254 raw parquets: one file changes, four patients each
+  regain their September row, and zero non-conforming IDs remain corpus-wide.
+  The other three files of ticket 45's count turned out to be two correct
+  merges (hyphen-vs-underscore spellings of one patient) and one unrepairable
+  source defect (`2026_NOGH`'s `MM_QD97/98/99`, written that way in its own
+  Patient List, three patients still sharing `Undefined`).
+
+**Frontier, continued**
+
+- **58 — monthly rows with a misspelled ID lose their Patient List
+  demographics.** Extraction joins the Patient List on the *unfixed*
+  `patient_id`, long before cleaning repairs it, so ticket 47's recovered rows
+  have their identity back but null `dob`, `sex` and `province`. The hyphen-
+  spelled Mahosot and Surat Thani rows are the likely larger population; the
+  count is not yet derived.
 - **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
   when written, but the decision bar was tightened partway through; this
   re-checks that none merely labels a diff it never explained.
@@ -592,10 +622,11 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Blocked**
 
-- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Blocked
-  on 50: triage has repeatedly needed to read R's actual source to root-cause a
-  mismatch, not just diff its output — ticket 49 had to *run* R's own
-  `sanitize_str` against a real header to confirm its Unicode behaviour.
+- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). With
+  the ten-round triage chain finished, its blockers are now the three open
+  tickets that still need R's *source* to answer — 32, 39 and 44. The standing
+  reason is unchanged: triage has repeatedly had to read, and sometimes run,
+  R's actual code to root-cause a mismatch rather than just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
   after promotion.

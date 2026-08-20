@@ -393,6 +393,55 @@ def validate_all_columns(
     return df
 
 
+def _is_one_edit_apart(a: str, b: str) -> bool:
+    """Whether one insertion, deletion or substitution turns ``a`` into ``b``.
+
+    A bounded Levenshtein check rather than a full distance: recovery only ever
+    accepts distance 1, so nothing is gained by computing the rest.
+    """
+    if abs(len(a) - len(b)) > 1:
+        return False
+
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b, strict=True)) == 1
+
+    shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+    i = j = 0
+    skipped = False
+    while i < len(shorter) and j < len(longer):
+        if shorter[i] == longer[j]:
+            i += 1
+            j += 1
+        elif skipped:
+            return False
+        else:
+            skipped = True
+            j += 1
+    return True
+
+
+def recover_patient_id(malformed: str, known_ids: set[str]) -> str | None:
+    """The ID this tracker spells correctly elsewhere, if exactly one fits.
+
+    Ticket 47: 2023_NPH's `Sep23` sheet types a stray H into four IDs
+    (`KH_QEH026`), while its Patient List and every other month sheet write
+    `KH_QE026`. Rather than guess at the intended patient, this accepts a
+    candidate only when the same tracker already carries a well-formed ID one
+    edit away, and only when there is exactly one such candidate -- two
+    candidates mean the intended patient is unknowable from the evidence.
+
+    Args:
+        malformed: The ID that failed format validation, hyphens already
+            normalized.
+        known_ids: The well-formed IDs present elsewhere in the same tracker.
+
+    Returns:
+        The recovered ID, or None if no unambiguous candidate exists.
+    """
+    candidates = [known for known in known_ids if _is_one_edit_apart(malformed, known)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def fix_patient_id(
     df: pl.DataFrame,
     error_collector: ErrorCollector,
@@ -400,12 +449,24 @@ def fix_patient_id(
 ) -> pl.DataFrame:
     """Validate and fix patient ID format.
 
-    Matches R's fix_id() function behavior:
+    Follows R's fix_id() (script2_helper_patient_data_fix.R) except where it
+    manufactures an identity:
     - Valid format: XX_YY### (e.g., "KD_QB004")
       - 2 uppercase letters, underscore, 2 uppercase letters, 3 digits
     - Normalizes hyphens to underscores: "KD-QB004" → "KD_QB004"
-    - Truncates if > 8 characters: "KD_QB004XY" → "KD_QB004"
-    - Replaces with error value if ≤ 8 chars and invalid format
+    - Recovers a one-character typo against the tracker's own well-formed IDs
+    - Replaces with the error value otherwise
+
+    **Divergence from R (ticket 47).** R truncates anything longer than 8
+    characters to its first 8, which published `KH_QEH02` -- an identifier
+    present in no source workbook -- and filed four different patients'
+    September records under it, detaching them from their own Oct-Dec history.
+    Truncation is therefore dropped: an unrecoverable ID is sentinelled, the
+    way a too-short one already was, so the pipeline never invents an identity.
+
+    Every malformed ID is reported to the error collector whether it was
+    recovered or sentinelled, since either way the source workbook needs
+    correcting.
 
     This function should be called LAST in the validation pipeline because
     other functions use patient_id for error logging.
@@ -422,8 +483,8 @@ def fix_patient_id(
         >>> df = fix_patient_id(df, error_collector)
         >>> # "KD_QB004" → "KD_QB004" (valid)
         >>> # "KD-QB004" → "KD_QB004" (normalized)
-        >>> # "KD_QB004XY" → "KD_QB004" (truncated)
-        >>> # "INVALID" → "Other" (replaced)
+        >>> # "KH_QEH026" → "KH_QE026" (recovered, if the tracker has one)
+        >>> # "KD_QB004XY" → "Undefined" (no candidate)
     """
     import re
 
@@ -439,6 +500,16 @@ def fix_patient_id(
     # Valid format: XX_YY### (2 letters, underscore, 2 letters, 3 digits)
     valid_pattern = re.compile(r"^[A-Z]{2}_[A-Z]{2}\d{3}$")
 
+    # The recovery universe is this tracker's own well-formed IDs. The Patient
+    # List is joined onto the monthly rows during extraction rather than kept
+    # as rows of its own, so an ID misspelled on every sheet of a tracker is
+    # not recoverable here -- it is reported and sentinelled instead.
+    known_ids = {
+        value.replace("-", "_")
+        for value in df[patient_id_col].drop_nulls().unique().to_list()
+        if valid_pattern.match(value.replace("-", "_"))
+    }
+
     def fix_single_id(patient_id: str | None) -> str | None:
         """Fix a single patient ID value."""
         if patient_id is None:
@@ -451,13 +522,9 @@ def fix_patient_id(
         if valid_pattern.match(patient_id):
             return patient_id
 
-        # Step 3: Invalid format - either truncate or replace
-        if len(patient_id) > 8:
-            # Truncate to 8 characters
-            return patient_id[:8]
-        else:
-            # Replace with error value
-            return settings.error_val_character
+        # Step 3: Invalid format - recover from the tracker's own spelling,
+        # or sentinel. Never truncate: see the divergence note above.
+        return recover_patient_id(patient_id, known_ids) or settings.error_val_character
 
     # Apply transformation
     df = df.with_columns(
@@ -476,25 +543,29 @@ def fix_patient_id(
             normalized = original.replace("-", "_")
 
             if normalized != fixed:
-                # Not just normalization - either truncation or replacement
-                if len(original.replace("-", "_")) > 8:
-                    # Truncation
+                if fixed != settings.error_val_character:
                     error_collector.add_error(
                         file_name="",
-                        patient_id=original,
+                        patient_id=fixed,
                         column=patient_id_col,
                         original_value=original,
-                        error_message="Patient ID truncated (length > 8)",
+                        error_message=(
+                            f"Patient ID {original!r} is malformed; recovered as {fixed!r} "
+                            f"from this tracker's own spelling. The source workbook "
+                            f"needs correcting."
+                        ),
                         error_code="invalid_value",
                     )
                 else:
-                    # Replacement
                     error_collector.add_error(
                         file_name="",
                         patient_id=original,
                         column=patient_id_col,
                         original_value=original,
-                        error_message="Invalid patient ID format (expected XX_YY###)",
+                        error_message=(
+                            "Invalid patient ID format (expected XX_YY###) and no "
+                            "unambiguous match in this tracker"
+                        ),
                         error_code="invalid_value",
                     )
 
