@@ -1450,10 +1450,31 @@ def run_all_cmd(
     else:
         console.print("[bold]Step 3c/5:[/bold] Skipping product pipeline (--skip-product)\n")
 
+    # Errors table — written here, after both arms, rather than by either arm.
+    # The patient arm writes it from inside run_patient_pipeline and the product
+    # arm never wrote it at all, so `run` published a patient-only errors table
+    # (ticket 32, measured: 63,295 patient records, 0 product). The
+    # source-defect report derives from this table, so a missing arm is a
+    # missing half of the findings.
+    arm_errors = [
+        error
+        for arm_result in (result, product_result)
+        if arm_result is not None
+        for tracker in arm_result.tracker_results
+        for error in tracker.data_errors
+    ]
+    if arm_errors:
+        console.print("[bold]Step 3d/5:[/bold] Creating errors table (both arms)...")
+        try:
+            create_table_errors(arm_errors, tables_dir)
+            console.print(f"  ✓ Errors table created ({len(arm_errors):,} records)\n")
+        except Exception as e:
+            console.print(f"  [bold yellow]Warning: errors table failed: {e}[/bold yellow]\n")
+
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.
     if settings.data_root.exists():
-        console.print("[bold]Step 3d/5:[/bold] Creating tracker metadata table...\n")
+        console.print("[bold]Step 3e/5:[/bold] Creating tracker metadata table...\n")
         try:
             from a4d.tables.metadata import create_table_tracker_metadata
 
@@ -1474,7 +1495,7 @@ def run_all_cmd(
     product_table = tables_dir / "product_data.parquet"
     patient_monthly = tables_dir / "patient_data_monthly.parquet"
     if not skip_patient and product_table.exists() and patient_monthly.exists():
-        console.print("[bold]Step 3e/5:[/bold] Validating product-patient links...")
+        console.print("[bold]Step 3f/5:[/bold] Validating product-patient links...")
         try:
             from a4d.tables.product import link_product_patient
 

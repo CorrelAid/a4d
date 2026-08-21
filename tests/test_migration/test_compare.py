@@ -888,27 +888,92 @@ def _mismatch(r_value, py_value, column="product_entry_date"):
 
 
 class TestClassify:
-    def test_sentinel_null_when_r_is_null_and_python_is_sentinel(self):
+    def test_python_sentinel_r_extraction_gap_when_r_is_null_and_python_is_sentinel(self):
+        """Ticket 32 traced this to source: Sarawak's 2023 tracker really does
+        hold December *2024* dates in its Dec23 sheet, so Python's
+        beyond-tracker-year guard fires while R's own extraction gap leaves
+        null. Two already-named mechanisms meeting, not a third one."""
         mismatch = _mismatch(r_value=None, py_value=SENTINEL_DATE)
 
-        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "sentinel_null"
+        assert (
+            classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "python_sentinel_r_extraction_gap"
+        )
 
     def test_r_value_missing_when_r_is_null_and_python_parsed_a_real_date(self):
         mismatch = _mismatch(r_value=None, py_value=datetime.date(2021, 3, 10))
 
         assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "r_value_missing"
 
-    def test_off_by_one_day_when_dates_are_one_day_apart(self):
+    def test_r_value_missing_declines_a_date_outside_the_tracker_window(self):
+        """r_value_missing claims R lost a value Python read correctly. It may
+        not say that about a cell where Python itself published 2009 in a 2019
+        tracker -- the pipeline logged that one and preserved it deliberately
+        (ticket 32)."""
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="product_entry_date",
+            r_value=None,
+            py_value=datetime.date(2009, 12, 4),
+            tracker_year=2019,
+        )
+
+        assert (
+            classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS)
+            == "python_out_of_window_date_preserved"
+        )
+
+    def test_r_value_missing_still_fires_inside_the_tracker_window(self):
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="product_entry_date",
+            r_value=None,
+            py_value=datetime.date(2019, 12, 4),
+            tracker_year=2019,
+        )
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "r_value_missing"
+
+    def test_row_order_divergence_beats_a_coincidental_one_day_gap(self):
+        """The retired `off_by_one_day` cause claimed a mechanism it never had.
+        Its ten cleaned-stage rows were consecutive daily entries knocked one
+        position out of step by R's null-date sort fallback (ticket 32)."""
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="product_entry_date",
+            r_value=datetime.date(2022, 5, 9),
+            py_value=datetime.date(2022, 5, 10),
+            row_order_candidate=True,
+        )
+
+        registry = PRODUCT_ENTRY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS
+        assert classify(mismatch, registry) == "row_order_divergence"
+
+    def test_excel_1900_leap_serial_for_a_stray_serial_below_sixty_one(self):
+        """Excel's phantom 1900-02-29: openpyxl reads serial 25 as 1900-01-25,
+        plain epoch arithmetic as 1900-01-24. Same source integer, and stray
+        summary-row residue either way."""
+        mismatch = _mismatch(
+            r_value=datetime.date(1900, 1, 24), py_value=datetime.date(1900, 1, 25)
+        )
+
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "excel_1900_leap_serial"
+
+    def test_ordinary_one_day_gap_is_now_unclassified(self):
+        """Without a mechanism behind it, a one-day gap is an open question --
+        which is what a real serial-origin bug would look like."""
         mismatch = _mismatch(
             r_value=datetime.date(2020, 11, 28), py_value=datetime.date(2020, 11, 29)
         )
 
-        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "off_by_one_day"
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "unclassified"
 
-    def test_ce_typo_when_years_are_far_apart(self):
-        mismatch = _mismatch(r_value=datetime.date(2565, 12, 24), py_value=SENTINEL_DATE)
+    def test_python_absurd_serial_when_r_holds_the_normalization_sentinel(self):
+        """The retired `ce_typo` fired on `r_value.year > 2100`, which caught
+        normalize_date_column's own 9999 sentinel and said nothing about
+        Python publishing 5567-08-19 from Excel serial 1,339,576."""
+        mismatch = _mismatch(r_value=SENTINEL_DATE, py_value=datetime.date(5567, 8, 19))
 
-        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "ce_typo"
+        assert classify(mismatch, PRODUCT_ENTRY_DATE_CLASSIFIERS) == "python_absurd_excel_serial"
 
     def test_unclassified_when_no_classifier_matches(self):
         mismatch = _mismatch(r_value=datetime.date(2021, 1, 1), py_value=datetime.date(2021, 6, 1))
@@ -1425,7 +1490,7 @@ class TestBuildSummaryRows:
         assert {"column": "other_col", "mismatches": 1} in summary["per_column"]
         assert {
             "column": "product_entry_date",
-            "cause": "sentinel_null",
+            "cause": "python_sentinel_r_extraction_gap",
             "mismatches": 1,
         } in summary["per_cause"]
         assert {
@@ -1597,7 +1662,7 @@ class TestBuildMismatchRows:
                 "column": "product_entry_date",
                 "r_value": None,
                 "py_value": SENTINEL_DATE,
-                "cause": "sentinel_null",
+                "cause": "python_sentinel_r_extraction_gap",
             }
         ]
 

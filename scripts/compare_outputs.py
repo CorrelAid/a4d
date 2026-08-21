@@ -212,6 +212,7 @@ PATIENT_RAW_NUMERIC_NORMALIZE_COLS = ALL_RAW_COLUMNS
 # (ticket 17).
 PRODUCT_ORDINAL_GROUP_COLS = ["clinic_id", "product_sheet_name"]
 PRODUCT_ID_COL = "product"
+PRODUCT_TRACKER_YEAR_COL = "product_table_year"
 PRODUCT_CATEGORICAL_COLS = ["product_category", "product_balance_status"]
 
 # Raw-stage-only (ticket 24, extending ticket 22's product_balance precedent):
@@ -697,6 +698,10 @@ class Stage:
     # cleaning, so a swapped column is a fact about cleaned output. The raw
     # stage holds the workbook's own headers, where nothing has moved yet.
     load_glucose_unit_swaps: bool = False
+    # The column holding the tracker's own calendar year, if this stage has one
+    # (ticket 32). It lets a classifier judge whether Python's own value is
+    # plausible for the tracker, not just how the two sides differ.
+    tracker_year_col: str | None = None
 
     @property
     def detect_row_order_divergence(self) -> bool:
@@ -756,6 +761,7 @@ STAGES = [
         alignment=RowAlignment.POSITIONAL,
         ordinal_group_cols=PRODUCT_ORDINAL_GROUP_COLS,
         date_normalize_cols=["product_entry_date"],
+        tracker_year_col=PRODUCT_TRACKER_YEAR_COL,
         numeric_normalize_cols=PRODUCT_RAW_NUMERIC_NORMALIZE_COLS,
         whitespace_normalize_cols=PRODUCT_RAW_WHITESPACE_NORMALIZE_COLS,
     ),
@@ -766,6 +772,7 @@ STAGES = [
         categorical_cols=PRODUCT_CATEGORICAL_COLS,
         alignment=RowAlignment.POSITIONAL,
         ordinal_group_cols=PRODUCT_ORDINAL_GROUP_COLS,
+        tracker_year_col=PRODUCT_TRACKER_YEAR_COL,
         whitespace_normalize_cols=PRODUCT_CLEANED_WHITESPACE_NORMALIZE_COLS,
     ),
 ]
@@ -891,6 +898,7 @@ def _compare_arm(py_root: Path, r_dir: Path, py_dir: Path, stage: Stage) -> Dire
         categorical_cols=stage.categorical_cols,
         order_group_cols=order_group_cols,
         unit_swapped_columns=unit_swapped_columns,
+        tracker_year_col=stage.tracker_year_col,
     )
 
 

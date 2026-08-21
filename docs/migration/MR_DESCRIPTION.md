@@ -648,14 +648,29 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Blocked**
 
-- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). With
-  the ten-round triage chain finished, its blockers are now the three open
-  tickets that still need R's *source* to answer — 32, 39 and 44. The standing
-  reason is unchanged: triage has repeatedly had to read, and sometimes run,
-  R's actual code to root-cause a mismatch rather than just diff its output.
+- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Its
+  blockers are now 59 and 60: the second half of the classifier audit reads R's
+  source by definition, and explaining the rows that pair with nothing on the
+  other side is a question about R's row handling. The standing reason is
+  unchanged: triage has repeatedly had to read, and sometimes run, R's actual
+  code to root-cause a mismatch rather than just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
   after promotion.
+
+**Two production defects fixed by the classifier audit (ticket 32)**
+
+- `_validate_entry_dates` exempted every parsed year `>= 2400` so Thai
+  Buddhist-era dates could flow through, which also let corrupt Excel serials
+  (1,339,576 and 411,384) reach the product table as `5567-08-19` and
+  `3026-04-30`. The exemption is now the tracker's own BE band, so all 22
+  genuine BE dates survive and the 3 corrupt cells are sentinelled and logged
+  under a new `implausible_era_date` error code.
+- `a4d run` published an errors table holding the **patient arm only** — the
+  patient arm writes it from inside `run_patient_pipeline` and nothing wrote
+  the product arm's. BigQuery's `errors` table has therefore never carried a
+  product finding (e.g. zero of the 116 `balance_reconciliation` records).
+  `run` now writes it once after both arms: 63,295 -> 97,326 records.
 
 **Known and accepted**
 

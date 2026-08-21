@@ -7,6 +7,7 @@ import polars as pl
 from typer.testing import CliRunner
 
 from a4d.cli import app
+from a4d.errors import DataError
 from a4d.pipeline.models import PipelineResult, TrackerResult
 
 runner = CliRunner(env={"NO_COLOR": "1", "COLUMNS": "200"})
@@ -86,6 +87,64 @@ class TestUploadTablesErrors:
 
 class TestRunPipeline:
     """`run` command with mocked GCP calls."""
+
+    @patch("a4d.cli.run_product_pipeline")
+    @patch("a4d.cli.run_patient_pipeline")
+    @patch("a4d.config.settings")
+    def test_errors_table_holds_both_arms(
+        self, mock_settings, mock_run_patient, mock_run_product, tmp_path
+    ):
+        """`run` is the production entry point, and until ticket 32 it published
+        an errors table holding the patient arm only: the patient arm writes the
+        table from inside its own pipeline, and nothing wrote the product arm's
+        at all. The source-defect report (ticket 40) derives from this table, so
+        a silently patient-only table loses every product finding."""
+        mock_settings.data_root = tmp_path / "data"
+        mock_settings.output_root = tmp_path / "output"
+        mock_settings.project_id = "test-project"
+        mock_settings.dataset = "test-dataset"
+        mock_settings.max_workers = 4
+        (tmp_path / "data").mkdir()
+        (tmp_path / "output").mkdir()
+
+        def _result(arm: str) -> PipelineResult:
+            error = DataError(
+                file_name=f"{arm}.xlsx",
+                patient_id="P1",
+                column="c",
+                original_value="v",
+                error_message=f"{arm} problem",
+                error_code="invalid_value",
+                script="clean",
+                function_name="f",
+            )
+            return PipelineResult(
+                tracker_results=[
+                    TrackerResult(
+                        tracker_file=Path(f"{arm}.xlsx"),
+                        tracker_name=arm,
+                        success=True,
+                        cleaning_errors=1,
+                        data_errors=[error],
+                    )
+                ],
+                tables={},
+                total_trackers=1,
+                successful_trackers=1,
+                failed_trackers=0,
+                success=True,
+            )
+
+        mock_run_patient.return_value = _result("patient")
+        mock_run_product.return_value = _result("product")
+
+        result = runner.invoke(
+            app, ["run", "--skip-download", "--skip-upload", "--skip-drive-download"]
+        )
+
+        assert result.exit_code == 0
+        errors = pl.read_parquet(tmp_path / "output" / "tables" / "table_errors.parquet")
+        assert set(errors["file_name"].to_list()) == {"patient.xlsx", "product.xlsx"}
 
     @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")

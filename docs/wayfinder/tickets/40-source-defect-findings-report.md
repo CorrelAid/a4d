@@ -297,3 +297,38 @@ changed.
   sentinelled by the beyond-tracker-year guard, so nothing wrong is published.
   `39 Aug` is a day that does not exist; `Jul'29` is almost certainly `'19`
   or `'20` mistyped.
+
+## Findings added by [the classifier re-audit](32-audit-classifiers-against-decision-bar.md) (2026-08-22)
+
+All three are product-side, all measured on the real 254-tracker set, and all
+now emit a pipeline error record this report can derive from.
+
+- **Corrupt Excel serials in entry-date cells**, `implausible_era_date`, 3 cells.
+  `2024_Chiang Mai Maharaj Nakorn`, `Aug24`: serial **1,339,576**, which reads as
+  `5567-08-19`. `2026_Penang General Hospital_Jun_26`, `Apr26`: serial
+  **411,384**, reading as `3026-04-30`. `2025_Hat Yai Hospital`, `Oct25`:
+  `2525-10-02`, where the Buddhist year for 2025 is 2568 -- so this one is a
+  mistyped BE year rather than a serial. In each case the day and month match
+  the sheet, so the intended date is legible to a human; the year is not
+  recoverable by inference, which is why the pipeline now sentinels them.
+- **Entry dates from the following year in a December sheet**, 78 cells across
+  26 files, the largest being `2023_Sarawak General Hospital`'s `Dec23` sheet
+  (25 cells, running 2024-12-01 to 2024-12-28). Python's beyond-tracker-year
+  guard already flags each one under `invalid_value`. Either the rows belong in
+  the next year's tracker or the year was mistyped; the workbook is the only
+  place that says which.
+- **Entry dates decades before the tracker**, 29 cells, logged by the same
+  guard's year-floor branch and deliberately preserved in output.
+  `2023_Surat Thani` holds `0202-06-20` and `2025_Quirino` `0205-12-02` -- year
+  202 and 205 -- alongside `1935-04-30` (2025 NOGH), seven `2009-12-04` (2019
+  Mahosot) and four `2004-05-08` (2024 Sarawak).
+
+**One finding about this report's own source of truth, now fixed.** Point 1 of
+the Question above assumes the errors table carries every finding. It did not:
+`a4d run` published an errors table holding the **patient arm only**, because
+the patient arm writes it from inside `run_patient_pipeline` and nothing wrote
+the product arm's. Measured before the fix: 63,295 records with zero
+`balance_reconciliation` (116 exist) and zero `implausible_era_date`. So the 113
+product balance-reconciliation groups this ticket already lists were never
+actually reachable from the table. `run` now writes it once after both arms:
+63,295 -> 97,326 records.

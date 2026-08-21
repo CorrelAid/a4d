@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32]
+blocked_by: [59, 60]
 assignee: null
 claimed_at: null
 resolution: null
@@ -295,3 +295,26 @@ That makes this ticket **one decision away from the frontier** for the second
 time. The first attempt was premature (see above), and the difference now is
 that the reason for waiting has narrowed to a single named ticket rather than a
 population of residuals nobody had counted.
+
+**2026-08-22 (ticket 32 closed).** `blocked_by` was `[32]` in substance. Ticket
+32 closed, but it split: [the second half of the
+audit](60-audit-remaining-pre-bar-classifiers.md) inherits eight pre-bar causes
+whose mechanisms are statements about R's own source (`r_extraction_gap`,
+`r_validator_rejects_multivalue`, `r_category_lookup_miss`,
+`buddhist_era_typo`), so it needs `r-archive/` by definition -- the same
+standing precedent that has governed this list for ten rounds.
+
+Re-derived rather than swapped, per this ticket's rule. `blocked_by` is now
+**`[59, 60]`**:
+
+- **60** for the reason above.
+- **59** ([rows that pair with nothing](59-triage-unmatched-row-keys.md)) is
+  added, and this is a *change of judgement* rather than a new fact: its largest
+  population is 98 R-only rows in `2026_Preah Kossamak`, and explaining why R
+  emits rows Python does not is a question about R's row handling, not about
+  Python's output. Ticket 58 stays off the list on the distinction the previous
+  session drew -- its evidence is Python's own join and the source workbooks.
+- **61** ([Buddhist-era conversion](61-decide-buddhist-era-date-conversion.md))
+  is deliberately *not* a blocker: the one fact it needs about R -- that R does
+  not convert BE dates -- is already established from R's frozen output, and the
+  decision itself is about what Python should publish.
