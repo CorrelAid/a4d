@@ -11,16 +11,19 @@ The pattern is:
 4. Replace failures with error value
 """
 
+from datetime import date
+
 import polars as pl
 from loguru import logger
 
 from a4d.clean.date_parser import (
     MISSING_VALUE_MARKERS,
-    parse_date_flexible,
+    TextDateRecovery,
+    parse_date_detailed,
     rescue_date_typos,
 )
 from a4d.config import settings
-from a4d.errors import ErrorCollector
+from a4d.errors import ErrorCode, ErrorCollector
 from a4d.extract.common import EXCEL_ERROR_STRINGS
 
 
@@ -251,6 +254,75 @@ def _apply_typo_rescue(
     return df.with_columns(repl_expr.alias(column))
 
 
+def _log_text_recoveries(
+    df: pl.DataFrame,
+    column: str,
+    detailed: dict[tuple[str, int | None], tuple[date | None, TextDateRecovery | None]],
+    error_collector: ErrorCollector,
+    file_name_col: str,
+    patient_id_col: str,
+) -> None:
+    """Record what the free-text recogniser decided, one code per decision.
+
+    Three codes rather than one (ticket 39): "we read what was written", "we
+    chose among several dates the cell named", and "we supplied a year the cell
+    did not state" carry different amounts of confidence, and only the middle
+    one is a source-tracker defect worth reporting back to a clinic.
+    """
+    reported = {
+        pair: recovery
+        for pair, (_, recovery) in detailed.items()
+        if recovery is not None and recovery.value is not None
+    }
+    if not reported:
+        return
+
+    select_cols = [c for c in (file_name_col, patient_id_col) if c in df.columns]
+    for (text, tracker_year), recovery in reported.items():
+        messages: list[tuple[str, ErrorCode]] = [
+            (
+                f"date read out of free text: {text!r} -> {recovery.value}",
+                "date_recovered_from_text",
+            )
+        ]
+        if recovery.tokens_found > 1:
+            messages.append(
+                (
+                    f"cell names {recovery.tokens_found} dates, first used: "
+                    f"{text!r} -> {recovery.value}",
+                    "date_multiple_in_cell",
+                )
+            )
+        if recovery.year_inferred:
+            messages.append(
+                (
+                    f"no year in cell, tracker year {tracker_year} used: "
+                    f"{text!r} -> {recovery.value}",
+                    "date_year_inferred",
+                )
+            )
+
+        affected = df.filter(pl.col(column).cast(pl.Utf8) == text)
+        if select_cols:
+            affected = affected.select(select_cols)
+        for row in affected.iter_rows(named=True):
+            file_name = row.get(file_name_col) or "unknown"
+            patient_id = row.get(patient_id_col) or "unknown"
+            for message, code in messages:
+                logger.bind(error_code=code).warning(
+                    f"{message} in {column} (file={file_name!r}, {patient_id_col}={patient_id!r})"
+                )
+                error_collector.add_error(
+                    file_name=str(file_name),
+                    patient_id=str(patient_id),
+                    column=column,
+                    original_value=text,
+                    error_message=message,
+                    error_code=code,
+                    function_name="parse_date_column",
+                )
+
+
 def parse_date_column(
     df: pl.DataFrame,
     column: str,
@@ -299,20 +371,31 @@ def parse_date_column(
     # dedup-then-map is much faster than a per-row Python call.
     # All-null columns short-circuit: map_elements can't infer Date dtype on
     # an empty-after-drop_nulls Series.
+    # A note with no year in it is resolved against the tracker's own year
+    # (ticket 39), so the same string can mean different dates in two files --
+    # 2020 VNCH and 2021 VNCH both carry "26 Jun (ceton urine high)" for the
+    # same patient. The dedup key therefore has to be the pair, not the string.
     col_str = df[column].cast(pl.Utf8)
-    unique_strs = col_str.drop_nulls().unique().to_list()
+    if "tracker_year" in df.columns:
+        year_str = df["tracker_year"].cast(pl.Int32, strict=False)
+    else:
+        year_str = pl.Series("tracker_year", [None] * df.height, dtype=pl.Int32)
+    pairs = [(s, y) for s, y in zip(col_str, year_str, strict=True) if s is not None]
+    unique_strs = list(dict.fromkeys(pairs))
     if unique_strs:
-        lookup = {s: parse_date_flexible(s, error_val=settings.error_val_date) for s in unique_strs}
-        # Polars 1.34 ignores return_dtype=pl.Date when every mapped output is
-        # None and falls back to the input series' dtype (Utf8). Cast explicitly
-        # so the downstream `_parsed == error_date` comparison stays Date-vs-Date.
-        parsed_series = (
-            col_str.map_elements(
-                lambda v: lookup.get(v) if v is not None else None,
-                return_dtype=pl.Date,
-            )
-            .cast(pl.Date)
-            .alias(f"_parsed_{column}")
+        detailed = {
+            pair: parse_date_detailed(pair[0], settings.error_val_date, pair[1])
+            for pair in unique_strs
+        }
+        lookup = {pair: value for pair, (value, _) in detailed.items()}
+        _log_text_recoveries(df, column, detailed, error_collector, file_name_col, patient_id_col)
+        parsed_series = pl.Series(
+            f"_parsed_{column}",
+            [
+                lookup.get((s, y)) if s is not None else None
+                for s, y in zip(col_str, year_str, strict=True)
+            ],
+            dtype=pl.Date,
         )
     else:
         parsed_series = pl.Series(f"_parsed_{column}", [None] * df.height, dtype=pl.Date)

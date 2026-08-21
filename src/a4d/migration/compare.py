@@ -2527,3 +2527,81 @@ def build_summary_rows(
         "only_in_r": [{"file": name} for name in comparison.only_in_r],
         "only_in_py": [{"file": name} for name in comparison.only_in_py],
     }
+
+
+def _is_python_reads_date_in_clinical_note(m: CellMismatch) -> bool:
+    """R cannot read a sentence, so it sentinels; Python reads the date it states.
+
+    ``hospitalisation_date``'s header is free text -- "Hospitalisation due to
+    diabetes emergency or glucose control (Include Date)", read directly from
+    2021 Preah Kossamak's ``Feb21`` sheet -- so clinicians write a case note and
+    put the date inside it. Round 6 measured the column's whole residual as
+    100% clinical notes.
+
+    R's ``parse_dates`` hands the string to a fixed order list and gives up,
+    stamping ERROR_VAL_DATE. Python scans it for an anchored day/month/year
+    shape (``recover_date_from_text``, clean/date_parser.py) and publishes the
+    first date the note names. Python is the correct side: the date is legibly
+    present -- "DKA 23 Oct 2020", "Passed away 28/10/2019 due to DKA" -- and
+    discarding it loses a hospitalisation the clinic recorded.
+
+    The recogniser refuses rather than guesses, which is what keeps this cause
+    honest: a cell carrying numbers and no date ("3 month come back meet
+    Doctor", 48 cells) yields nothing and stays sentinelled on both sides.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    return r_date == SENTINEL_DATE and py_date is not None and py_date != SENTINEL_DATE
+
+
+def _is_note_dates_read_differently(m: CellMismatch) -> bool:
+    """Both pipelines find a date in the note and pick different ones.
+
+    Four shapes, all traced to their source strings on the real 254-tracker set
+    and all resolving in Python's favour:
+
+    - **A stay's two endpoints.** "DKA: admitted 6-12 Nov 2020" -> R reads the
+      range's two numbers as a day and a month (2020-12-06); Python takes the
+      admission day the note's own month gives it (2020-11-06).
+    - **A day read as a year.** "26 Jun (ceton urine high)" -> R returns
+      2026-01-01; Python resolves 26 June against the tracker's year.
+    - **A note listing several admissions.** "Dec 2019, Mar 2020 DKA Jan 2021
+      DKA" -> R composes 2019-03-20 out of fragments of all three; Python
+      publishes the first, and logs ``date_multiple_in_cell`` so the discard is
+      visible.
+    - **A range with no separators at all.** "25Jul-2Aug2022" (1 cell) is the
+      one shape neither side reads correctly: R gives 2022-02-25 and Python
+      2022-08-02, the discharge day, because the missing separator makes the
+      opening "25Jul" indistinguishable from a token with an unreadable year.
+      The source is what needs correcting, and it is reported for that.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None:
+        return False
+    return SENTINEL_DATE not in (r_date, py_date) and r_date != py_date
+
+
+def _is_r_invents_january_from_bare_year(m: CellMismatch) -> bool:
+    """The note names a year and no month; R publishes 1 January, Python refuses.
+
+    "DKA 2019" and "DKA 2020: June, Aug, Nov" (24 cells across two trackers).
+    R's parse order list ends in ``y``, so a four-digit number anywhere in the
+    string becomes 1 January of that year -- which the second example shows to
+    be plainly wrong, since the note says the admissions were in June, August
+    and November.
+
+    Python refuses: a month cannot be recovered from anything in the cell, and
+    the whole-cell bare-year convention (``python_reads_bare_year``, ticket 52)
+    rests on a clinic writing *only* a year, which is not this. The sentinel is
+    the honest reading -- something was written, and it is not a date.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if py_date != SENTINEL_DATE or r_date is None or r_date == SENTINEL_DATE:
+        return False
+    return r_date.month == 1 and r_date.day == 1
+
+
+PATIENT_CLINICAL_NOTE_CLASSIFIERS: dict[str, Classifier] = {
+    "python_reads_date_in_clinical_note": _is_python_reads_date_in_clinical_note,
+    "note_dates_read_differently": _is_note_dates_read_differently,
+    "r_invents_january_from_bare_year": _is_r_invents_january_from_bare_year,
+}

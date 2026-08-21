@@ -32,6 +32,12 @@ ErrorCode = Literal[
     # moved to the mmol column and rescaled. Reported once per column, not per row
     "glucose_unit_suspect",  # A single reading sits where the other unit's values land;
     # kept as recorded, because a severe hypoglycaemic reading is indistinguishable
+    "date_recovered_from_text",  # A date was read out of a clinical note rather than from a
+    # date-shaped cell -- carries the note, so the extraction stays auditable (informational)
+    "date_multiple_in_cell",  # The cell named several dates and the first was published;
+    # a single date column cannot hold three admissions, so the workbook is what needs fixing
+    "date_year_inferred",  # The cell named a day and a month but no year, so the tracker's
+    # own year was used -- the one component published that the source does not state
 ]
 
 
