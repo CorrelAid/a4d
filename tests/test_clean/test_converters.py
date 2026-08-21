@@ -13,7 +13,11 @@ from a4d.clean.converters import (
     safe_convert_column,
     safe_convert_multiple_columns,
 )
-from a4d.clean.date_parser import parse_date_flexible, rescue_date_typos
+from a4d.clean.date_parser import (
+    parse_date_flexible,
+    recover_date_from_text,
+    rescue_date_typos,
+)
 from a4d.config import settings
 from a4d.errors import ErrorCollector
 
@@ -479,11 +483,12 @@ def test_parse_date_flexible_recovers_separator_damage(source, expected):
         # own reading of "10/1023" is not stable across its call sites.
         "26/102022",
         "10/1023",
-        # A date with a stray digit group nobody can resolve.
+        # A date with a stray digit group nobody can resolve. A year *was*
+        # written here, so the tracker year must not be substituted for it the
+        # way it is for a note that names none (ticket 39) -- including when the
+        # stray group is joined by a damaged separator ("=", "_").
         "10-Oct-2-24",
-        # A range of two visit days, not one date: repairing the separator run
-        # would let dateutil read it as 2001-11-15.
-        "11-15 /01/2019",
+        "12-Jun=2-26",
     ],
 )
 def test_parse_date_flexible_still_rejects_ambiguous_damage(source):
@@ -728,3 +733,254 @@ def test_parse_date_flexible_rejects_a_year_with_a_digit_missing():
 def test_parse_date_flexible_keeps_the_oldest_dates_the_data_really_holds():
     assert parse_date_flexible("1/1/1950") == date(1950, 1, 1)
     assert parse_date_flexible("1994") == date(1994, 1, 1)
+
+
+# --- Dates buried inside a clinical note (ticket 39) -------------------------
+#
+# The strings below are all real values of the `hospitalisation_date` column,
+# taken from the 254-tracker set (7,847 non-null cells, 745 distinct strings).
+# The column's header is free text -- "Hospitalisation due to diabetes emergency
+# or glucose control (Include Date)" -- so clinicians write a case note and put
+# the date somewhere inside it.
+
+
+def test_recovers_a_date_written_in_the_middle_of_a_note():
+    """The largest shape in the column: 302 cells, one full date inside prose.
+
+    Recovery used to depend on *where* the date sat -- the prefix walk only
+    reaches a date at the front of the string -- so "16-Nov-2019 due to DKA"
+    was published and "DKA 16-Nov-2019" was sentinelled.
+    """
+    assert parse_date_flexible("DKA 23 Oct 2020") == date(2020, 10, 23)
+    assert parse_date_flexible("Passed away 28/10/2019 due to DKA") == date(2019, 10, 28)
+    assert parse_date_flexible("DKA 30-Nov-2020 (Meikhtila hospital)") == date(2020, 11, 30)
+    assert parse_date_flexible("7/04/2021: DKA") == date(2021, 4, 7)
+    assert parse_date_flexible("22nd Feb.2019(DKA)") == date(2019, 2, 22)
+    assert parse_date_flexible("DKA 13 Nov2020") == date(2020, 11, 13)
+    assert parse_date_flexible("DKA  4 Sept 2020") == date(2020, 9, 4)
+
+
+def test_recovers_a_month_and_year_written_inside_a_note():
+    """45 cells name a month and a year but no day. Resolved to the 1st, the
+    same convention the whole-cell month-year branch already uses.
+    """
+    assert parse_date_flexible("DKA - Feb-2020") == date(2020, 2, 1)
+    assert parse_date_flexible("DKA; Aug 2018") == date(2018, 8, 1)
+    assert parse_date_flexible("April-19: high HbA1c") == date(2019, 4, 1)
+    assert parse_date_flexible("May'21: Rx at Emergency room Hyperglycemia") == date(2021, 5, 1)
+    assert parse_date_flexible("Hypoglycemic seizure and DKA ; Apr 2019") == date(2019, 4, 1)
+
+
+def test_takes_the_first_date_when_a_note_records_several():
+    """A single date column cannot hold three admissions, so the first
+    mentioned is published and the discard is recorded. This is already what
+    the prefix walk does for the cells that happen to start with a date.
+    """
+    text = "DKA Apr-2020 (Pokaku Hospital); DKA May-2021 (Mingalar Hospital)"
+    assert parse_date_flexible(text) == date(2020, 4, 1)
+    assert parse_date_flexible("Dec 2019, Mar 2020 DKA Jan 2021 DKA") == date(2019, 12, 1)
+
+
+def test_takes_the_admission_day_when_the_note_records_a_stay():
+    """A range is one admission written with both endpoints. The header asks
+    for the hospitalisation date, so the first endpoint is the answer.
+    """
+    assert parse_date_flexible("22/7/2020-26/7/2020") == date(2020, 7, 22)
+    assert parse_date_flexible("1-5/6/2020") == date(2020, 6, 1)
+    assert parse_date_flexible("Admit 20-29/12/2020 :DKA") == date(2020, 12, 20)
+    assert parse_date_flexible("11-15 /01/2019") == date(2019, 1, 11)
+    assert parse_date_flexible("DKA: admitted 6-12 Nov 2020") == date(2020, 11, 6)
+    assert parse_date_flexible("23-27/9/2020 for controled blood sugar") == date(2020, 9, 23)
+
+
+def test_fills_an_absent_year_from_the_tracker_year():
+    """31 cells name a day and a month and no year at all ("26 Jun (ceton urine
+    high)"). Nothing in the cell supplies the year, so the tracker's own year
+    is used -- a patient seen in a tracker's year is the assumption this rests
+    on, recorded on the map rather than derivable from the data.
+    """
+    assert parse_date_flexible("26 Jun (ceton urine high)", tracker_year=2020) == date(2020, 6, 26)
+    assert parse_date_flexible(
+        "admitted to Pokaku Hosp due to DKA 7-15 Apr", tracker_year=2020
+    ) == date(2020, 4, 7)
+
+
+def test_refuses_a_yearless_date_when_no_tracker_year_is_known():
+    """The year is invented from context or not at all; there is no fallback
+    to today, which is the failure this parser has already been bitten by
+    three times (tickets 50, 53, 56).
+    """
+    assert parse_date_flexible("26 Jun (ceton urine high)") == date(9999, 9, 9)
+
+
+def test_refuses_a_note_whose_only_date_component_is_a_year():
+    """ "DKA 2019" names no month, and a month cannot be recovered from
+    anything. The whole-cell bare-year branch stays as it is -- a cell holding
+    only "2019" is a clinic's own convention for a year with no day (ticket 52)
+    -- but a stray four-digit number inside prose is not that.
+    """
+    assert parse_date_flexible("DKA 2019") == date(9999, 9, 9)
+
+
+def test_refuses_a_note_that_contains_numbers_but_no_date():
+    """48 cells carry digits and no date. This is the case that rules out
+    dateutil's fuzzy mode, which returns a date built from today for every one
+    of them rather than declining.
+    """
+    assert parse_date_flexible("3 month come back meet Doctor") == date(9999, 9, 9)
+    assert parse_date_flexible("check 2 or 3 time per/day") == date(9999, 9, 9)
+    assert parse_date_flexible("on stamlor 5mg") == date(9999, 9, 9)
+    assert parse_date_flexible(
+        "Frequent hypoglycemia - admitted local hospital 3 times/year"
+    ) == date(9999, 9, 9)
+
+
+def test_refuses_a_buddhist_era_year_written_into_a_note():
+    """ "18-19/11/2567" is a BE year in a Gregorian field. Reading it as 2567
+    fails the plausible-year guard; converting it would be a separate decision
+    about the source workbook, so the cell is sentinelled and reported.
+    """
+    assert parse_date_flexible("18-19/11/2567") == date(9999, 9, 9)
+
+
+def test_the_recogniser_reports_what_it_did():
+    """converters logs a distinct code per decision, so recovery stays
+    auditable: what was read, what was discarded, what was filled in.
+    """
+    recovered = recover_date_from_text("DKA 23 Oct 2020", tracker_year=2020)
+    assert recovered.value == date(2020, 10, 23)
+    assert recovered.tokens_found == 1
+    assert recovered.year_inferred is False
+
+    several = recover_date_from_text("Dec 2019, Mar 2020 DKA Jan 2021 DKA", tracker_year=2021)
+    assert several.value == date(2019, 12, 1)
+    assert several.tokens_found > 1
+
+    stay = recover_date_from_text("22/7/2020-26/7/2020", tracker_year=2021)
+    assert stay.tokens_found > 1
+
+    inferred = recover_date_from_text("26 Jun (ceton urine high)", tracker_year=2020)
+    assert inferred.value == date(2020, 6, 26)
+    assert inferred.year_inferred is True
+
+    nothing = recover_date_from_text("on stamlor 5mg", tracker_year=2020)
+    assert nothing.value is None
+    assert nothing.tokens_found == 0
+
+
+def test_recovering_from_text_leaves_every_other_reading_untouched():
+    """The recogniser fires only after the whole string, the separator repair
+    and the prefix walk have all failed, so no value that already parsed may
+    change reading -- including the ones earlier rounds fixed.
+    """
+    assert parse_date_flexible("28/8/2017") == date(2017, 8, 28)
+    assert parse_date_flexible("Mar-18") == date(2018, 3, 1)
+    assert parse_date_flexible("10/2019") == date(2019, 10, 1)
+    assert parse_date_flexible("16-Nov-2019 due to DKA") == date(2019, 11, 16)
+    assert parse_date_flexible("26-05- 2007") == date(2007, 5, 26)
+    assert parse_date_flexible("1994") == date(1994, 1, 1)
+    assert parse_date_flexible("Nil") is None
+    assert parse_date_flexible("She stay in Hospital") == date(9999, 9, 9)
+    assert parse_date_flexible("1/16/224") == date(9999, 9, 9)
+
+
+def test_parse_date_column_logs_a_date_read_out_of_a_note():
+    """Recovery has to stay auditable: the entry carries the note it was read
+    from, so a reviewer can judge the extraction without re-running anything.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx"],
+            "patient_id": ["P1"],
+            "tracker_year": [2020],
+            "hospitalisation_date": ["DKA 23 Oct 2020"],
+        }
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df, "hospitalisation_date", collector)
+
+    assert result["hospitalisation_date"].to_list() == [date(2020, 10, 23)]
+    codes = [e.error_code for e in collector.errors]
+    assert codes == ["date_recovered_from_text"]
+    assert collector.errors[0].original_value == "DKA 23 Oct 2020"
+
+
+def test_parse_date_column_reports_a_note_holding_several_dates():
+    """A single date column cannot represent three admissions. The extra dates
+    are discarded, and the cell is reported so the workbook can be corrected --
+    the repair belongs in the tracker, not in the parser.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx"],
+            "patient_id": ["P1"],
+            "tracker_year": [2021],
+            "hospitalisation_date": ["Dec 2019, Mar 2020 DKA Jan 2021 DKA"],
+        }
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df, "hospitalisation_date", collector)
+
+    assert result["hospitalisation_date"].to_list() == [date(2019, 12, 1)]
+    assert "date_multiple_in_cell" in [e.error_code for e in collector.errors]
+
+
+def test_parse_date_column_reports_a_year_taken_from_the_tracker():
+    """The one component published that the cell does not state, so it is
+    logged under its own code rather than folded into recovery.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx"],
+            "patient_id": ["P1"],
+            "tracker_year": [2020],
+            "hospitalisation_date": ["26 Jun (ceton urine high)"],
+        }
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df, "hospitalisation_date", collector)
+
+    assert result["hospitalisation_date"].to_list() == [date(2020, 6, 26)]
+    assert "date_year_inferred" in [e.error_code for e in collector.errors]
+
+
+def test_parse_date_column_takes_the_year_from_each_row_not_the_column():
+    """The same note appears in trackers from different years -- 2020 VNCH and
+    2021 VNCH both carry "26 Jun (ceton urine high)" for the same patient -- so
+    the year has to be resolved per row, not once per distinct string.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["a.xlsx", "b.xlsx"],
+            "patient_id": ["P1", "P1"],
+            "tracker_year": [2020, 2021],
+            "hospitalisation_date": ["26 Jun (ceton urine high)"] * 2,
+        }
+    )
+    collector = ErrorCollector()
+
+    result = parse_date_column(df, "hospitalisation_date", collector)
+
+    assert result["hospitalisation_date"].to_list() == [date(2020, 6, 26), date(2021, 6, 26)]
+
+
+def test_parse_date_column_says_nothing_when_no_note_is_involved():
+    """The codes must stay rare enough to read: an ordinary date column logs
+    none of them.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["t.xlsx", "t.xlsx"],
+            "patient_id": ["P1", "P2"],
+            "tracker_year": [2024, 2024],
+            "entry_date": ["15-Mar-2024", "2024-04-20"],
+        }
+    )
+    collector = ErrorCollector()
+
+    parse_date_column(df, "entry_date", collector)
+
+    assert collector.errors == []

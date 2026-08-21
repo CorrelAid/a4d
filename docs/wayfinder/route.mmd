@@ -165,6 +165,10 @@ flowchart TB
     direction LR
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
   end
+  subgraph S2026_08_21["Session 2026-08-21"]
+    direction LR
+    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -174,7 +178,6 @@ flowchart TB
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -221,7 +224,8 @@ flowchart TB
   S2026_08_19e ~~~ S2026_08_19f
   S2026_08_19f ~~~ S2026_08_20
   S2026_08_20 ~~~ S2026_08_20b
-  S2026_08_20b ~~~ Sopen
+  S2026_08_20b ~~~ S2026_08_21
+  S2026_08_21 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -260,7 +264,6 @@ flowchart TB
   U30 --->|blocked| U12
   U31 --->|blocked| U12
   U32 --->|blocked| U12
-  U39 --->|blocked| U12
   U44 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
@@ -311,10 +314,10 @@ flowchart TB
   U47 -.->|spawned| U59
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U58,U59 tfrontier
+  class U16,U32,U34,U35,U40,U41,U44,U58,U59 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U39,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

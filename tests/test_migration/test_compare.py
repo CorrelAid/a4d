@@ -15,6 +15,7 @@ from a4d.migration.compare import (
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    PATIENT_CLINICAL_NOTE_CLASSIFIERS,
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_FBG_TEXT_CLASSIFIERS,
     PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
@@ -2753,3 +2754,70 @@ class TestGlucoseUnitSwapSurvivors:
         assert not _is_python_recovers_glucose_r_rejected(
             self._m(settings.error_val_numeric, 999.0, column="fbg_baseline_mmol")
         )
+
+
+class TestClinicalNoteClassifiers:
+    """Ticket 39: hospitalisation_date's residual, whose whole population round
+    6 measured as clinical notes rather than dates.
+    """
+
+    def test_python_reads_the_date_r_could_not_read_out_of_a_note(self):
+        mismatch = _mismatch(
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2020, 10, 23),
+            column="hospitalisation_date",
+        )
+
+        assert (
+            classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS)
+            == "python_reads_date_in_clinical_note"
+        )
+
+    def test_both_pipelines_find_a_date_in_the_note_and_disagree(self):
+        # "DKA: admitted 6-12 Nov 2020": R reads the range's two numbers as a
+        # day and a month; Python takes the admission day.
+        mismatch = _mismatch(
+            r_value=datetime.date(2020, 12, 6),
+            py_value=datetime.date(2020, 11, 6),
+            column="hospitalisation_date",
+        )
+
+        assert (
+            classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS) == "note_dates_read_differently"
+        )
+
+    def test_r_turns_a_bare_year_in_the_note_into_the_first_of_january(self):
+        # "DKA 2020: June, Aug, Nov" -- R's answer contradicts the note's own
+        # months, so Python's refusal is the correct side.
+        mismatch = _mismatch(
+            r_value=datetime.date(2020, 1, 1),
+            py_value=SENTINEL_DATE,
+            column="hospitalisation_date",
+        )
+
+        assert (
+            classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS)
+            == "r_invents_january_from_bare_year"
+        )
+
+    def test_a_date_python_refuses_that_r_dates_mid_year_is_not_this_cause(self):
+        """Only 1 January carries the bare-year signature; any other R date
+        means R read something the note actually said, which is a different
+        question.
+        """
+        mismatch = _mismatch(
+            r_value=datetime.date(2020, 6, 15),
+            py_value=SENTINEL_DATE,
+            column="hospitalisation_date",
+        )
+
+        assert classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS) == "unclassified"
+
+    def test_both_sentinels_is_not_a_mismatch_this_registry_claims(self):
+        mismatch = _mismatch(
+            r_value=SENTINEL_DATE,
+            py_value=SENTINEL_DATE,
+            column="hospitalisation_date",
+        )
+
+        assert classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS) == "unclassified"

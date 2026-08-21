@@ -270,3 +270,30 @@ than something either pipeline can infer.
   - `2026_Surat Thani Hospital A4D Tracker_Jun_26`: `TH-ST029` and `TH_ST029`
     both appear on `May26`, so that patient ends up with two rows for one
     month once the spellings are normalized. Likely a duplicated entry.
+
+## Findings added by [ticket 39](39-recover-dates-embedded-in-free-text.md) (2026-08-21)
+
+All four sit in `hospitalisation_date` and were measured on the real
+254-tracker set. None is repairable in the pipeline; each needs the workbook
+changed.
+
+- **The template's own instruction text saved as data, ~170 cells.**
+  `Insert Date` (65), `Insert Date or NA` (60), `NA or Hospitalisation Date`
+  (44), `DKA - <insert date>` (1). The pipeline nulls them (ticket 38), so
+  nothing is published wrongly -- but a data row holding the form's own
+  placeholder means the cell was never filled in, and the clinics should be
+  told which rows those are.
+- **Buddhist-Era years in a Gregorian date field**: `18-19/11/2567`,
+  `19-22/5/2568`. Refused rather than converted -- 2567 fails the plausible-year
+  bound and subtracting 543 would be the pipeline guessing at the calendar the
+  clinic meant. Two cells; the fix is the clinic writing 2024/2025.
+- **A stay written with no separators at all**: `25Jul-2Aug2022`, 1 cell.
+  Neither pipeline reads it correctly -- R gives 2022-02-25, Python takes the
+  discharge day 2022-08-02 -- because with the separator missing the opening
+  `25Jul` cannot be told from a token whose year is unreadable.
+- **Two impossible dates that a plausible-looking reading nearly hid**:
+  `39 Aug 2022` (2022 CDA) and `DKA Jul'29` (2021 Mahosot), 7 cells. Both
+  recover to a date past their own tracker year (2039, 2029) and are then
+  sentinelled by the beyond-tracker-year guard, so nothing wrong is published.
+  `39 Aug` is a day that does not exist; `Jul'29` is almost certainly `'19`
+  or `'20` mistyped.

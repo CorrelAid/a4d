@@ -49,6 +49,7 @@ from a4d.migration.compare import (
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
     PATIENT_BUDDHIST_ERA_CLASSIFIERS,
+    PATIENT_CLINICAL_NOTE_CLASSIFIERS,
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_FBG_TEXT_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
@@ -395,8 +396,13 @@ CLASSIFIERS_BY_COLUMN = {
     # ticket 50: the 2022 Kantha Bopha header opens with thirteen spaces, which
     # defeats R's name sanitizer the way ticket 37's "Updated 2022" leading
     # space did -- both columns of the block, so both carry the gap cause.
+    # ticket 39: the clinical-note causes go last, so a cell explained by a
+    # specific mechanism above is not swallowed by the broad "R sentinels a
+    # note it cannot read" shape.
     "hospitalisation_date": (
-        PATIENT_BUDDHIST_ERA_CLASSIFIERS | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS
+        PATIENT_BUDDHIST_ERA_CLASSIFIERS
+        | PATIENT_R_EXTRACTION_GAP_CLASSIFIERS
+        | PATIENT_CLINICAL_NOTE_CLASSIFIERS
     ),
     "hospitalisation_cause": PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     # ticket 50: 2025 LWCH leaves the current-month visit column unheaded in

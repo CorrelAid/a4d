@@ -36,13 +36,12 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 10"]
+  subgraph FRONTIER["Frontier · 9"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
@@ -55,7 +54,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 45"]
+  subgraph DECIDED["Decided · 46"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -87,6 +86,7 @@ flowchart TD
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
+    T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
@@ -144,16 +144,15 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T32 --> T12
-  T39 --> T12
   T44 --> T12
   T45 --> T46
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T39,T40,T41,T44,T58,T59 frontier
+  class T16,T32,T34,T35,T40,T41,T44,T58,T59 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T42,T43,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T39,T42,T43,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2161,7 +2160,55 @@ R-null residual](tickets/44-triage-cleaned-fbg-r-null-residual.md) are on the
 route to the destination; the rest are standing decisions, the source-defect
 report, a separate feature (ticket 16) and ticket 58.
 
+**[Dates buried in clinical notes](tickets/39-recover-dates-embedded-in-free-text.md)
+is closed, and it was the first ticket on this map whose pattern set was built
+from a measurement the user asked for rather than from the ticket's own
+examples.** The scan of the whole column -- 745 distinct strings over 7,847
+cells in 240 trackers -- changed three of the answers, and one of its rows
+decided the central question outright: **48 cells carry digits and no date**
+(`3 month come back meet Doctor`, `on stamlor 5mg`), and `dateutil`'s fuzzy mode
+does not decline on any of them. The header was read from the workbook rather
+than assumed -- "Hospitalisation due to diabetes emergency or glucose control
+(Include Date)" -- which is why this column and no other carries prose.
+
+Python now reads the date out of the note: `hospitalisation_date`'s sentinels
+fell **673 -> 156**, and its R/Python mismatches went **478 -> 0** unclassified
+across three new causes. The recovery is auditable rather than silent: 1,223
+error-table entries under `date_recovered_from_text`, `date_multiple_in_cell`
+and `date_year_inferred`, the middle one feeding
+[ticket 40](tickets/40-source-defect-findings-report.md), which also gained the
+template's own placeholder text found sitting in ~170 data cells.
+
+Two things worth carrying forward. First, **the ticket's own largest claim was
+false and cost nothing to check**: it named `t1d_diagnosis_date` (559 cells) as
+part of this population, and every one of those sentinels traces to a clean
+source date rejected by the future-date guard -- round 4's corrupt 2022 VNCH
+column. Second, **the session's three real defects were all found by reading
+measured output, not by testing**: a bare range with no prose around it was
+being dated from its first number as a *year* (`6-12 Nov 2020` published as
+2006-11-12), the prefix walk was beating the explicit recogniser to exactly
+those cells, and `_is_range` was testing `match.lastgroup`, which names an
+inner group and so never fired.
+
+**Ticket 12's `blocked_by` drops `39`, leaving `[32, 44]`** -- the classifier
+re-audit and the FBG R-null residual, the last two open tickets that still need
+to read `r-archive/`. The frontier is nine tickets; of them, those two are what
+stands between this map and retiring R.
+
 ## Decisions so far
+
+- [Decide whether a date buried inside a clinical note should be recovered or
+  discarded](tickets/39-recover-dates-embedded-in-free-text.md) -- decided and
+  implemented. Recovered, by an explicit anchored pattern set that refuses what
+  it does not recognise; a note naming several dates publishes the first and
+  reports the discard; an absent day becomes the 1st and an absent year comes
+  from the tracker; everything else keeps the sentinel. Wired into
+  `parse_date_flexible` for all 18 date columns, with three new warning codes
+  (`date_recovered_from_text`, `date_multiple_in_cell`, `date_year_inferred`).
+  `hospitalisation_date`: 673 sentinels -> 156, and 478 -> **0** unclassified
+  R/Python mismatches. Also fixed a pre-existing misreading in which a bare
+  range was dated from its first number as a year (`6-12 Nov 2020` published as
+  2006-11-12).
 
 - [Four trackers where cleaning merges several patients into one patient
   ID](tickets/47-patient-ids-merged-at-cleaning.md) -- decided and implemented.
@@ -3056,6 +3103,18 @@ report, a separate feature (ticket 16) and ticket 58.
 
 ## Assumptions in force
 
+- **A year-less date in a note belongs to its tracker's own year.**
+  `recover_date_from_text` (clean/date_parser.py) fills an absent year from the
+  row's `tracker_year`, which publishes 39 cells whose source states no year at
+  all. The data argues against it: `26 Jun (ceton urine high)` appears in all 12
+  months of the 2020 *and* the 2021 VNCH tracker for patient `VN_VC051`, so one
+  event is published twice with two different years. The user accepted it on the
+  reasoning that a patient not seen within a year would not still be active.
+  Resting on [ticket 39](tickets/39-recover-dates-embedded-in-free-text.md);
+  overturned by a tracker where a year-less note is demonstrably carried forward
+  from an earlier year rather than re-recorded -- the VNCH case is a candidate
+  and was not chased.
+
 - **The glucose limits the pipeline enforces are the right ones.** A4D's
   medical advisor gave the analytical limits of the machines in use (mg/dL
   ~2-5 to ~720-800, mmol/L ~0.1-0.3 to ~40-45) and confirmed above 100 mmol/L
@@ -3109,6 +3168,16 @@ unverified, was confirmed rather than overturned by
 folded into Decisions so far above.)
 
 ## Not yet specified
+
+- Whether **R's inability to read a slash-separated month/year** deserves its
+  own cause. One `bmi_date` cell (`0ct/19`, typo-rescued to `OCT/19`) is
+  unclassified: Python reads October 2019 and is right, R's parse order list
+  cannot express the spelling. The obvious home is a widened
+  `r_parse_order_cannot_read_cell`, whose own docstring says the day>12
+  signature is what keeps it from over-claiming -- so widening it needs the same
+  measurement round 10 did before backing out a similar widening. One cell is
+  not enough to judge it on. Surfaced by [ticket
+  39](tickets/39-recover-dates-embedded-in-free-text.md).
 
 - Whether the **unaccented** spellings of a province should be recovered too.
   Resolved for accents by [ticket 51](tickets/51-triage-patient-cleaned-residual-4.md):
@@ -3368,6 +3437,10 @@ flowchart TB
     direction LR
     U47["<b>47</b><br/>Four trackers where<br/>cleaning merges several<br/>patients into one<br/>patient ID"]
   end
+  subgraph S2026_08_21["Session 2026-08-21"]
+    direction LR
+    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -3377,7 +3450,6 @@ flowchart TB
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3424,7 +3496,8 @@ flowchart TB
   S2026_08_19e ~~~ S2026_08_19f
   S2026_08_19f ~~~ S2026_08_20
   S2026_08_20 ~~~ S2026_08_20b
-  S2026_08_20b ~~~ Sopen
+  S2026_08_20b ~~~ S2026_08_21
+  S2026_08_21 ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -3463,7 +3536,6 @@ flowchart TB
   U30 --->|blocked| U12
   U31 --->|blocked| U12
   U32 --->|blocked| U12
-  U39 --->|blocked| U12
   U44 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
@@ -3514,11 +3586,11 @@ flowchart TB
   U47 -.->|spawned| U59
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U39,U40,U41,U44,U58,U59 tfrontier
+  class U16,U32,U34,U35,U40,U41,U44,U58,U59 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U39,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

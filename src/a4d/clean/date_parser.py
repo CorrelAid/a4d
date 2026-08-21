@@ -10,6 +10,7 @@ Handles various date formats found in legacy trackers including:
 """
 
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from dateutil import parser as date_parser
@@ -171,7 +172,11 @@ _INVISIBLE_CHARS = str.maketrans(dict.fromkeys("\u200b\u200c\u200d\u2060\ufeff")
 _DAMAGED_SEPARATOR = re.compile(r"(?=[-/_=.\s]*[-/_=.])[-/_=.\s]{2,}|[_=]")
 
 
-def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> date | None:
+def parse_date_flexible(
+    date_str: str | None,
+    error_val: str = "9999-09-09",
+    tracker_year: int | None = None,
+) -> date | None:
     """Parse date strings flexibly using Python's dateutil.parser.
 
     Handles common edge cases from A4D tracker data:
@@ -196,33 +201,80 @@ def parse_date_flexible(date_str: str | None, error_val: str = "9999-09-09") -> 
     Returns:
         Parsed date, None for NA/empty, or error date if parsing fails
     """
+    return parse_date_detailed(date_str, error_val, tracker_year)[0]
+
+
+def parse_date_detailed(
+    date_str: str | None,
+    error_val: str = "9999-09-09",
+    tracker_year: int | None = None,
+) -> tuple[date | None, TextDateRecovery | None]:
+    """``parse_date_flexible`` plus what the free-text recogniser did, if it ran.
+
+    The second element is None whenever the cell parsed without reaching the
+    recogniser, which is the overwhelming majority. It exists so
+    ``parse_date_column`` can log the decisions taken on a note -- what was
+    read, what was discarded, what was filled in from the tracker year --
+    without parsing every string twice to find out (ticket 39).
+    """
     # Handle None and every way a tracker records "no date here"
     if date_str is None or _is_missing_date_text(str(date_str)):
-        return None
+        return None, None
 
     date_str = str(date_str).translate(_INVISIBLE_CHARS).strip()
+
+    recovery: TextDateRecovery | None = None
+
+    # A stay written as a bare range, with no prose around it to stop the
+    # ordinary readings, is misread rather than refused: dateutil takes the
+    # range's first number for a year, so "6-12 Nov 2020" becomes 2006-11-12 and
+    # "3-9 Sep 2020" becomes 2003-09-09. The range patterns are explicit about
+    # which number is the admission day, so they are consulted first when the
+    # cell *opens* with one (ticket 39).
+    leading = _DATE_IN_TEXT.match(date_str)
+    if leading is not None and _is_range(leading):
+        recovery = recover_date_from_text(date_str, tracker_year)
+        if recovery.value is not None:
+            return recovery.value, recovery
+        recovery = None
 
     result = _parse_date_str(date_str)
     if result is None:
         repaired = _DAMAGED_SEPARATOR.sub("-", date_str)
         # A fourth number means the repair joined something that was never one
-        # date: "11-15 /01/2019" is a range of two visit days, and reading it as
-        # a single date invents 2001-11-15. Repair only what can still be a
-        # day/month/year.
+        # date: "26-05- 2007" is a damaged separator, where "1/2/2021-11/2/2021"
+        # is two dates and reading it as one invents a date neither says.
+        # Repair only what can still be a day/month/year.
         if repaired != date_str and len(re.findall(r"\d+", repaired)) <= 3:
             result = _parse_date_str(repaired)
     if result is None:
+        # The date is somewhere inside a note rather than in a date-shaped cell.
+        # Tried ahead of the prefix walk because it is the *explicit* reading:
+        # the walk shortens the string until something parses and ends at
+        # dateutil, so it will read the fragment "3-9 Sep" of "3-9 Sep 2020" as
+        # the year 3 and publish 2003-09-09, where the range pattern reads the
+        # admission day the note states (ticket 39).
+        recovery = recover_date_from_text(date_str, tracker_year)
+        result = recovery.value
+    if result is None:
+        recovery = None
         result = _parse_longest_parseable_prefix(date_str)
+        if result is not None:
+            # Reaching the walk means the ordinary readings failed, so this is
+            # still a date recovered from free text and still reportable --
+            # it is the shape the recogniser has no pattern for, e.g. a note
+            # opening with a bare year ("2019 DKA").
+            recovery = TextDateRecovery(result, 1, False)
     if result is not None and result.year >= _MIN_PLAUSIBLE_YEAR:
-        return result
+        return result, recovery
 
     logger.bind(error_code="invalid_value").warning(
         f"Could not parse date '{date_str}'. Returning error value {error_val}"
     )
     try:
-        return datetime.strptime(error_val, "%Y-%m-%d").date()
+        return datetime.strptime(error_val, "%Y-%m-%d").date(), recovery
     except ValueError:
-        return None
+        return None, recovery
 
 
 def _parse_longest_parseable_prefix(date_str: str) -> date | None:
@@ -256,6 +308,125 @@ def _parse_longest_parseable_prefix(date_str: str) -> date | None:
             logger.debug(f"Parsed '{date_str}' via prefix '{prefix}' → {result}")
             return result
     return None
+
+
+_MONTH_TOKEN = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+
+
+# The date shapes a clinician actually writes inside a note, in the order they
+# are tried at each scan position (ticket 39). Every alternative is anchored on
+# a day/month/year shape, so a cell carrying numbers and no date -- "3 month
+# come back meet Doctor", "on stamlor 5mg" -- yields nothing rather than a date
+# built from today, which is what dateutil's fuzzy mode returns for all of them
+# and how R reads "7-15 Apr" as 2015-07-01.
+#
+# The two range alternatives come first because a stay is written with both
+# endpoints ("6-12 Nov 2020", "20-29/12/2020") and the day wanted is the
+# admission, i.e. the first: without them the general alternatives would match
+# from the second number and publish the discharge date.
+_DATE_IN_TEXT = re.compile(
+    rf"""
+      (?P<range_num>\b(?P<rn_day>\d{{1,2}})\s*[-–]\s*\d{{1,2}}\s*[/.]\s*
+                     (?P<rn_month>\d{{1,2}})\s*[/.]\s*(?P<rn_year>\d{{2,4}})\b)
+    | (?P<range_mon>\b(?P<rm_day>\d{{1,2}})(?:st|nd|rd|th)?\s*[-–]\s*
+                     \d{{1,2}}(?:st|nd|rd|th)?\s*[-–]?\s*
+                     (?P<rm_month>{_MONTH_TOKEN})
+                     (?:\s*[-,./ ]?\s*'?(?P<rm_year>\d{{2,4}})\b)?)
+    | (?P<full_num>\b(?P<fn_day>\d{{1,2}})\s*[/.-]\s*(?P<fn_month>\d{{1,2}})\s*[/.-]\s*
+                    (?P<fn_year>\d{{2,4}})\b(?!\s*/\s*\d))
+    | (?P<full_mon>\b(?P<fm_day>\d{{1,2}})(?:st|nd|rd|th)?\s*[-./ ]?\s*
+                    (?P<fm_month>{_MONTH_TOKEN})\s*[-,./ ]?\s*'?(?P<fm_year>\d{{2,4}})\b)
+    | (?P<mon_year>\b(?P<my_month>{_MONTH_TOKEN})\s*[-,./ ]?\s*'?(?P<my_year>\d{{2,4}})\b)
+    | (?P<day_mon>\b(?P<dm_day>\d{{1,2}})(?:st|nd|rd|th)?\s*[-./ ]?\s*
+                   (?P<dm_month>{_MONTH_TOKEN})\b(?![-,./=_ ]*'?\d))
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_MONTH_NUMBERS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}  # fmt: skip
+
+
+def _is_range(match: re.Match[str]) -> bool:
+    """True when this match is a stay written with both its endpoints."""
+    return match.group("range_num") is not None or match.group("range_mon") is not None
+
+
+@dataclass(frozen=True)
+class TextDateRecovery:
+    """What the free-text recogniser read out of one cell.
+
+    ``tokens_found`` and ``year_inferred`` exist so the caller can log *which*
+    decision was taken, not just the result: a cell naming three admissions and
+    a cell naming one are both published as a single date, and only the first
+    is a source-tracker defect worth reporting back to the clinic.
+    """
+
+    value: date | None
+    tokens_found: int
+    year_inferred: bool
+
+
+def _expand_two_digit_year(digits: str) -> int:
+    """00-68 -> 2000-2068, 69-99 -> 1969-1999, matching the month-year branch."""
+    if len(digits) == 4:
+        return int(digits)
+    year = int(digits)
+    return 2000 + year if year <= 68 else 1900 + year
+
+
+def recover_date_from_text(text: str, tracker_year: int | None = None) -> TextDateRecovery:
+    """Read the first date a clinical note contains.
+
+    The ``hospitalisation_date`` header is free text -- "Hospitalisation due to
+    diabetes emergency or glucose control (Include Date)" -- so clinicians write
+    a case note with the date somewhere inside it. Recovery previously depended
+    on where the date sat, because the prefix walk can only reach one at the
+    front of the string: "16-Nov-2019 due to DKA" was published and
+    "DKA 16-Nov-2019" was sentinelled.
+
+    Where a note records several dates, the first is published and the rest are
+    discarded -- a single date column cannot represent three admissions, and the
+    repair for that is the source workbook, not a cleverer parser. A day the
+    note omits becomes the 1st; a year it omits comes from the tracker, which is
+    the one component taken from outside the cell.
+    """
+    matches = list(_DATE_IN_TEXT.finditer(text))
+    if not matches:
+        return TextDateRecovery(None, 0, False)
+
+    first = matches[0]
+    # A range names two days, so it is a discard even though it is one stay.
+    tokens = len(matches) + (1 if _is_range(first) else 0)
+    groups = first.groupdict()
+
+    for prefix in ("rn", "rm", "fn", "fm", "my", "dm"):
+        if groups.get(f"{prefix}_month") is None:
+            continue
+        raw_month = groups[f"{prefix}_month"]
+        month = (
+            int(raw_month) if raw_month.isdigit() else _MONTH_NUMBERS.get(raw_month[:3].lower(), 0)
+        )
+        day = int(groups[f"{prefix}_day"]) if groups.get(f"{prefix}_day") else 1
+        raw_year = groups.get(f"{prefix}_year")
+        year_inferred = raw_year is None
+        if year_inferred:
+            if tracker_year is None:
+                return TextDateRecovery(None, tokens, False)
+            year = tracker_year
+        else:
+            year = _expand_two_digit_year(raw_year)
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            return TextDateRecovery(None, tokens, False)
+        if not _MIN_PLAUSIBLE_YEAR <= year <= BARE_YEAR_MAX:
+            return TextDateRecovery(None, tokens, False)
+        return TextDateRecovery(value, tokens, year_inferred)
+
+    return TextDateRecovery(None, tokens, False)
 
 
 def _parse_date_str(date_str: str) -> date | None:

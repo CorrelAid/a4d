@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 39, 44]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 44]
 assignee: null
 claimed_at: null
 resolution: null
@@ -273,3 +273,11 @@ was rejected because this ticket has already been unblocked prematurely once
 (2026-08-15) on exactly that reasoning, and the correction cost a session.
 Reversible: dropping any of the four from `blocked_by` is a one-line edit if the
 user judges R unnecessary for it.
+
+**2026-08-21 (ticket 39 closed).** `blocked_by` drops `39`, leaving `[32, 44]`
+of the open tickets that still need `r-archive/`'s source. [Dates buried in
+clinical notes](39-recover-dates-embedded-in-free-text.md) needed R read twice
+-- to establish that `parse_dates` composes 2019-03-20 out of three separate
+dates in one note, and that its order list ends in `y`, which is why a bare
+year in prose becomes 1 January -- so it earned its place on this list and has
+now spent it.
