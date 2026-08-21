@@ -53,6 +53,7 @@ from a4d.migration.compare import (
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_FBG_TEXT_CLASSIFIERS,
     PATIENT_FUTURE_DATE_CLASSIFIERS,
+    PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
     PATIENT_GLUCOSE_UNIT_CLASSIFIERS,
     PATIENT_HBA1C_RANGE_CLASSIFIERS,
     PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
@@ -92,6 +93,7 @@ from a4d.migration.compare import (
     build_summary_rows,
     compare_directory,
     compute_deltas,
+    load_glucose_unit_swaps,
     normalize_boolean_literal_column,
     normalize_date_column,
     normalize_numeric_column,
@@ -584,6 +586,15 @@ CLASSIFIERS_BY_COLUMN |= {
     for col in ("fbg_updated_mg", "fbg_baseline_mg")
 }
 
+# ticket 44: the mmol columns are derived from their mg siblings, so an mg
+# cell's divergence restates itself next door. Appended last of all the glucose
+# causes, because it names a cascade rather than a mechanism -- anything that
+# can explain the mmol cell in its own right must claim it first.
+CLASSIFIERS_BY_COLUMN |= {
+    col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_GLUCOSE_CASCADE_CLASSIFIERS
+    for col in ("fbg_updated_mmol", "fbg_baseline_mmol")
+}
+
 # ticket 56: R's own date entry point again -- the destructive month-name
 # truncation in parse_dates and the order list it falls through afterwards. Like
 # every other parse_dates cause the domain is the whole date family, not the
@@ -682,6 +693,10 @@ class Stage:
     # openpyxl as False. Cleaning already canonicalizes both, so the cleaned
     # stage never sees it.
     normalize_boolean_literals: bool = False
+    # Cleaned-stage-only (ticket 44): resolve_glucose_units runs during
+    # cleaning, so a swapped column is a fact about cleaned output. The raw
+    # stage holds the workbook's own headers, where nothing has moved yet.
+    load_glucose_unit_swaps: bool = False
 
     @property
     def detect_row_order_divergence(self) -> bool:
@@ -731,6 +746,7 @@ STAGES = [
         ordinal_group_cols=PATIENT_KEY_COLS,
         whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
         numeric_normalize_cols=PATIENT_CLEANED_NUMERIC_NORMALIZE_COLS,
+        load_glucose_unit_swaps=True,
     ),
     Stage(
         label="Product (raw)",
@@ -766,9 +782,41 @@ def _numeric_cols(frames: dict[str, pl.DataFrame]) -> list[str]:
     return [name for name, dtype in sample.schema.items() if dtype.is_numeric()]
 
 
-def _compare_arm(r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison:
+ERRORS_TABLE = Path("tables") / "table_errors.parquet"
+
+
+def _unit_swaps_by_frame(py_root: Path, py_frames: dict[str, pl.DataFrame]) -> dict[str, set[str]]:
+    """Re-key the run's glucose-unit swaps from tracker name to parquet name.
+
+    The error table names a tracker; the comparison names a parquet file. The
+    bridge is each frame's own ``file_name`` column rather than string surgery
+    on the parquet's name, so a change to the output naming convention cannot
+    silently drop the context.
+    """
+    errors_path = py_root / ERRORS_TABLE
+    if not errors_path.exists():
+        console.print(
+            f"[yellow]No {ERRORS_TABLE} under {py_root} -- glucose unit-swap context "
+            "unavailable, so swapped columns will not be classified.[/yellow]"
+        )
+        return {}
+    swaps = load_glucose_unit_swaps(pl.read_parquet(errors_path))
+    by_frame = {}
+    for name, df in py_frames.items():
+        if "file_name" not in df.columns or not len(df):
+            continue
+        columns = swaps.get(df["file_name"][0])
+        if columns:
+            by_frame[name] = columns
+    return by_frame
+
+
+def _compare_arm(py_root: Path, r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
+    unit_swapped_columns = (
+        _unit_swaps_by_frame(py_root, py_frames) if stage.load_glucose_unit_swaps else {}
+    )
     for column in stage.date_normalize_cols or []:
         for frames in (r_frames, py_frames):
             for name, df in frames.items():
@@ -842,6 +890,7 @@ def _compare_arm(r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison
         id_col=stage.id_col,
         categorical_cols=stage.categorical_cols,
         order_group_cols=order_group_cols,
+        unit_swapped_columns=unit_swapped_columns,
     )
 
 
@@ -1116,7 +1165,7 @@ def compare(
 
     for stage in STAGES:
         label, subdir = stage.label, stage.subdir
-        comparison = _compare_arm(r_dir / subdir, py_dir / subdir, stage)
+        comparison = _compare_arm(py_dir, r_dir / subdir, py_dir / subdir, stage)
         _print_summary(label, comparison, only_mismatches)
 
         # One workbook per stage -- combining raw and cleaned into one per-column
