@@ -2279,6 +2279,23 @@ converted to 2024](tickets/61-decide-buddhist-era-date-conversion.md) — today 
 product table carries entry dates 543 years in the future for 22 rows, which R
 does not convert either.
 
+**Ticket 61's question is already decided, and measuring it doubled its size.**
+The user's answer (2026-08-22): where a date is clearly not Gregorian and its
+intended value is unambiguous, **convert it in the cleaned stage, not in raw**,
+auditably, like any other recovery. The ticket asked for the patient arm to be
+measured first — done, and **patient is the larger half and is losing data
+rather than publishing it oddly: 381 cells across 95 distinct values, every one
+clobbered to the 9999-09-09 sentinel** because a Buddhist year reads as a future
+date. Nothing had surfaced them, since R sentinels them too and so the
+comparison has no mismatch to show. The product fix's band test looks right for
+patient as well: 2022 Hat Yai's `2560-01-01` converts to 2017-01-01, the date
+[ticket 40](tickets/40-source-defect-findings-report.md) had separately
+established from that patient's own D.O.B. and recruitment. **Implementation is
+deliberately left to a fresh session** — it moves 381 patient cells plus 22
+product rows and needs both guards, tests, a full 254-tracker run and a
+comparison. The ticket stays open and stays on the frontier; what remains is
+execution, not a decision.
+
 ## Decisions so far
 
 - [Decide whether a date buried inside a clinical note should be recovered or
