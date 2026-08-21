@@ -78,3 +78,59 @@ Points to settle:
 - Is a BE year in a Thai tracker the clinic's convention or an Excel locale
   artifact? The serials suggest the workbook itself is in a Thai-calendar Excel,
   which would mean nobody typed anything wrong.
+
+## Decision (user, 2026-08-22)
+
+**Convert.** Where a date is clearly not Gregorian and its intended value can be
+determined unambiguously, the pipeline converts it like any other recovery --
+**in the cleaned stage, not in raw**, so raw keeps what the workbook actually
+says. This resolves the question above in favour of candidate 3 (convert *and*
+flag), consistent with [ticket 39](39-recover-dates-embedded-in-free-text.md)'s
+precedent that a recovery is auditable rather than silent.
+
+Not yet implemented -- this records the decision, not the work.
+
+## Measured population (session-2026-08-22, real 254-tracker set)
+
+The ticket asked to measure the patient arm before deciding. Done, and **the
+patient arm is the larger and more urgent half**, which the ticket's premise did
+not know:
+
+- **Product cleaned: 22 rows**, all published today as BE years (`2567-11-11` in
+  a `Nov24` sheet). Visible but wrong-looking.
+- **Patient: 381 cells across 95 distinct values, and every one is currently
+  destroyed.** Patient's `_validate_dates` clobbers any future date with the
+  9999-09-09 sentinel -- so unlike product, patient publishes nothing odd
+  *because it publishes nothing at all*. The cells were invisible for exactly
+  that reason: no comparison sheet shows them, since R sentinels them too.
+  Scanned by re-parsing every raw patient date column with
+  `parse_date_flexible` and keeping years in [2400, 9999).
+
+Affected clinics are Thai throughout: 2024/2025/2026 Chiang Mai Maharaj Nakorn,
+2026 Chulalongkorn (the largest -- whole complication-screening date columns in
+BE), 2026 Nakornping, 2023 Nakornping, 2022 Hat Yai.
+
+**The band test the product fix already uses appears to be the right rule for
+patient too, and one case argues it strongly.** 2022 Hat Yai's `t1d_diagnosis_date`
+holds `2560-01-01` (12 cells). BE for 2022 is 2565, so 2560 looks like a typo --
+but it falls inside the band `[tracker_year + 543 - YEAR_FLOOR_DELTA,
+tracker_year + 543]` = 2560-2565, and converting it gives **2017-01-01**, which
+is exactly the date [ticket 40](40-source-defect-findings-report.md) independently
+established from that patient's own D.O.B. (2013-03-17), recruitment (2017-06-01)
+and age at diagnosis (4). The band recovers the right answer without being told.
+
+Patient needs a *wider* lower bound than product, and the data shows why: a
+screening or diagnosis date legitimately predates its tracker. 2026
+Chulalongkorn records `2567-07-18` (2024) in a kidney-test column, correctly.
+
+**Two values, 6 cells, fall outside any band and must stay sentinelled**,
+becoming source-defect findings rather than conversions: `3035-03-01` (2025 CDA,
+1 cell) and `5025-05-19` (2025 Surat Thani, 5 cells). Neither decodes to a
+plausible year by subtracting 543.
+
+**Still open before implementing:** whether `hospitalisation_date`'s two
+note-embedded BE cells (`18-19/11/2567`, `19-22/5/2568`) come along. Ticket 39
+refused them on the grounds that subtracting 543 would be guessing at the
+clinic's calendar -- this decision overturns that reasoning for cells the band
+test identifies, but those two also carry a date *range*, which is a separate
+problem ticket 39 already declined.
