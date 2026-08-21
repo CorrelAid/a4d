@@ -517,6 +517,12 @@ class CellMismatch:
     # the sibling is what says whether an mmol divergence is its own or an
     # already-named one restated.
     mg_sibling: tuple[Any, Any] | None = None
+    # Set by compare_cells when tracker_year_col is given (ticket 32): the
+    # tracker's own calendar year, taken from the Python side's own column
+    # rather than parsed out of the file name. It is what lets a classifier ask
+    # whether Python's *own* value is plausible for this tracker, instead of
+    # only describing how the two sides differ.
+    tracker_year: int | None = None
 
 
 CELL_FLOAT_REL_TOL = 1e-9
@@ -538,6 +544,7 @@ def compare_cells(
     key_cols: list[str],
     order_group_cols: list[str] | None = None,
     unit_swapped_columns: set[str] | None = None,
+    tracker_year_col: str | None = None,
 ) -> list[CellMismatch]:
     """Diff matched rows cell-by-cell.
 
@@ -579,9 +586,19 @@ def compare_cells(
         joined, order_group_cols, key_cols, value_cols
     )
 
+    # A value column is suffixed on the Python side by the join; a key column
+    # is shared, so it is not.
+    year_field = None
+    if tracker_year_col:
+        for candidate in (f"{tracker_year_col}_py", tracker_year_col):
+            if candidate in joined.columns:
+                year_field = candidate
+                break
+
     mismatches = []
     for row in joined.iter_rows(named=True):
         key = {k: row[k] for k in key_cols}
+        tracker_year = _as_year(row[year_field]) if year_field else None
         gkey = tuple(row[c] for c in order_group_cols) if order_group_cols else None
         has_bare_year = any(
             _is_python_reads_bare_year(
@@ -611,9 +628,18 @@ def compare_cells(
                             if (mg_col := mg_by_mmol.get(col)) is not None
                             else None
                         ),
+                        tracker_year=tracker_year,
                     )
                 )
     return mismatches
+
+
+def _as_year(value: Any) -> int | None:
+    """The tracker year column is Float64 on one side and Int32 on the other."""
+    try:
+        return int(value)
+    except TypeError, ValueError:
+        return None
 
 
 def _swapped_pair_columns(unit_swapped_columns: set[str] | None) -> set[str]:
@@ -698,9 +724,52 @@ def classify(mismatch: CellMismatch, registry: dict[str, Classifier]) -> str:
 # them, or adding new named causes, against real flagged rows is ticket 15's job.
 CE_TYPO_YEAR_THRESHOLD = 2100
 
+# Mirrors the product pipeline's own BUDDHIST_ERA_OFFSET / YEAR_FLOOR_DELTA, so
+# a date the pipeline treats as this tracker's Buddhist-era year is not then
+# called absurd here.
+BUDDHIST_ERA_OFFSET = 543
+YEAR_FLOOR_DELTA = 5
 
-def _is_sentinel_null(m: CellMismatch) -> bool:
+# Excel's 1900 date system counts a 29 February 1900 that never existed, so
+# serials below 61 resolve one day apart depending on whether the reader
+# reproduces the bug (openpyxl) or does plain epoch arithmetic.
+EXCEL_LEAP_BUG_YEAR = 1900
+EXCEL_LEAP_BUG_CUTOFF = datetime.date(1900, 3, 1)
+
+
+def _is_python_sentinel_r_extraction_gap(m: CellMismatch) -> bool:
+    """Python declined the cell and R never read it.
+
+    Verified against source (ticket 32): 25 of the 78 current rows are
+    Sarawak's 2023 tracker, whose ``Dec23`` sheet genuinely carries December
+    *2024* entry dates. Python's beyond-tracker-year guard
+    (``_validate_entry_dates``) stamps the sentinel; R's cleaned side is null
+    for the same reason ``r_value_missing`` describes. Both halves are
+    already-decided mechanisms -- this names their intersection, which the
+    earlier ``sentinel_null`` described only by its shape.
+    """
     return m.r_value is None and m.py_value == SENTINEL_DATE
+
+
+def _is_python_out_of_window_date_preserved(m: CellMismatch) -> bool:
+    """Python published a date from outside the tracker's own window.
+
+    ``_validate_entry_dates``'s year-floor branch logs these and deliberately
+    keeps the parsed date, so the downstream sort matches R's. That is a
+    decision the pipeline already made and reports; what it must not do is
+    ride along inside ``r_value_missing``, which asserts the opposite -- that
+    Python read the cell correctly and R lost it. Ticket 32 found 19 such rows
+    there, including ``0202-06-20`` (Surat Thani) and seven ``2009-12-04`` in a
+    2019 Mahosot tracker. Each is a corrupt source cell, so the workbook is the
+    fix (ticket 40), not the classifier.
+    """
+    return (
+        m.r_value is None
+        and isinstance(m.py_value, datetime.date)
+        and m.py_value != SENTINEL_DATE
+        and m.tracker_year is not None
+        and not (m.tracker_year - YEAR_FLOOR_DELTA <= m.py_value.year <= m.tracker_year)
+    )
 
 
 def _is_r_value_missing(m: CellMismatch) -> bool:
@@ -714,21 +783,57 @@ def _is_r_value_missing(m: CellMismatch) -> bool:
     pair, not the raw source cell, so it can't distinguish a genuine
     source-typo rescue from a plain R extraction gap; both look identical
     here and are lumped together deliberately.
+
+    Bounded by ``_is_python_out_of_window_date_preserved`` and
+    ``_is_python_absurd_excel_serial``, which run first: this cause asserts
+    Python read the cell correctly, so it may not cover a cell whose Python
+    value is itself implausible (ticket 32).
     """
     return m.r_value is None and m.py_value is not None and m.py_value != SENTINEL_DATE
 
 
-def _is_ce_typo(m: CellMismatch) -> bool:
-    return isinstance(m.r_value, datetime.date) and m.r_value.year > CE_TYPO_YEAR_THRESHOLD
+def _is_python_absurd_excel_serial(m: CellMismatch) -> bool:
+    """Python turned a corrupt Excel serial into a date centuries away.
+
+    Replaces ``ce_typo``, which tested ``r_value.year > 2100`` and so fired on
+    ``normalize_date_column``'s own 9999 sentinel while saying nothing about
+    the Python side. Both current rows are junk source serials -- 1,339,576
+    published as ``5567-08-19`` (2024 Chiang Mai) and 411,384 as
+    ``3026-04-30`` (2026 Penang). The cleaned stage no longer publishes these
+    (``implausible_era_date``, ticket 32), so the cause remains for the raw
+    stage, where extraction has no validation.
+
+    A genuine Buddhist-era date is *not* this: BE serials (~243,933) land on
+    the tracker's own BE year and are excluded by the band check.
+    """
+    if not isinstance(m.py_value, datetime.date) or m.py_value == SENTINEL_DATE:
+        return False
+    if m.py_value.year < CE_TYPO_YEAR_THRESHOLD:
+        return False
+    if m.tracker_year is not None:
+        buddhist_year = m.tracker_year + BUDDHIST_ERA_OFFSET
+        if buddhist_year - YEAR_FLOOR_DELTA <= m.py_value.year <= buddhist_year:
+            return False
+    return True
 
 
-def _is_off_by_one_day(m: CellMismatch) -> bool:
+def _is_excel_1900_leap_serial(m: CellMismatch) -> bool:
+    """One day apart because Excel believes 1900 was a leap year.
+
+    A serial below 61 predates the phantom 1900-02-29: openpyxl reproduces
+    Excel's own reading (serial 25 -> 1900-01-25) while plain epoch arithmetic
+    from 1899-12-30, which ``normalize_date_column`` does via
+    ``parse_date_flexible``, gives 1900-01-24. Both sides are reading the same
+    source integer (ticket 32), which is stray end-of-block summary residue in
+    both current rows -- the cleaned stage nulls it (``summary_residue_nulled``).
+    """
     return (
         isinstance(m.r_value, datetime.date)
         and isinstance(m.py_value, datetime.date)
-        and m.r_value != SENTINEL_DATE
-        and m.py_value != SENTINEL_DATE
-        and abs((m.r_value - m.py_value).days) == 1
+        and m.r_value.year == EXCEL_LEAP_BUG_YEAR
+        and m.py_value.year == EXCEL_LEAP_BUG_YEAR
+        and m.py_value < EXCEL_LEAP_BUG_CUTOFF
+        and (m.py_value - m.r_value).days == 1
     )
 
 
@@ -770,11 +875,14 @@ def _is_summary_residue_nulled(m: CellMismatch) -> bool:
     )
 
 
+# Order matters: the two bounds on r_value_missing must run before it, or it
+# absorbs the cells they exist to expose (ticket 32).
 PRODUCT_ENTRY_DATE_CLASSIFIERS: dict[str, Classifier] = {
-    "sentinel_null": _is_sentinel_null,
+    "python_sentinel_r_extraction_gap": _is_python_sentinel_r_extraction_gap,
+    "excel_1900_leap_serial": _is_excel_1900_leap_serial,
+    "python_absurd_excel_serial": _is_python_absurd_excel_serial,
+    "python_out_of_window_date_preserved": _is_python_out_of_window_date_preserved,
     "r_value_missing": _is_r_value_missing,
-    "ce_typo": _is_ce_typo,
-    "off_by_one_day": _is_off_by_one_day,
     "python_future_date_sentinel": _is_python_future_date_sentinel,
     "summary_residue_nulled": _is_summary_residue_nulled,
 }
@@ -2411,6 +2519,7 @@ def compare_directory(
     categorical_cols: list[str] | None = None,
     order_group_cols: list[str] | None = None,
     unit_swapped_columns: dict[str, set[str]] | None = None,
+    tracker_year_col: str | None = None,
 ) -> DirectoryComparison:
     numeric_cols = numeric_cols or []
     unit_swapped_columns = unit_swapped_columns or {}
@@ -2436,6 +2545,7 @@ def compare_directory(
                     key_cols,
                     order_group_cols,
                     unit_swapped_columns.get(name),
+                    tracker_year_col,
                 ),
             )
         )

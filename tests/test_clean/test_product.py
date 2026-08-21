@@ -5,6 +5,7 @@ from datetime import date
 import polars as pl
 
 from a4d.clean.product import (
+    YEAR_FLOOR_DELTA,
     _check_entry_dates_match_sheet,
     _clean_received_from,
     _compute_running_balance,
@@ -76,6 +77,59 @@ def test_validate_entry_dates_preserves_buddhist_era_dates():
     parsed = result["product_entry_date"].to_list()
     assert parsed[0] == date(2567, 11, 11)
     assert parsed[1] == date(9999, 9, 9)
+    assert len(collector) == 0
+
+
+def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band():
+    """A year above BUDDHIST_ERA_THRESHOLD is only exempt if it is this
+    tracker's own Buddhist-era year. Ticket 32 found the blanket >= 2400 skip
+    let two corrupt Excel serials (1339576, 411384) reach BigQuery as
+    5567-08-19 and 3026-04-30, and a Hat Yai typo publish 2525 in a 2025
+    tracker whose Buddhist year is 2568."""
+    df = _entry_date_df(
+        products=["P1", "P2", "P3"],
+        entry_dates=[date(2567, 11, 11), date(5567, 8, 19), date(2525, 10, 2)],
+    )
+    collector = ErrorCollector()
+
+    result = _validate_entry_dates(df, collector)
+
+    parsed = result["product_entry_date"].to_list()
+    assert parsed[0] == date(2567, 11, 11)
+    assert parsed[1] == date(9999, 9, 9)
+    assert parsed[2] == date(9999, 9, 9)
+    assert len(collector) == 2
+    assert {e.patient_id for e in collector.errors} == {"P2", "P3"}
+    assert {e.error_code for e in collector.errors} == {"implausible_era_date"}
+
+
+def test_validate_entry_dates_accepts_buddhist_band_edges():
+    """The band mirrors the Gregorian window: BE equivalents of
+    [table_year - YEAR_FLOOR_DELTA, table_year]."""
+    df = _entry_date_df(
+        products=["P1", "P2"],
+        entry_dates=[date(2024 + 543 - YEAR_FLOOR_DELTA, 1, 1), date(2024 + 543, 12, 31)],
+    )
+    collector = ErrorCollector()
+
+    result = _validate_entry_dates(df, collector)
+
+    assert result["product_entry_date"].to_list() == [
+        date(2024 + 543 - YEAR_FLOOR_DELTA, 1, 1),
+        date(2024 + 543, 12, 31),
+    ]
+    assert len(collector) == 0
+
+
+def test_validate_entry_dates_does_not_relog_the_sentinel():
+    """9999-09-09 is the pipeline's own parse-failure sentinel, so re-flagging
+    it would double-log a cell some earlier step already reported."""
+    df = _entry_date_df(products=["P1"], entry_dates=[date(9999, 9, 9)])
+    collector = ErrorCollector()
+
+    result = _validate_entry_dates(df, collector)
+
+    assert result["product_entry_date"].to_list() == [date(9999, 9, 9)]
     assert len(collector) == 0
 
 

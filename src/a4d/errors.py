@@ -38,6 +38,9 @@ ErrorCode = Literal[
     # a single date column cannot hold three admissions, so the workbook is what needs fixing
     "date_year_inferred",  # The cell named a day and a month but no year, so the tracker's
     # own year was used -- the one component published that the source does not state
+    "implausible_era_date",  # A date past the Buddhist-era threshold that is not this
+    # tracker's own BE year -- a corrupt Excel serial (1,339,576 reads as 5567-08-19), so
+    # the cell is sentinelled rather than published as a date centuries in the future
 ]
 
 

@@ -52,6 +52,11 @@ EMPTY_ROW_COLS: tuple[str, ...] = (
 # Gregorian futures (e.g. 2099 in a 2024 tracker).
 BUDDHIST_ERA_THRESHOLD: int = 2400
 
+# Buddhist Era is Common Era + 543. Used to decide whether a year past the
+# threshold is this tracker's own BE year (2567 in a 2024 tracker) or simply
+# corrupt (5567 from Excel serial 1339576).
+BUDDHIST_ERA_OFFSET: int = 543
+
 # Lower-bound year guard for _validate_entry_dates. A parsed Gregorian
 # year more than YEAR_FLOOR_DELTA years before the tracker's calendar
 # year is implausible (start-balance backfill is months-to-a-few-years,
@@ -474,12 +479,20 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     Above/below cases are logged with distinct messages so triage in
     ``table_error_messages.parquet`` can distinguish them.
 
-    Years at or beyond ``BUDDHIST_ERA_THRESHOLD`` (2400) are left untouched on both
-    branches so Buddhist-era dates (e.g. ``2567-11-11`` from Mandalay trackers)
-    flow through, and the parse-failure sentinel (9999-09-09) is not re-clobbered
-    or double-logged. This deliberately diverges from the patient pipeline's
-    ``_validate_dates``, which still clobbers any future date — patient is
-    out of scope for this change.
+    * **Implausible era** (year at or beyond ``BUDDHIST_ERA_THRESHOLD`` that is
+      not this tracker's own Buddhist-era year): logged under
+      ``implausible_era_date`` AND replaced with ``error_val_date``. A genuine
+      BE date (``2567-11-11`` in a 2024 tracker, from a BE-shifted Excel serial
+      ~243,933) flows through untouched; a corrupt serial does not. Ticket 32
+      found the earlier blanket ">= 2400 is exempt" rule published
+      ``5567-08-19`` and ``3026-04-30`` — Excel serials 1,339,576 and 411,384 —
+      straight into the product table, plus a Hat Yai ``2525`` in a tracker
+      whose BE year is 2568.
+
+    The parse-failure sentinel (9999-09-09) is exempt from all three branches so
+    it is not re-clobbered or double-logged. This deliberately diverges from the
+    patient pipeline's ``_validate_dates``, which still clobbers any future date
+    — patient is out of scope for this change.
     """
     if "product_entry_date" not in df.columns or "product_table_year" not in df.columns:
         return df
@@ -489,7 +502,40 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     max_valid = pl.date(table_year, 12, 31)
     min_valid = pl.date(table_year - YEAR_FLOOR_DELTA, 1, 1)
 
-    not_buddhist = pl.col("product_entry_date").dt.year() < BUDDHIST_ERA_THRESHOLD
+    entry_year = pl.col("product_entry_date").dt.year()
+    # A year at or beyond the threshold is only credible as this tracker's own
+    # Buddhist-era year, so the exemption mirrors the Gregorian window rather
+    # than admitting everything above 2400 (ticket 32).
+    in_buddhist_band = (entry_year >= table_year + BUDDHIST_ERA_OFFSET - YEAR_FLOOR_DELTA) & (
+        entry_year <= table_year + BUDDHIST_ERA_OFFSET
+    )
+    is_sentinel = pl.col("product_entry_date") == error_date
+    implausible_era_mask = (
+        pl.col("product_entry_date").is_not_null()
+        & (entry_year >= BUDDHIST_ERA_THRESHOLD)
+        & ~in_buddhist_band
+        & ~is_sentinel
+    )
+
+    implausible = df.filter(implausible_era_mask).select(
+        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+    )
+    for file_name, product, entry_date, table_year_val, sheet_name in implausible.iter_rows():
+        error_collector.add_error(
+            file_name=file_name or "unknown",
+            patient_id=product or "unknown",
+            column="product_entry_date",
+            original_value=str(entry_date),
+            error_message=(
+                f"product_entry_date {entry_date} is neither a Gregorian date nor "
+                f"the Buddhist-era year of product_table_year {table_year_val} "
+                f"(sheet '{sheet_name or 'unknown'}')"
+            ),
+            error_code="implausible_era_date",
+            function_name="_validate_entry_dates",
+        )
+
+    not_buddhist = entry_year < BUDDHIST_ERA_THRESHOLD
     above_max_mask = (
         pl.col("product_entry_date").is_not_null()
         & (pl.col("product_entry_date") > max_valid)
@@ -538,7 +584,7 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
         )
 
     return df.with_columns(
-        pl.when(above_max_mask)
+        pl.when(above_max_mask | implausible_era_mask)
         .then(error_date)
         .otherwise(pl.col("product_entry_date"))
         .alias("product_entry_date")
