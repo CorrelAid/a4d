@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
@@ -44,7 +44,6 @@ flowchart TD
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
     T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
   end
@@ -54,7 +53,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 46"]
+  subgraph DECIDED["Decided · 47"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -89,6 +88,7 @@ flowchart TD
     T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
+    T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
     T45["<b>45</b> · task<br/>Give the patient<br/>comparison an ordinal row<br/>key, so duplicated patient<br/>IDs stop faking mismatches"]
     T46["<b>46</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 4)"]
     T47["<b>47</b> · task<br/>Four trackers where<br/>cleaning merges several<br/>patients into one patient<br/>ID"]
@@ -144,15 +144,14 @@ flowchart TD
   T30 --> T12
   T31 --> T12
   T32 --> T12
-  T44 --> T12
   T45 --> T46
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T32,T34,T35,T40,T41,T44,T58,T59 frontier
+  class T16,T32,T34,T35,T40,T41,T58,T59 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T39,T42,T43,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2195,6 +2194,53 @@ re-audit and the FBG R-null residual, the last two open tickets that still need
 to read `r-archive/`. The frontier is nine tickets; of them, those two are what
 stands between this map and retiring R.
 
+**[The FBG R-null residual](tickets/44-triage-cleaned-fbg-r-null-residual.md)
+is closed, and it ends the patient cleaned-stage triage: 2,955 unclassified
+cells become 16, every one of the 16 already owned by a fog patch.** The
+ticket's own framing was the thing that had to give. It described one
+population (R null, Python present) and named a file-level obstacle -- a
+per-cell classifier cannot see whether a file's glucose column was
+unit-swapped. Scanning the whole column first, per this map's standing
+preference, found the decisive fact is **row-level and much stronger**: neither
+pipeline reads the mmol column from the workbook at all. Both derive it from
+the mg cell beside it, so an mmol divergence is an mg divergence restated --
+and all 2,935 cells, without exception, sat beside an mg cell that already
+carried a named cause.
+
+That reframing also surfaced **110 cells running the other way, which no ticket
+had ever described**: Python null, R holding a value. Each is exactly
+`mg_r / 18` -- R dividing a number `fix_fbg` manufactured out of text (140 from
+"Lost follow up") or one far past the analytical ceiling (2013 mg/dL) and
+publishing the quotient as a measurement. `2023_CDA` gets **111.8 mmol/L** that
+way, above the level A4D's medical advisor called impossible. A further 28,
+also unlooked-at, run the third way: 2018 CDA writes `148 mg/dl   (Mar-18)`,
+R's `as.numeric` fails on the whole string and Python reads it. Python is the
+correct side in all three shapes, each already argued under the mg cell's own
+cause -- so `mmol_derived_from_mg_sibling` names the cascade rather than
+re-deciding it, bounded so it cannot claim an mmol cell carrying a reading its
+mg sibling does not account for.
+
+**The file-level context the user chose (option 1) still earned its keep, just
+not where the ticket expected**: `column_unit_swapped`, read back from the
+run's own `glucose_unit_swapped` error records, lets
+`_is_python_glucose_unit_corrected` judge a reading against the unit the column
+*holds* rather than the one its name claims -- which closes the standing fog
+patch **"Whether a column-level finding can be classified at all"** and the six
+2020 Kantha Bopha cells round 10 could only write out in prose
+(`fbg_baseline_mg` unclassified 6 -> 0). Verified against the real 254-tracker
+drive data across two full runs: `per_column` counts are byte-identical and the
+patient raw, product raw and product cleaned snapshots are unchanged, so
+nothing was suppressed -- only named.
+
+**Ticket 12's `blocked_by` now reads `[32]` alone.** [The classifier
+re-audit](tickets/32-audit-classifiers-against-decision-bar.md) is the single
+remaining open ticket that needs `r-archive/`'s source, and it needs it by
+definition. **One decision now stands between this map and retiring R** -- and
+the re-audit is properly last, since it audits every classifier this map has
+written, including the two added here. The frontier is eight tickets; the other
+seven are standing decisions, the source-defect report, a separate feature
+(ticket 16), and tickets 58 and 59.
+
 ## Decisions so far
 
 - [Decide whether a date buried inside a clinical note should be recovered or
@@ -3101,6 +3147,14 @@ stands between this map and retiring R.
   deliberately not decided -- split into [round
   8](tickets/55-triage-patient-cleaned-residual-8.md).
 
+- [Classify the cleaned-stage FBG cells where R has nothing and Python has a
+  corrected reading](tickets/44-triage-cleaned-fbg-r-null-residual.md) -- the
+  mmol column is **derived** from the mg one on both sides, so all 2,935 cells
+  are an already-named mg divergence restated next door; one cascade classifier
+  bounded by the ÷18 identity, plus the file-level swap fact read from the
+  run's own error records, take the cleaned stage's whole unclassified
+  population **2,955 -> 16**, all 16 already owned by fog.
+
 ## Assumptions in force
 
 - **A year-less date in a note belongs to its tracker's own year.**
@@ -3208,16 +3262,6 @@ folded into Decisions so far above.)
   `ifelse(x == "Y", ...)` yields `""` for `-` and `NA` for null, and only the
   second survives to become `Undefined` -- so R's null cannot be cited as
   evidence for what the output should say.
-- Whether a **column-level** finding can be classified at all. Ticket 42's unit
-  swap is a property of a whole column, so a per-cell classifier cannot see
-  which columns it fired on -- which is why six 2020 Kantha Bopha cells stay
-  unclassified with their cause written out instead. Round 10 measured the
-  obvious widening ("outside either unit's range") and backed it out: it would
-  claim every genuinely-rejected mg/dL reading between 45 and 800. Giving
-  `compare_cells` column-level context, or reading the pipeline's own
-  `glucose_unit_swapped` log, would both work; nobody has judged whether six
-  cells justify either. Surfaced by [round
-  10](tickets/57-triage-patient-cleaned-residual-10.md).
 - Whether the **numeric** conversion path should treat absence-written-as-a-
   word (`Nil`, `Unknown`, `?`) as missing, the way the date path now does
   (ticket 38). Correct in principle -- 999999 makes the same false claim there
@@ -3225,7 +3269,14 @@ folded into Decisions so far above.)
   would invalidate ticket 29's exhaustive verification of
   `r_numeric_error_sentinel`, so it was deliberately not reopened in the same
   session that depended on it. Not sharp enough to ticket until someone has
-  measured how many numeric cells it actually moves.
+  measured how many numeric cells it actually moves. **Sharpened by [ticket
+  44](tickets/44-triage-cleaned-fbg-r-null-residual.md)**: the last 2
+  unclassified `fbg_updated_mmol` cells (2025 Kantha Bopha II, KH_KB119) are
+  R-null against Python's `999999` where *neither side published a reading* --
+  the cascade classifier declines them deliberately, because there is no
+  measurement to cascade. Together with the 11 `insulin_subtype` and 2
+  `remote_followup` cells above, this patch and the `Undefined` one now own
+  15 of the 16 cells the cleaned stage has left.
 - Whether a **multi-select screening block should keep more than its first
   selection**. `2021_Putrajaya` records four complication-screening selections
   per row in four adjacent columns under one merged header; both pipelines keep
@@ -3441,6 +3492,10 @@ flowchart TB
     direction LR
     U39["<b>39</b><br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
   end
+  subgraph Sunworked["Closed without being worked"]
+    direction LR
+    U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
+  end
   subgraph Sopen["Not yet worked"]
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
@@ -3452,7 +3507,6 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
     U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
   end
@@ -3497,7 +3551,8 @@ flowchart TB
   S2026_08_19f ~~~ S2026_08_20
   S2026_08_20 ~~~ S2026_08_20b
   S2026_08_20b ~~~ S2026_08_21
-  S2026_08_21 ~~~ Sopen
+  S2026_08_21 ~~~ Sunworked
+  Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
   U8 --->|blocked| U3
@@ -3536,7 +3591,6 @@ flowchart TB
   U30 --->|blocked| U12
   U31 --->|blocked| U12
   U32 --->|blocked| U12
-  U44 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3586,11 +3640,11 @@ flowchart TB
   U47 -.->|spawned| U59
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U32,U34,U35,U40,U41,U44,U58,U59 tfrontier
+  class U16,U32,U34,U35,U40,U41,U58,U59 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U39,U42,U43,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

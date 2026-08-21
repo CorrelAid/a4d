@@ -32,24 +32,23 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 42 of 56 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 47 of 59 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
-    L["Patient cleaned: 3,510 unclassified<br/>tickets 44, 39, 57"]
+    L["Patient cleaned: COMPLETE<br/>16 unclassified, all owned by open questions"]
     M["Patient raw: COMPLETE<br/>0 unclassified"]
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
   subgraph OPEN["Still open"]
-    O["57 - patient cleaned triage, round 10"]
-    O2["47 - patient IDs merged at cleaning"]
     P["32 - re-audit all classifiers"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
-    S["39 - dates inside free text"]
     T["16 - per-file log drill-down"]
     X["40 - source-defect findings Excel"]
     Y["41 - 2026 new Patient List fields"]
+    Z["58 - misspelled ID loses demographics"]
+    Z2["59 - rows that pair with nothing"]
   end
 
   subgraph BLOCKED["Blocked on the above"]
@@ -62,17 +61,15 @@ flowchart TD
   B --> C
   C --> D --> F
   C --> I --> TRIAGE
-  M --> O
-  O --> U
+  L --> P
+  P --> U
   U --> V --> W
 
   classDef done fill:#1a7f37,stroke:#116329,color:#fff
-  classDef partial fill:#9a6700,stroke:#7d4e00,color:#fff
   classDef open fill:#1f6feb,stroke:#0b3d91,color:#fff
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
-  class A,B,C,D,E,F,G,H,I,J,K,N done
-  class L,M partial
-  class O,O2,P,Q,R,S,T open
+  class A,B,C,D,E,F,G,H,I,J,K,L,M,M2,N done
+  class P,Q,R,T,X,Y,Z,Z2 open
   class U,V,W blocked
 ```
 
@@ -484,7 +481,7 @@ columns left for that month.
 
 ## Where verification stands
 
-Current baseline: `output/comparison/2026-08-19T212139Z`, 254 trackers.
+Current baseline: `output/comparison/2026-08-21T215325Z`, 254 trackers.
 Earlier counts on the wayfinder map were measured against smaller tracker sets
 and should be read as historical.
 
@@ -492,13 +489,15 @@ and should be read as historical.
 |---|---|---|
 | Product (raw) | 89 | **0** |
 | Product (cleaned) | 22,706 | **20** (kept on purpose as signals) |
-| Patient (cleaned) | 114,400 | 3,510 |
-| Patient (raw) | 26,172 | **0** (from 14,844) |
+| Patient (cleaned) | 114,284 | **16** |
+| Patient (raw) | 26,171 | **0** (from 14,844) |
 
-Three of the four stages are fully triaged. Patient's cleaned stage has
-**96.9%** of its flagged cells explained and is the remaining body of work; of
-the 3,510 left, 3,414 already belong to two open decisions (tickets 44 and 39)
-rather than being unexplained, leaving **96** genuinely untriaged.
+**All four stages are now triaged.** Patient's cleaned stage has **99.99%** of
+its flagged cells explained; the 16 left are not unexplained but deliberately
+withheld — 13 belong to the standing null-vs-`Undefined` question, 2 are
+R-null against Python's `999999` where neither side published a reading, and 1
+is R's inability to read a slash-separated month. Each is a decision about what
+the pipeline *should* publish, not a difference nobody understands.
 
 ---
 
@@ -508,11 +507,38 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Frontier (takeable now)**
 
-- **44 — cleaned-stage FBG cells where R has nothing.** 2,842 rows, 98.3%
-  measured to be in files whose column the new unit resolution corrected;
-  understood but not yet classifiable per-cell.
-**Closed since this section was last written** — kept here because the
-reasoning is the record of how the patient arm was verified.
+**Closed since this section was last written**
+
+- **44 — cleaned-stage FBG cells where R has nothing, now closed. It ends the
+  patient cleaned-stage triage: 2,955 unclassified cells -> 16, every one of
+  the 16 already owned by an open question.** The ticket described one
+  population and a file-level obstacle; scanning the whole column first found
+  the decisive fact is row-level and much stronger. **Neither pipeline reads
+  the mmol glucose column from the workbook** — both derive it from the mg cell
+  beside it (`convert_glucose_units` in Python, `fix_fbg`'s `fbg/18` in R) — so
+  an mmol divergence is an mg divergence restated, and all 2,935 cells, without
+  exception, sat beside an mg cell that already carried a named cause.
+
+  The reframing surfaced **110 cells running the other way that no ticket had
+  described**: Python null, R holding a value, each exactly `mg_r / 18`. R
+  divides a number `fix_fbg` manufactured out of text (140 from "Lost follow
+  up") or one far past the analytical ceiling (2013 mg/dL) and publishes the
+  quotient as a measurement — `2023_CDA` gets **111.8 mmol/L**, above the level
+  A4D's medical advisor called impossible. A further 28, also unlooked-at, run
+  a third way: 2018 CDA writes `148 mg/dl   (Mar-18)`, R's `as.numeric` fails
+  on the whole string and Python reads it. Python is the correct side in all
+  three. `mmol_derived_from_mg_sibling` names the cascade rather than
+  re-deciding it, bounded by the ÷18 identity so it cannot claim an mmol cell
+  carrying a reading its mg sibling does not account for.
+
+  It also closed a standing tooling limitation. `column_unit_swapped` — read
+  back from the run's own `glucose_unit_swapped` error records rather than
+  restated in the comparison — lets the range test judge a reading against the
+  unit the column *holds* rather than the one its name claims, which resolves
+  the six 2020 Kantha Bopha cells round 10 could only write out in prose
+  (`fbg_baseline_mg` unclassified 6 -> 0). Verified across two full runs
+  against the real 254-tracker data: `per_column` counts byte-identical, the
+  other three stage snapshots unchanged — nothing suppressed, only named.
 
 - **57 — patient cleaned triage, round 10, now closed.** It ended the
   ten-round chain: 96 in-scope cells -> **19**, all of them carrying written

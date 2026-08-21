@@ -23,14 +23,15 @@ import polars as pl
 
 from a4d.clean.date_parser import EXCEL_EPOCH, parse_date_flexible
 from a4d.clean.glucose import (
-    GLUCOSE_COLUMNS as GLUCOSE_UNIT_COLUMNS,
-)
-from a4d.clean.glucose import (
+    GLUCOSE_COLUMN_PAIRS,
     MG_ANALYTICAL_MAX,
     MG_ANALYTICAL_MIN,
     MMOL_ANALYTICAL_MAX,
     MMOL_ANALYTICAL_MIN,
     MMOL_TO_MG_FACTOR,
+)
+from a4d.clean.glucose import (
+    GLUCOSE_COLUMNS as GLUCOSE_UNIT_COLUMNS,
 )
 from a4d.clean.validators import load_numeric_ranges, load_validation_rules, sanitize_str
 from a4d.config import settings
@@ -503,6 +504,19 @@ class CellMismatch:
     # the mechanism rather than on the derived values' shape, which alone
     # cannot tell this apart from a genuine age disagreement.
     row_has_bare_year_date: bool = False
+    # Set by compare_cells when unit_swapped_columns is given (ticket 44):
+    # True if this cell's glucose column pair was unit-swapped in this file.
+    # Whether a column is really recorded in mmol/L is a property of the whole
+    # column, so no per-cell test can establish it -- ticket 57 left six cells
+    # unclassified for exactly this reason. The fact is read back from the
+    # pipeline's own glucose_unit_swapped error records, not re-derived here.
+    column_unit_swapped: bool = False
+    # Set by compare_cells (ticket 44): for a mmol glucose column, the
+    # (r_value, py_value) of the same row's mg sibling. The mmol column is not
+    # independently recorded -- both pipelines derive it from the mg cell -- so
+    # the sibling is what says whether an mmol divergence is its own or an
+    # already-named one restated.
+    mg_sibling: tuple[Any, Any] | None = None
 
 
 CELL_FLOAT_REL_TOL = 1e-9
@@ -523,8 +537,14 @@ def compare_cells(
     py_df: pl.DataFrame,
     key_cols: list[str],
     order_group_cols: list[str] | None = None,
+    unit_swapped_columns: set[str] | None = None,
 ) -> list[CellMismatch]:
     """Diff matched rows cell-by-cell.
+
+    ``unit_swapped_columns`` (ticket 44) is this file's set of mg/dL-labelled
+    glucose columns that ``resolve_glucose_units`` found to be recorded in
+    mmol/L, taken from the run's own error records. Both halves of an affected
+    pair are flagged, since the correction moves values between them.
 
     ``order_group_cols`` (ticket 21) opts into an extra diagnostic: for a
     positional row-alignment key (``add_row_ordinal``'s ``__row_ordinal``,
@@ -542,6 +562,10 @@ def compare_cells(
     """
     joined = r_df.join(py_df, on=key_cols, how="inner", suffix="_py")
     value_cols = [c for c in r_df.columns if c not in key_cols and c in py_df.columns]
+    swapped_pair_columns = _swapped_pair_columns(unit_swapped_columns)
+    mg_by_mmol = {
+        mmol: mg for mg, mmol in GLUCOSE_COLUMN_PAIRS if mmol in value_cols and mg in value_cols
+    }
 
     group_value_counts: dict[tuple[Any, ...], dict[str, Counter[Any]]] = {}
     if order_group_cols:
@@ -581,9 +605,49 @@ def compare_cells(
                         row_order_candidate=row_order_candidate,
                         group_endpoint_matches=group_endpoint_agrees.get((gkey, col), False),
                         row_has_bare_year_date=has_bare_year,
+                        column_unit_swapped=col in swapped_pair_columns,
+                        mg_sibling=(
+                            (row[mg_col], row[f"{mg_col}_py"])
+                            if (mg_col := mg_by_mmol.get(col)) is not None
+                            else None
+                        ),
                     )
                 )
     return mismatches
+
+
+def _swapped_pair_columns(unit_swapped_columns: set[str] | None) -> set[str]:
+    """Both halves of every swapped glucose pair.
+
+    ``resolve_glucose_units`` records the swap against the mg/dL column it read
+    as mmol/L, but the correction empties that column into its mmol sibling, so
+    a cell on either side of the pair is affected by the same file-level fact.
+    """
+    if not unit_swapped_columns:
+        return set()
+    swapped = set(unit_swapped_columns)
+    for mg_col, mmol_col in GLUCOSE_COLUMN_PAIRS:
+        if mg_col in unit_swapped_columns:
+            swapped.add(mmol_col)
+    return swapped
+
+
+GLUCOSE_UNIT_SWAP_ERROR_CODE = "glucose_unit_swapped"
+
+
+def load_glucose_unit_swaps(errors: pl.DataFrame) -> dict[str, set[str]]:
+    """Per tracker, which glucose columns the pipeline read as mmol/L.
+
+    Derived from the run's own error table rather than restated in the
+    comparison: ``resolve_glucose_units`` already writes one
+    ``glucose_unit_swapped`` row per affected file-column, so a threshold
+    change in the pipeline reaches the comparison without a second edit.
+    """
+    swapped = errors.filter(pl.col("error_code") == GLUCOSE_UNIT_SWAP_ERROR_CODE)
+    by_tracker: dict[str, set[str]] = {}
+    for row in swapped.iter_rows(named=True):
+        by_tracker.setdefault(row["file_name"], set()).add(row["column"])
+    return by_tracker
 
 
 def _group_endpoint_agreement(
@@ -2022,19 +2086,29 @@ def _is_python_glucose_unit_corrected(m: CellMismatch) -> bool:
         return r == 0.0
 
     if py == settings.error_val_numeric:
-        # Judged against the unit the header claims. Ticket 57 found six cells
-        # this cannot reach: 2020 Kantha Bopha's fbg_baseline_mg is 90.1%
-        # sub-30, so the column is read as mmol/L and its outliers 47.8 and
-        # 53.8 are rejected against the mmol ceiling -- while sitting inside
-        # the mg/dL range this test applies. Whether a column was swapped is a
-        # property of the whole column, which a per-cell classifier cannot see,
-        # so those six stay unclassified rather than being caught by widening
-        # this to "outside either unit" -- which would also claim every
-        # genuinely-rejected mg/dL reading above 45.
+        # Judged against the unit the column actually holds, which is not
+        # always the one its name claims. Ticket 57 found six cells this could
+        # not reach while the test went by name alone: 2020 Kantha Bopha's
+        # fbg_baseline_mg is 90.1% sub-30, so the column is read as mmol/L and
+        # its outliers 47.8 and 53.8 are rejected against the mmol ceiling --
+        # while sitting well inside the mg/dL range. Round 10 measured the
+        # obvious widening ("outside either unit") and backed it out, since it
+        # would claim every genuinely-rejected mg/dL reading above 45. Ticket
+        # 44 supplies the missing fact instead: column_unit_swapped comes from
+        # the run's own glucose_unit_swapped records, so the bound is chosen on
+        # evidence rather than on the column's name.
+        #
+        # A constant fix_fbg manufactured out of text is not a reading, so no
+        # range has anything to say about it: r_fbg_text_category_invention
+        # owns those, and without this guard the mmol bound would take five of
+        # them off it purely because 140 exceeds 45.
+        if r in _R_FBG_CATEGORY_VALUES:
+            return False
+        reads_as_mmol = m.column_unit_swapped or not m.column.endswith("_mg")
         low, high = (
-            (MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
-            if m.column.endswith("_mg")
-            else (MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX)
+            (MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX)
+            if reads_as_mmol
+            else (MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
         )
         return r < low or r > high
 
@@ -2074,6 +2148,80 @@ def _is_python_recovers_glucose_r_rejected(m: CellMismatch) -> bool:
 PATIENT_GLUCOSE_UNIT_CLASSIFIERS: dict[str, Classifier] = {
     "python_glucose_unit_corrected": _is_python_glucose_unit_corrected,
     "python_recovers_glucose_r_rejected": _is_python_recovers_glucose_r_rejected,
+}
+
+_MMOL_GLUCOSE_COLUMNS = frozenset(mmol_col for _, mmol_col in GLUCOSE_COLUMN_PAIRS)
+
+
+def _carries_a_reading(value: Any) -> bool:
+    """Did this side publish a glucose measurement in this cell at all?"""
+    reading = _glucose_float(value)
+    return reading is not None and reading != settings.error_val_numeric
+
+
+def _restates_its_own_mg_cell(mmol_value: Any, mg_value: Any) -> bool:
+    """Is this side's mmol cell nothing but its own mg cell in mmol/L?
+
+    A side that published nothing here -- null, or its numeric sentinel --
+    trivially added no reading of its own. A side that did publish one has to
+    be the exact 18-fold image of the mg cell it sits beside; anything else is
+    a measurement the mg cell cannot account for.
+    """
+    if not _carries_a_reading(mmol_value):
+        return True
+    mmol = _glucose_float(mmol_value)
+    if not _carries_a_reading(mg_value) or mmol is None:
+        return False
+    mg = _glucose_float(mg_value)
+    assert mg is not None
+    expected = mg / MMOL_TO_MG_FACTOR
+    return abs(mmol - expected) <= max(1e-6, abs(expected) * 1e-4)
+
+
+def _is_mmol_derived_from_mg_sibling(m: CellMismatch) -> bool:
+    """The mmol cell restates a divergence its mg sibling already carries.
+
+    Neither pipeline reads the mmol column from the workbook independently:
+    both derive it from the mg cell beside it (``convert_glucose_units``,
+    clean/patient.py; ``fix_fbg``'s ``fbg/18`` in R). So when the two sides
+    disagree about the mg cell, they disagree about the mmol cell as an
+    arithmetic consequence, and the mmol difference is not a second finding.
+
+    Measured over the whole 254-tracker run, all 2,935 cells in this shape sat
+    beside an mg cell that was itself a mismatch with an already-named cause --
+    not one exception -- in three populations:
+
+    - **2,797** where ticket 42's unit swap moved a reading into a column R
+      never populated (2025 Kantha Bopha II KH_KB097: the source writes 14.4
+      under the mg/dL header; R keeps mg=14.4 and no mmol, Python moves it to
+      mmol and rescales mg to 259.2).
+    - **110** where R derived mmol from an mg reading Python refused -- either
+      one ``fix_fbg`` invented out of text (140 from "Lost follow up") or one
+      beyond the analytical ceiling (2013 mg/dL, which R publishes as 111.8
+      mmol/L, above the level the medical advisor called impossible).
+    - **28** the other way round, where R sentinelled an mg cell carrying its
+      unit ("148 mg/dl   (Mar-18)") and Python read it and derived 8.22.
+
+    Python is the correct side in all three; each is already argued under the
+    mg cell's own cause, which is why this one names the cascade rather than
+    re-deciding it. Bounded two ways so it cannot swallow a genuine mmol
+    divergence: the mg sibling must itself disagree, and each side's mmol value
+    must be either absent or exactly its own mg cell divided by 18.
+    """
+    if m.column not in _MMOL_GLUCOSE_COLUMNS or m.mg_sibling is None:
+        return False
+    r_mg, py_mg = m.mg_sibling
+    if not _values_differ(r_mg, py_mg):
+        return False
+    if not _restates_its_own_mg_cell(m.r_value, r_mg):
+        return False
+    if not _restates_its_own_mg_cell(m.py_value, py_mg):
+        return False
+    return _carries_a_reading(m.r_value) or _carries_a_reading(m.py_value)
+
+
+PATIENT_GLUCOSE_CASCADE_CLASSIFIERS: dict[str, Classifier] = {
+    "mmol_derived_from_mg_sibling": _is_mmol_derived_from_mg_sibling,
 }
 
 
@@ -2262,8 +2410,10 @@ def compare_directory(
     id_col: str | None = None,
     categorical_cols: list[str] | None = None,
     order_group_cols: list[str] | None = None,
+    unit_swapped_columns: dict[str, set[str]] | None = None,
 ) -> DirectoryComparison:
     numeric_cols = numeric_cols or []
+    unit_swapped_columns = unit_swapped_columns or {}
     categorical_cols = categorical_cols or []
     r_names, py_names = set(r_frames), set(py_frames)
     common = sorted(r_names & py_names)
@@ -2280,7 +2430,13 @@ def compare_directory(
                 id_overlap=compare_id_overlap(r_df, py_df, id_col) if id_col else None,
                 categorical_overlap=compare_categorical_overlap(r_df, py_df, categorical_cols),
                 row_key_overlap=compare_row_key_overlap(r_df, py_df, key_cols),
-                cell_mismatches=compare_cells(r_df, py_df, key_cols, order_group_cols),
+                cell_mismatches=compare_cells(
+                    r_df,
+                    py_df,
+                    key_cols,
+                    order_group_cols,
+                    unit_swapped_columns.get(name),
+                ),
             )
         )
 

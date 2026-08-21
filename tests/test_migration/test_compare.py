@@ -18,6 +18,7 @@ from a4d.migration.compare import (
     PATIENT_CLINICAL_NOTE_CLASSIFIERS,
     PATIENT_DIAGNOSIS_AGE_CLASSIFIERS,
     PATIENT_FBG_TEXT_CLASSIFIERS,
+    PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
     PATIENT_INSULIN_DRUG_NAME_CLASSIFIERS,
     PATIENT_INSULIN_SUBTYPE_CLASSIFIERS,
     PATIENT_INSULIN_TOTAL_UNITS_CLASSIFIERS,
@@ -73,6 +74,7 @@ from a4d.migration.compare import (
     compare_shape,
     compare_totals,
     compute_deltas,
+    load_glucose_unit_swaps,
     normalize_boolean_literal_column,
     normalize_date_column,
     normalize_numeric_column,
@@ -2754,6 +2756,217 @@ class TestGlucoseUnitSwapSurvivors:
         assert not _is_python_recovers_glucose_r_rejected(
             self._m(settings.error_val_numeric, 999.0, column="fbg_baseline_mmol")
         )
+
+
+class TestSwappedColumnIsJudgedInTheUnitItHolds:
+    """Ticket 44: the file-level fact a per-cell classifier could not see."""
+
+    @staticmethod
+    def _m(r_value, py_value, column="fbg_baseline_mg", swapped=False):
+        return CellMismatch(
+            key={"id": 1},
+            column=column,
+            r_value=r_value,
+            py_value=py_value,
+            column_unit_swapped=swapped,
+        )
+
+    def test_an_outlier_in_a_swapped_column_is_judged_against_the_mmol_ceiling(self):
+        """2020 Kantha Bopha's 47.8 and 53.8: the column is 90.1% sub-30, so
+        Python reads it as mmol/L and rejects both against the 45 mmol/L
+        ceiling. Round 10 could only write these six out in prose."""
+        assert _is_python_glucose_unit_corrected(
+            self._m(47.8, settings.error_val_numeric, swapped=True)
+        )
+
+    def test_the_same_reading_in_an_unswapped_column_is_not_claimed(self):
+        assert not _is_python_glucose_unit_corrected(self._m(47.8, settings.error_val_numeric))
+
+    def test_a_manufactured_constant_stays_with_the_cause_that_explains_it(self):
+        """140 exceeds the mmol ceiling, but it is not a reading -- fix_fbg
+        made it out of "Lost follow up", which r_fbg_text_category_invention
+        already says."""
+        assert not _is_python_glucose_unit_corrected(
+            self._m(140.0, settings.error_val_numeric, swapped=True)
+        )
+
+    def test_a_reading_the_mmol_ceiling_accepts_is_not_claimed(self):
+        assert not _is_python_glucose_unit_corrected(
+            self._m(12.0, settings.error_val_numeric, swapped=True)
+        )
+
+
+class TestMmolCascadesFromItsMgSibling:
+    """Ticket 44: the mmol column is derived from the mg one, so an mg cell's
+    divergence restates itself next door. All three shapes are real rows from
+    the 254-tracker run."""
+
+    @staticmethod
+    def _m(r_value, py_value, mg_sibling, column="fbg_updated_mmol"):
+        return CellMismatch(
+            key={"id": 1},
+            column=column,
+            r_value=r_value,
+            py_value=py_value,
+            mg_sibling=mg_sibling,
+        )
+
+    def test_the_swap_moves_a_reading_r_never_had_in_mmol(self):
+        """2025 Kantha Bopha II KH_KB097: the source writes 14.4 under the
+        mg/dL header, so R keeps mg=14.4 with no mmol at all while Python
+        moves it across and rescales mg to 259.2."""
+        assert (
+            classify(
+                self._m(None, 14.4, mg_sibling=(14.4, 259.2)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "mmol_derived_from_mg_sibling"
+        )
+
+    def test_r_derives_mmol_from_an_mg_reading_python_refused(self):
+        """2018 Yangon: fix_fbg invents 140 mg/dL out of "Lost follow up", and
+        R divides it by 18 to publish 7.78 mmol/L as a real measurement."""
+        assert (
+            classify(
+                self._m(140 / 18, None, mg_sibling=(140.0, settings.error_val_numeric)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "mmol_derived_from_mg_sibling"
+        )
+
+    def test_python_derives_mmol_from_an_mg_reading_r_refused(self):
+        """2018 CDA: the source writes "148 mg/dl   (Mar-18)". R's as.numeric
+        fails on the whole string and sentinels it; Python reads 148 and
+        derives 8.22 mmol/L."""
+        assert (
+            classify(
+                self._m(None, 148 / 18, mg_sibling=(settings.error_val_numeric, 148.0)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "mmol_derived_from_mg_sibling"
+        )
+
+    def test_a_sentinel_on_one_side_still_carries_no_reading_of_its_own(self):
+        """2019 Kantha Bopha: R publishes 140/18 while Python sentinels the
+        mmol cell too, because the mg cell it derives from was unreadable."""
+        assert (
+            classify(
+                self._m(
+                    140 / 18,
+                    settings.error_val_numeric,
+                    mg_sibling=(140.0, settings.error_val_numeric),
+                ),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "mmol_derived_from_mg_sibling"
+        )
+
+    def test_an_mmol_value_that_is_not_its_own_mg_cells_image_is_not_claimed(self):
+        """The bound that keeps this from swallowing a genuine mmol
+        divergence: 9.0 is not 148/18, so the cell carries a reading of its
+        own and the cascade has not explained it."""
+        assert (
+            classify(
+                self._m(None, 9.0, mg_sibling=(settings.error_val_numeric, 148.0)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "unclassified"
+        )
+
+    def test_an_agreeing_mg_sibling_leaves_the_mmol_divergence_unexplained(self):
+        """Nothing cascaded: both sides read the same mg cell, so a difference
+        in the mmol cell is its own."""
+        assert (
+            classify(
+                self._m(None, 148 / 18, mg_sibling=(148.0, 148.0)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "unclassified"
+        )
+
+    def test_both_sides_absent_is_not_a_cascade(self):
+        assert (
+            classify(
+                self._m(None, settings.error_val_numeric, mg_sibling=(140.0, None)),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "unclassified"
+        )
+
+    def test_the_mg_column_itself_is_not_in_scope(self):
+        assert (
+            classify(
+                self._m(None, 14.4, mg_sibling=(14.4, 259.2), column="fbg_updated_mg"),
+                PATIENT_GLUCOSE_CASCADE_CLASSIFIERS,
+            )
+            == "unclassified"
+        )
+
+
+class TestCompareCellsSuppliesGlucoseContext:
+    def test_the_mg_sibling_travels_with_the_mmol_mismatch(self):
+        r_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [14.4], "fbg_updated_mmol": [None]})
+        py_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [259.2], "fbg_updated_mmol": [14.4]})
+
+        mismatches = compare_cells(r_df, py_df, key_cols=["id"])
+
+        mmol = next(m for m in mismatches if m.column == "fbg_updated_mmol")
+        assert mmol.mg_sibling == (14.4, 259.2)
+
+    def test_a_swapped_column_is_flagged_on_both_halves_of_its_pair(self):
+        r_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [14.4], "fbg_updated_mmol": [None]})
+        py_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [259.2], "fbg_updated_mmol": [14.4]})
+
+        mismatches = compare_cells(
+            r_df, py_df, key_cols=["id"], unit_swapped_columns={"fbg_updated_mg"}
+        )
+
+        assert {m.column for m in mismatches if m.column_unit_swapped} == {
+            "fbg_updated_mg",
+            "fbg_updated_mmol",
+        }
+
+    def test_an_unswapped_run_flags_nothing(self):
+        r_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [14.4], "fbg_updated_mmol": [None]})
+        py_df = pl.DataFrame({"id": [1], "fbg_updated_mg": [259.2], "fbg_updated_mmol": [14.4]})
+
+        mismatches = compare_cells(r_df, py_df, key_cols=["id"])
+
+        assert not any(m.column_unit_swapped for m in mismatches)
+
+
+class TestGlucoseUnitSwapsFromErrorRecords:
+    """The swap list is read back from the pipeline's own error table rather
+    than restated here -- ``resolve_glucose_units`` already writes one row per
+    swapped file-column."""
+
+    def test_swaps_are_grouped_by_tracker(self):
+        errors = pl.DataFrame(
+            {
+                "file_name": ["2020_KB", "2020_KB", "2018_CDA", "2020_KB"],
+                "column": [
+                    "fbg_baseline_mg",
+                    "fbg_updated_mg",
+                    "fbg_updated_mg",
+                    "fbg_updated_mg",
+                ],
+                "error_code": [
+                    "glucose_unit_swapped",
+                    "glucose_unit_swapped",
+                    "glucose_unit_suspect",
+                    "glucose_unit_swapped",
+                ],
+            }
+        )
+
+        assert load_glucose_unit_swaps(errors) == {"2020_KB": {"fbg_baseline_mg", "fbg_updated_mg"}}
+
+    def test_a_run_with_no_swaps_yields_nothing(self):
+        errors = pl.DataFrame(
+            {"file_name": ["2018_CDA"], "column": ["age"], "error_code": ["type_conversion"]}
+        )
+
+        assert load_glucose_unit_swaps(errors) == {}
 
 
 class TestClinicalNoteClassifiers:

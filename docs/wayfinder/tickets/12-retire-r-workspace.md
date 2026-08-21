@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 44]
+blocked_by: [20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32]
 assignee: null
 claimed_at: null
 resolution: null
@@ -281,3 +281,17 @@ clinical notes](39-recover-dates-embedded-in-free-text.md) needed R read twice
 dates in one note, and that its order list ends in `y`, which is why a bare
 year in prose becomes 1 January -- so it earned its place on this list and has
 now spent it.
+
+**2026-08-21b (ticket 44 closed).** `blocked_by` drops `44`, leaving **`[32]`
+alone** -- [the classifier re-audit](32-audit-classifiers-against-decision-bar.md)
+is the last open ticket on this map that needs `r-archive/`'s source, and it
+needs it by definition, since re-auditing a classifier means re-reading the R
+function it claims to describe. [The FBG R-null
+residual](44-triage-cleaned-fbg-r-null-residual.md) spent its place on `fix_fbg`
+and R's `fbg/18` cross-derivation, both read to establish that the mmol column
+is derived rather than recorded on either side.
+
+That makes this ticket **one decision away from the frontier** for the second
+time. The first attempt was premature (see above), and the difference now is
+that the reason for waiting has narrowed to a single named ticket rather than a
+population of residuals nobody had counted.
