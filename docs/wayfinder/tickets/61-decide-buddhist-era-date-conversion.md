@@ -2,12 +2,12 @@
 id: 61
 title: Decide whether a Thai clinic's Buddhist-era entry date is published as 2567 or converted to 2024
 labels: [wayfinder:grilling]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-22b
+claimed_at: 2026-08-22T12:00:00+02:00
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 32
 ---
@@ -134,3 +134,128 @@ refused them on the grounds that subtracting 543 would be guessing at the
 clinic's calendar -- this decision overturns that reasoning for cells the band
 test identifies, but those two also carry a date *range*, which is a separate
 problem ticket 39 already declined.
+
+## Resolution (session-2026-08-22b)
+
+**Decision.** Both arms convert a Buddhist-era date to Gregorian in the cleaned
+stage, and log every conversion under a new `buddhist_era_converted` error code
+so the shift is auditable rather than silent. Implemented, run against the real
+254-tracker set, and every resulting R/Python divergence named.
+
+The open question the previous session left -- whether
+`hospitalisation_date`'s two note-embedded BE cells (`18-19/11/2567`,
+`19-22/5/2568`) come along -- is answered **no** by the user (2026-08-22): a
+date *range* is a separate problem [ticket
+39](39-recover-dates-embedded-in-free-text.md) already declined, and this
+decision does not overturn that half. They are reported as source defects
+instead ([ticket 40](40-source-defect-findings-report.md)).
+
+**What was built.**
+
+- `clean/buddhist_era.py` (new): `BUDDHIST_ERA_OFFSET`, `BUDDHIST_ERA_THRESHOLD`
+  and `gregorian_from_buddhist()`, shared by both arms. The shift goes via a
+  string rather than `pl.date`/`dt.replace` because both of those *raise* on
+  invalid components: 543 is not a multiple of 4, so a Buddhist leap day can
+  land on a non-leap Gregorian year (2568-02-29 -> 2025-02-29) and would abort
+  the tracker. It yields null there instead, and the cell is left for the
+  ordinary implausible-date handling rather than invented.
+- `_convert_buddhist_era_dates` (`clean/patient.py`, step 5.4). Domain is
+  `get_date_columns()` minus `tracker_date` -- derived, not listed. Placed
+  before `_fix_age_from_dob` so no age is ever derived from a BE `dob`, and
+  before `_validate_dates`, which is what was destroying these cells.
+- `_validate_entry_dates` (`clean/product.py`) converts inside the BE band it
+  already computed for ticket 32 rather than passing the date through.
+
+**The band, and why patient's differs from product's.** Product converts only
+inside `[table_year + 543 - 5, table_year + 543]`. Patient has no lower bound
+at all: a diagnosis or screening date legitimately predates its tracker by
+decades, and 2026 Chulalongkorn correctly records `2567-07-18` (2024) in a
+kidney-test column. The upper bound alone -- shifted year no later than the
+tracker's own year -- is what rejects a value that decodes to nothing, and it
+does: `3035` -> 2492 and `5025` -> 4482 both stay sentinelled.
+
+**Measured against the real 254-tracker set** (`a4d run --force`, both arms in
+one execution, then `just compare-outputs` against `output_r`):
+
+- **Patient: 375 cells converted** across 11 columns and 7 Thai trackers, each
+  logged. The 381 the previous session measured minus the 6 that decode to
+  nothing -- exactly the split it predicted.
+- **Product: 22 rows converted**; `product_data` now holds **zero** entry dates
+  with a year past 2400 (queried directly), where it previously published
+  stock movements dated 543 years in the future.
+- **The Hat Yai case came out right without being told.** `2022_Hat Yai`
+  `TH_HY013`'s `t1d_diagnosis_date` now reads 2017-01-01 against a D.O.B. of
+  2013-03-17 and `t1d_diagnosis_age` 4 -- the date [ticket
+  40](40-source-defect-findings-report.md) had derived by hand.
+- **Patient cell divergence is unchanged at 114,284**, which is the expected
+  result: these cells already mismatched, with Python holding the sentinel;
+  now it holds a date. Product cleaned rose 22,699 -> 22,735 (+36) from the
+  re-sort described below. **Unclassified did not move on either arm** (16 and
+  21).
+
+**Two new causes in the comparison tool**, both needed by this map's bar that a
+difference is named rather than left over:
+
+- `python_buddhist_era_converted` (287 cells, both arms): R keeps the BE year,
+  Python holds exactly the same day 543 years earlier. The test is the exact
+  shift -- same month, same day -- so a second divergence riding along cannot
+  hide behind the name. It takes over 281 cells `buddhist_era_typo` used to
+  hold, 12 `python_rejects_beyond_tracker_year` held, 16 that
+  `python_out_of_window_date_preserved` was over-claiming, and 1 that
+  `note_dates_read_differently` had swallowed. It is prepended for every
+  `get_date_columns()` column, not hand-listed.
+- `buddhist_era_conversion_row_order` (3 cells): converting moves the row.
+  Product rows pair by ordinal position within (clinic, sheet), and R sorts an
+  unconverted 2565 date to the end of its group while Python sorts 2022
+  chronologically. Verified on the real pair -- 2022 Chiang Mai Maharaj
+  Nakorn, `Dec22`, "Accu-Chek Instant Test Strips": R's ordinal 11 holds
+  2565-12-24 where Python holds 2022-12-28, and Python's ordinal 9 holds the
+  converted 2022-12-24. Plain value membership cannot see this (R's value is
+  by construction absent from Python's group), so `compare_cells` now also
+  tests membership of the *shifted* value, via a new
+  `era_shift_row_order_candidate` flag.
+
+That same re-sort also moved 36 cells into causes that already existed
+(`row_order_divergence` +21 across four columns, `r_value_missing` +17,
+`derived_running_total_row_order` +4, offset by
+`python_out_of_window_date_preserved` -16). Stated as a consequence of this
+change, not as new evidence about R.
+
+**Rejected.**
+
+- *Publish as written and flag only* (candidate 2): rejected by the user's
+  decision. On product it leaves BigQuery holding dates 543 years out; on
+  patient it is not even available, because publishing as written is what
+  `_validate_dates` destroys.
+- *Convert in the raw stage*: rejected by the decision -- raw is a faithful
+  record of what the workbook says, and the whole audit trail depends on that.
+- *Convert the two hospitalisation ranges too*: rejected this session (above).
+- *Widen the patient band downward with an explicit floor* (e.g. 1900):
+  considered and dropped as dead weight. The 2400 threshold already implies a
+  floor of 1857, and no cell sits near it.
+- *Let `row_order_divergence` absorb the three displaced product cells* by
+  normalizing R's BE value before the membership test: rejected because the
+  cells' *values* still differ for a reason worth naming; folding them into a
+  generic order cause would have hidden the conversion behind it.
+
+**Evidence.** Everything above is **executed**: a full `a4d run --force` over
+the 254-tracker set, `duckdb` queries against the resulting parquets and error
+table, two `just compare-outputs` runs, and 927 passing tests (`ruff`, `ty
+check src/` clean). The one judgement is the band rule itself -- that a year
+past 2400 which decodes to no later than the tracker year *is* a Buddhist-era
+date. It is recorded as an assumption on the map.
+
+**Tense.** All counts describe current behaviour on `migration` after this
+session's commit, not a proposal.
+
+### Not done here
+
+- The **2 range cells** and the **6 undecodable era cells** are now [ticket
+  40](40-source-defect-findings-report.md)'s to report; that ticket's body was
+  updated in this session, including retiring "BE years in date cells" as a
+  defect class now that they are converted.
+- **`buddhist_era_typo` still exists** at its new scope of exactly 6 cells (the
+  ones Python cannot convert). [Ticket
+  60](60-audit-remaining-pre-bar-classifiers.md) lists it as one of the eight
+  pre-bar causes to audit, and its table's "6 rows" now matches what the
+  classifier actually holds.

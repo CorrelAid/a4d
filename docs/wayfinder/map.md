@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -46,7 +46,6 @@ flowchart TD
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
     T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
     T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
-    T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -54,7 +53,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 48"]
+  subgraph DECIDED["Decided · 49"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -104,6 +103,7 @@ flowchart TD
     T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
     T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
     T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
+    T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -140,11 +140,11 @@ flowchart TD
   T60 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T58,T59,T60,T61 frontier
+  class T16,T34,T35,T40,T41,T58,T59,T60 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T61 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2290,13 +2290,47 @@ date. Nothing had surfaced them, since R sentinels them too and so the
 comparison has no mismatch to show. The product fix's band test looks right for
 patient as well: 2022 Hat Yai's `2560-01-01` converts to 2017-01-01, the date
 [ticket 40](tickets/40-source-defect-findings-report.md) had separately
-established from that patient's own D.O.B. and recruitment. **Implementation is
+established from that patient's own D.O.B. and recruitment. **Implementation was
 deliberately left to a fresh session** — it moves 381 patient cells plus 22
 product rows and needs both guards, tests, a full 254-tracker run and a
-comparison. The ticket stays open and stays on the frontier; what remains is
-execution, not a decision.
+comparison.
+
+**That session ran, and the conversion is live on both arms.** [Whether a Thai
+clinic's Buddhist-era date is published as 2567 or converted to
+2024](tickets/61-decide-buddhist-era-date-conversion.md) is closed: **375
+patient cells recovered** (the 381 measured, minus 6 that decode to nothing)
+and **22 product rows converted**, with `product_data` now holding zero entry
+dates past year 2400. The user settled the one question the previous session
+left open — the two `hospitalisation_date` cells naming a BE date *range* stay
+unconverted, because the range is a problem [ticket
+39](tickets/39-recover-dates-embedded-in-free-text.md) declined and this
+decision did not overturn; they become source-defect findings instead. Every
+divergence the change created is named: two new causes
+(`python_buddhist_era_converted`, `buddhist_era_conversion_row_order`), and
+**unclassified did not move on either arm** (16 patient, 21 product). Full
+detail: [ticket 61](tickets/61-decide-buddhist-era-date-conversion.md).
+
+**The frontier is eight tickets.** [Ticket
+12](tickets/12-retire-r-workspace.md) is unchanged at `blocked_by: [59, 60]`
+— this ticket never needed `r-archive/`, so closing it neither adds nor
+removes a reason to keep R. [Rows that pair with
+nothing](tickets/59-triage-unmatched-row-keys.md) and [the eight pre-bar
+causes](tickets/60-audit-remaining-pre-bar-classifiers.md) remain the two
+tickets standing between this map and retiring R.
 
 ## Decisions so far
+
+- [Decide whether a Thai clinic's Buddhist-era entry date is published as 2567
+  or converted to 2024](tickets/61-decide-buddhist-era-date-conversion.md) --
+  decided and implemented. Converted, in the cleaned stage on both arms, under
+  a new `buddhist_era_converted` error code so the shift is auditable; raw
+  keeps what the workbook says. 375 patient cells that `_validate_dates` was
+  destroying are recovered, and 22 product rows no longer publish a stock
+  movement dated 543 years ahead. Patient converts on the upper bound alone
+  (a diagnosis date may predate its tracker by decades), product inside the
+  band it already computed; 6 cells that decode to no plausible year stay
+  sentinelled, and the two `hospitalisation_date` cells naming a date *range*
+  stay out. Two comparison causes added, no new unclassified cells.
 
 - [Decide whether a date buried inside a clinical note should be recovered or
   discarded](tickets/39-recover-dates-embedded-in-free-text.md) -- decided and
@@ -3224,6 +3258,19 @@ execution, not a decision.
 
 ## Assumptions in force
 
+- **A date whose year is past 2400 and which decodes to no later than its
+  tracker's year is a Buddhist-era date.** That rule is what converts 375
+  patient cells and 22 product rows, and it is an inference from the year
+  alone -- nothing in the workbook says which calendar a cell is in. It is
+  strongly corroborated (every affected tracker is Thai; each product cell's
+  month matches its sheet; 2022 Hat Yai's `2560-01-01` converts to the
+  2017-01-01 that patient's own D.O.B. and recruitment independently give)
+  but it is still an inference. Resting on [ticket
+  61](tickets/61-decide-buddhist-era-date-conversion.md); overturned by a cell
+  in that range that means something else -- a mistyped Gregorian year, or a
+  serial corruption that happens to decode plausibly -- which would make the
+  conversion a silent rewrite rather than a recovery.
+
 - **A year-less date in a note belongs to its tracker's own year.**
   `recover_date_from_text` (clean/date_parser.py) fills an absent year from the
   row's `tracker_year`, which publishes 39 cells whose source states no year at
@@ -3563,6 +3610,10 @@ flowchart TB
     direction LR
     U32["<b>32</b><br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right,<br/>or was the diff merely<br/>labelled?"]
   end
+  subgraph S2026_08_22b["Session 2026-08-22b"]
+    direction LR
+    U61["<b>61</b><br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published<br/>as 2567 or converted to<br/>2024"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3580,7 +3631,6 @@ flowchart TB
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
     U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
     U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
-    U61["<b>61</b><br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published<br/>as 2567 or converted to<br/>2024"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3624,7 +3674,8 @@ flowchart TB
   S2026_08_20 ~~~ S2026_08_20b
   S2026_08_20b ~~~ S2026_08_21
   S2026_08_21 ~~~ S2026_08_22
-  S2026_08_22 ~~~ Sunworked
+  S2026_08_22 ~~~ S2026_08_22b
+  S2026_08_22b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -3706,11 +3757,11 @@ flowchart TB
   U32 -.->|spawned| U61
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58,U59,U60,U61 tfrontier
+  class U16,U34,U35,U40,U41,U58,U59,U60 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U61 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

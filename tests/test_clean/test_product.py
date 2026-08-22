@@ -65,7 +65,10 @@ def test_validate_entry_dates_flags_future_dates_within_window():
     assert err.patient_id == "P2"
 
 
-def test_validate_entry_dates_preserves_buddhist_era_dates():
+def test_validate_entry_dates_converts_buddhist_era_dates_to_gregorian():
+    """Ticket 61: a BE date is the clinic's calendar, not its error, so it is
+    converted like any other recovery -- and logged, so the conversion is
+    auditable rather than silent. The parse-failure sentinel stays put."""
     df = _entry_date_df(
         products=["P1", "P2"],
         entry_dates=[date(2567, 11, 11), date(9999, 9, 9)],
@@ -75,9 +78,28 @@ def test_validate_entry_dates_preserves_buddhist_era_dates():
     result = _validate_entry_dates(df, collector)
 
     parsed = result["product_entry_date"].to_list()
-    assert parsed[0] == date(2567, 11, 11)
+    assert parsed[0] == date(2024, 11, 11)
     assert parsed[1] == date(9999, 9, 9)
-    assert len(collector) == 0
+    assert len(collector) == 1
+    assert collector.errors[0].error_code == "buddhist_era_converted"
+    assert collector.errors[0].original_value == "2567-11-11"
+
+
+def test_validate_entry_dates_leaves_a_buddhist_leap_day_that_cannot_shift():
+    """543 is not a multiple of 4, so 2568-02-29 would have to become a
+    29 February 2025 that does not exist. Left unconverted and sentinelled as
+    an implausible era date rather than invented."""
+    df = _entry_date_df(
+        products=["P1"],
+        entry_dates=[date(2568, 2, 29)],
+        table_year=2025,
+    )
+    collector = ErrorCollector()
+
+    result = _validate_entry_dates(df, collector)
+
+    assert result["product_entry_date"].to_list() == [date(9999, 9, 9)]
+    assert {e.error_code for e in collector.errors} == {"implausible_era_date"}
 
 
 def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band():
@@ -95,17 +117,20 @@ def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band():
     result = _validate_entry_dates(df, collector)
 
     parsed = result["product_entry_date"].to_list()
-    assert parsed[0] == date(2567, 11, 11)
+    assert parsed[0] == date(2024, 11, 11)
     assert parsed[1] == date(9999, 9, 9)
     assert parsed[2] == date(9999, 9, 9)
-    assert len(collector) == 2
-    assert {e.patient_id for e in collector.errors} == {"P2", "P3"}
-    assert {e.error_code for e in collector.errors} == {"implausible_era_date"}
+    assert len(collector) == 3
+    assert {e.patient_id for e in collector.errors if e.error_code == "implausible_era_date"} == {
+        "P2",
+        "P3",
+    }
 
 
-def test_validate_entry_dates_accepts_buddhist_band_edges():
+def test_validate_entry_dates_converts_at_both_buddhist_band_edges():
     """The band mirrors the Gregorian window: BE equivalents of
-    [table_year - YEAR_FLOOR_DELTA, table_year]."""
+    [table_year - YEAR_FLOOR_DELTA, table_year]. Every year inside it converts;
+    the edges are where an off-by-one would show."""
     df = _entry_date_df(
         products=["P1", "P2"],
         entry_dates=[date(2024 + 543 - YEAR_FLOOR_DELTA, 1, 1), date(2024 + 543, 12, 31)],
@@ -115,10 +140,10 @@ def test_validate_entry_dates_accepts_buddhist_band_edges():
     result = _validate_entry_dates(df, collector)
 
     assert result["product_entry_date"].to_list() == [
-        date(2024 + 543 - YEAR_FLOOR_DELTA, 1, 1),
-        date(2024 + 543, 12, 31),
+        date(2024 - YEAR_FLOOR_DELTA, 1, 1),
+        date(2024, 12, 31),
     ]
-    assert len(collector) == 0
+    assert {e.error_code for e in collector.errors} == {"buddhist_era_converted"}
 
 
 def test_validate_entry_dates_does_not_relog_the_sentinel():

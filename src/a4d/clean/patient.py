@@ -16,6 +16,7 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
+from a4d.clean.buddhist_era import BUDDHIST_ERA_THRESHOLD, gregorian_from_buddhist
 from a4d.clean.converters import (
     correct_decimal_sign,
     cut_numeric_value,
@@ -101,6 +102,11 @@ def clean_patient_data(
 
     # Step 5: Type conversions
     df = _apply_type_conversions(df, error_collector)
+
+    # Step 5.4: Convert Buddhist-era dates to Gregorian (ticket 61).
+    # Before _fix_age_from_dob so no age is derived from a BE dob, and before
+    # _validate_dates, which would otherwise sentinel every one of them.
+    df = _convert_buddhist_era_dates(df, error_collector)
 
     # Step 5.5: Fix age from DOB (like R pipeline does)
     # Must happen after type conversions so DOB is a proper date
@@ -891,6 +897,64 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
         .cast(pl.Int32)
         .alias("t1d_diagnosis_age")
     )
+
+    return df
+
+
+def _convert_buddhist_era_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+    """Shift Buddhist-era dates to Gregorian before anything else reads them.
+
+    Thai clinics keep their trackers in a Thai-locale Excel, so a date arrives
+    with a Buddhist-era year (BE = CE + 543) -- the calendar the clinic uses,
+    not an error it made. Without this step ``_validate_dates`` sees a year
+    centuries ahead and clobbers the cell with the 9999-09-09 sentinel, so the
+    reading is destroyed rather than merely published oddly: 381 cells across
+    95 distinct values in the 254-tracker corpus, invisible to the R comparison
+    because R sentinels them too (ticket 61).
+
+    A cell converts when its year is at or beyond ``BUDDHIST_ERA_THRESHOLD``
+    and the shifted year is no later than the tracker's own year. There is no
+    lower bound, unlike the product arm's band: a diagnosis or screening date
+    legitimately predates its tracker by decades, and the upper bound alone
+    already rejects what does not decode (``3035`` -> 2492, ``5025`` -> 4482),
+    leaving those to be sentinelled and reported as source defects.
+
+    Runs before ``_fix_age_from_dob`` so an age is never derived from a BE
+    ``dob``. Cleaned stage only -- the raw stage keeps what the workbook says.
+    """
+    converting = [c for c in get_date_columns() if c in df.columns and c != "tracker_date"]
+    converted_cells = 0
+
+    for col in converting:
+        shifted = gregorian_from_buddhist(col)
+        mask = (
+            pl.col(col).is_not_null()
+            & (pl.col(col).dt.year() >= BUDDHIST_ERA_THRESHOLD)
+            & shifted.is_not_null()
+            & (shifted <= pl.date(pl.col("tracker_year"), 12, 31))
+        )
+
+        candidates = df.with_columns(shifted.alias("_shifted")).filter(mask)
+        for patient_id, file_name, original, shifted_value in candidates.select(
+            "patient_id", "file_name", col, "_shifted"
+        ).iter_rows():
+            error_collector.add_error(
+                file_name=file_name or "UNKNOWN",
+                patient_id=patient_id or "UNKNOWN",
+                column=col,
+                original_value=str(original),
+                error_message=(
+                    f"Date {original} is a Buddhist-era year; converted to {shifted_value}"
+                ),
+                error_code="buddhist_era_converted",
+                function_name="_convert_buddhist_era_dates",
+            )
+            converted_cells += 1
+
+        df = df.with_columns(pl.when(mask).then(shifted).otherwise(pl.col(col)).alias(col))
+
+    if converted_cells > 0:
+        logger.info(f"Buddhist-era conversion: {converted_cells} dates shifted to Gregorian")
 
     return df
 

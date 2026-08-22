@@ -43,6 +43,7 @@ from a4d.clean.schema import (
 )
 from a4d.clean.validators import load_validation_rules
 from a4d.migration.compare import (
+    BUDDHIST_ERA_CONVERSION_CLASSIFIERS,
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS,
@@ -435,7 +436,14 @@ CLASSIFIERS_BY_COLUMN = {
     # stored as text and "2022-04-01" as a datetime), which drops R back to
     # input-order sorting -- so both sides hold a real, different date and
     # `r_value_missing` never fires.
-    "product_entry_date": PRODUCT_ENTRY_DATE_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
+    # ticket 61 leads: a Buddhist-era entry date the cleaned stage converts is
+    # otherwise claimed by python_out_of_window_date_preserved, whose test the
+    # R side genuinely passes.
+    "product_entry_date": (
+        BUDDHIST_ERA_CONVERSION_CLASSIFIERS
+        | PRODUCT_ENTRY_DATE_CLASSIFIERS
+        | PRODUCT_ROW_ORDER_CLASSIFIERS
+    ),
     "product_category": PRODUCT_CATEGORY_CLASSIFIERS | PRODUCT_ROW_ORDER_CLASSIFIERS,
     # ticket 21: cleaned-stage columns whose mismatches are dominated by a
     # within-(clinic, sheet) sort-order divergence, not genuine content
@@ -651,6 +659,18 @@ CLASSIFIERS_BY_COLUMN["testing_frequency"] = (
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_UNICODE_SANITIZER_CLASSIFIERS
     for col in PATIENT_CATEGORICAL_COLS
+}
+
+
+# ticket 61: the cleaned stage's Buddhist-era conversion, which runs over
+# get_date_columns() itself -- so, like ticket 51's future-date guard, the
+# cause has exactly that domain by construction. Prepended rather than
+# appended: its test is the tightest of any date cause (an exact 543-year
+# shift, same month and day), and several broader causes -- R sentinelling,
+# a note read differently -- match a converted cell too.
+CLASSIFIERS_BY_COLUMN |= {
+    col: BUDDHIST_ERA_CONVERSION_CLASSIFIERS | CLASSIFIERS_BY_COLUMN.get(col, {})
+    for col in get_date_columns()
 }
 
 

@@ -9,6 +9,11 @@ from pathlib import Path
 
 import polars as pl
 
+from a4d.clean.buddhist_era import (
+    BUDDHIST_ERA_OFFSET,
+    BUDDHIST_ERA_THRESHOLD,
+    gregorian_from_buddhist,
+)
 from a4d.clean.converters import (
     normalize_excel_formula_errors,
     parse_date_column,
@@ -43,19 +48,6 @@ EMPTY_ROW_COLS: tuple[str, ...] = (
     "product_entry_date",
     "product_balance",
 )
-
-# Buddhist Era / Common Era disambiguation point. Mandalay trackers carry
-# Buddhist-era dates (BE = CE + 543); a parsed year >= 2400 is implausibly
-# Gregorian and treated as either Buddhist-era or already-sentinel
-# (error_val_date 9999-09-09). _validate_entry_dates skips these so they
-# flow through unchanged, matching R, while still flagging fat-finger
-# Gregorian futures (e.g. 2099 in a 2024 tracker).
-BUDDHIST_ERA_THRESHOLD: int = 2400
-
-# Buddhist Era is Common Era + 543. Used to decide whether a year past the
-# threshold is this tracker's own BE year (2567 in a 2024 tracker) or simply
-# corrupt (5567 from Excel serial 1339576).
-BUDDHIST_ERA_OFFSET: int = 543
 
 # Lower-bound year guard for _validate_entry_dates. A parsed Gregorian
 # year more than YEAR_FLOOR_DELTA years before the tracker's calendar
@@ -481,18 +473,22 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
 
     * **Implausible era** (year at or beyond ``BUDDHIST_ERA_THRESHOLD`` that is
       not this tracker's own Buddhist-era year): logged under
-      ``implausible_era_date`` AND replaced with ``error_val_date``. A genuine
-      BE date (``2567-11-11`` in a 2024 tracker, from a BE-shifted Excel serial
-      ~243,933) flows through untouched; a corrupt serial does not. Ticket 32
+      ``implausible_era_date`` AND replaced with ``error_val_date``. Ticket 32
       found the earlier blanket ">= 2400 is exempt" rule published
       ``5567-08-19`` and ``3026-04-30`` — Excel serials 1,339,576 and 411,384 —
       straight into the product table, plus a Hat Yai ``2525`` in a tracker
       whose BE year is 2568.
+    * **Buddhist era** (year inside this tracker's own BE band): shifted back
+      543 years and logged under ``buddhist_era_converted`` (ticket 61). A BE
+      date is the calendar a Thai clinic uses, not an error it made, so the
+      pipeline publishes one calendar downstream rather than a stock movement
+      dated 543 years in the future. R does not convert, so this is a
+      deliberate divergence. A BE leap day that has no Gregorian counterpart
+      (2568-02-29 -> 2025-02-29) yields null from the shift and falls through
+      to the implausible-era branch rather than being invented.
 
-    The parse-failure sentinel (9999-09-09) is exempt from all three branches so
-    it is not re-clobbered or double-logged. This deliberately diverges from the
-    patient pipeline's ``_validate_dates``, which still clobbers any future date
-    — patient is out of scope for this change.
+    The parse-failure sentinel (9999-09-09) is exempt from all branches so it is
+    not re-clobbered or double-logged.
     """
     if "product_entry_date" not in df.columns or "product_table_year" not in df.columns:
         return df
@@ -510,12 +506,39 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
         entry_year <= table_year + BUDDHIST_ERA_OFFSET
     )
     is_sentinel = pl.col("product_entry_date") == error_date
+    converted = gregorian_from_buddhist("product_entry_date")
+    convert_mask = (
+        pl.col("product_entry_date").is_not_null()
+        & (entry_year >= BUDDHIST_ERA_THRESHOLD)
+        & in_buddhist_band
+        & ~is_sentinel
+        & converted.is_not_null()
+    )
     implausible_era_mask = (
         pl.col("product_entry_date").is_not_null()
         & (entry_year >= BUDDHIST_ERA_THRESHOLD)
-        & ~in_buddhist_band
+        & ~convert_mask
         & ~is_sentinel
     )
+
+    convertible = df.filter(convert_mask).select(
+        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+    )
+    for file_name, product, entry_date, table_year_val, sheet_name in convertible.iter_rows():
+        error_collector.add_error(
+            file_name=file_name or "unknown",
+            patient_id=product or "unknown",
+            column="product_entry_date",
+            original_value=str(entry_date),
+            error_message=(
+                f"product_entry_date {entry_date} is the Buddhist-era year of "
+                f"product_table_year {table_year_val}; converted to "
+                f"{entry_date.year - BUDDHIST_ERA_OFFSET}-{entry_date.month:02d}-"
+                f"{entry_date.day:02d} (sheet '{sheet_name or 'unknown'}')"
+            ),
+            error_code="buddhist_era_converted",
+            function_name="_validate_entry_dates",
+        )
 
     implausible = df.filter(implausible_era_mask).select(
         "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
@@ -586,6 +609,8 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     return df.with_columns(
         pl.when(above_max_mask | implausible_era_mask)
         .then(error_date)
+        .when(convert_mask)
+        .then(converted)
         .otherwise(pl.col("product_entry_date"))
         .alias("product_entry_date")
     )

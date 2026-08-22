@@ -45,7 +45,11 @@ Concrete findings already waiting for such a report, all source-verified:
   List holds 2023 diagnosis dates for all 43 patients ([ticket
   38](38-triage-patient-cleaned-date-family.md)).
 - **Buddhist-Era years typed into Gregorian date cells** ([ticket
-  27](27-triage-patient-raw-residual.md)).
+  27](27-triage-patient-raw-residual.md)). **Superseded as a defect by [ticket
+  61](61-decide-buddhist-era-date-conversion.md)**: a BE year is the calendar a
+  Thai clinic uses, and the cleaned stage now converts it (375 patient cells,
+  22 product rows). What remains reportable is only the era years that decode
+  to nothing -- see the two below.
 - **Excel formula errors cached in source cells** (`r_formula_error`, ticket 27).
 - **Stray date/time-formatted cells in numeric columns** ([ticket
   24](24-triage-remaining-raw-column-residual.md)).
@@ -97,8 +101,11 @@ Concrete findings already waiting for such a report, all source-verified:
   date** ([ticket 50](50-triage-patient-raw-residual-6.md)): `2022_Hat Yai`
   `Patient List!G25` for `TH_HY013` holds 2560-01-01 in a `d-mmm-yyyy` cell.
   The patient's own D.O.B. (2013-03-17), recruitment (2017-06-01) and age at
-  diagnosis (4) all agree the intended date is 2017, so BE 2560 is a typo, not
-  a different convention.
+  diagnosis (4) all agree the intended date is 2017. **[Ticket
+  61](61-decide-buddhist-era-date-conversion.md) now recovers it**: the band
+  test converts 2560 to 2017 without being told, matching the answer this
+  report had derived by hand. Still worth reporting so the workbook is
+  corrected, but no longer data the pipeline loses.
 - **Three more header defects Python works around and R does not** ([ticket
   50](50-triage-patient-raw-residual-6.md)), each costing R real data and each
   worth correcting at source: `2022_Kantha Bopha`'s month sheets open the
@@ -283,10 +290,22 @@ changed.
   nothing is published wrongly -- but a data row holding the form's own
   placeholder means the cell was never filled in, and the clinics should be
   told which rows those are.
-- **Buddhist-Era years in a Gregorian date field**: `18-19/11/2567`,
-  `19-22/5/2568`. Refused rather than converted -- 2567 fails the plausible-year
-  bound and subtracting 543 would be the pipeline guessing at the calendar the
-  clinic meant. Two cells; the fix is the clinic writing 2024/2025.
+- **Buddhist-Era years in a Gregorian date field, inside a note naming a date
+  *range***: `18-19/11/2567`, `19-22/5/2568`. Two cells, both
+  `hospitalisation_date`. [Ticket
+  61](61-decide-buddhist-era-date-conversion.md) settled that a BE year is
+  converted, not refused -- but these carry a range as well, and picking one of
+  two admission days is a convention [ticket
+  39](39-recover-dates-embedded-in-free-text.md) declined and this decision did
+  not overturn. Left unconverted on the range, not on the calendar; the fix is
+  the clinic writing one Gregorian date.
+- **Era years that decode to no plausible date**, 6 cells, both
+  `fbg_updated_date` ([ticket
+  61](61-decide-buddhist-era-date-conversion.md)): `2025_CDA` `3035-03-01`
+  (1 cell, `KH_CD016`) and `2025_Surat Thani` `5025-05-19` (5 cells,
+  `TH_ST003`). Subtracting 543 gives 2492 and 4482, still years in the future,
+  so neither is a Buddhist-era date the band can recover. Both stay sentinelled
+  and are logged `invalid_value`; the cells need a human.
 - **A stay written with no separators at all**: `25Jul-2Aug2022`, 1 cell.
   Neither pipeline reads it correctly -- R gives 2022-02-25, Python takes the
   discharge day 2022-08-02 -- because with the separator missing the opening
