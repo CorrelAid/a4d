@@ -9,10 +9,12 @@ from a4d.clean.patient import (
     _apply_preprocessing,
     _apply_range_validation,
     _apply_type_conversions,
+    _convert_buddhist_era_dates,
     _derive_insulin_fields,
     _extract_date_from_measurement,
     _fix_age_from_dob,
     _fix_t1d_diagnosis_age,
+    _validate_dates,
     clean_patient_data,
 )
 from a4d.config import settings
@@ -672,3 +674,110 @@ class TestExtractDateFromMeasurement:
 
     def test_units_inside_the_value_are_preserved(self):
         assert self._extract("148 mg/dl   (Mar-18)") == ("148 mg/dl", "Mar-18")
+
+
+class TestBuddhistEraConversion:
+    """Tests for _convert_buddhist_era_dates (ticket 61).
+
+    Thai clinics keep their workbooks in a Thai-locale Excel, so a date arrives
+    with a Buddhist-era year (BE = CE + 543). Before this conversion existed,
+    _validate_dates saw a year centuries in the future and clobbered the cell
+    with the 9999-09-09 sentinel -- 381 cells across the real corpus, destroyed
+    rather than published oddly, and invisible to the R comparison because R
+    sentinels them too.
+    """
+
+    @staticmethod
+    def _df(dates: list[date | None], tracker_year: int = 2024) -> pl.DataFrame:
+        n = len(dates)
+        return pl.DataFrame(
+            {
+                "patient_id": [f"TH_CM{i:03d}" for i in range(n)],
+                "file_name": ["t.xlsx"] * n,
+                "tracker_year": [tracker_year] * n,
+                "t1d_diagnosis_date": dates,
+            },
+            schema={
+                "patient_id": pl.String,
+                "file_name": pl.String,
+                "tracker_year": pl.Int32,
+                "t1d_diagnosis_date": pl.Date,
+            },
+        )
+
+    def test_converts_a_buddhist_year_to_gregorian(self):
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(self._df([date(2567, 11, 11)]), collector)
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(2024, 11, 11)]
+        assert len(collector) == 1
+        err = collector.errors[0]
+        assert err.error_code == "buddhist_era_converted"
+        assert err.column == "t1d_diagnosis_date"
+        assert err.original_value == "2567-11-11"
+
+    def test_leaves_a_gregorian_date_untouched(self):
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(self._df([date(2024, 3, 1), None]), collector)
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(2024, 3, 1), None]
+        assert len(collector) == 0
+
+    def test_converts_a_year_that_predates_its_tracker(self):
+        """A diagnosis or screening date legitimately predates its tracker, so
+        patient needs no lower band at all -- 2022 Hat Yai's 2560-01-01 becomes
+        2017-01-01, which ticket 40 independently derived from that patient's
+        own D.O.B., recruitment and age at diagnosis."""
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(
+            self._df([date(2560, 1, 1)], tracker_year=2022), collector
+        )
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(2017, 1, 1)]
+
+    def test_leaves_a_year_that_still_lands_in_the_future(self):
+        """3035 and 5025 (2025 CDA, 2025 Surat Thani) decode to 2492 and 4482 --
+        no calendar makes those a recorded date, so they stay for _validate_dates
+        to sentinel and become source-defect findings instead."""
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(
+            self._df([date(3035, 3, 1), date(5025, 5, 19)], tracker_year=2025), collector
+        )
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(3035, 3, 1), date(5025, 5, 19)]
+        assert len(collector) == 0
+
+    def test_leaves_a_leap_day_that_does_not_exist_once_shifted(self):
+        """543 is not a multiple of 4, so a BE leap day can land on a non-leap
+        Gregorian year. Converting would have to invent a date, so the cell is
+        left for the ordinary implausible-date handling."""
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(
+            self._df([date(2568, 2, 29)], tracker_year=2025), collector
+        )
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(2568, 2, 29)]
+        assert len(collector) == 0
+
+    def test_leaves_the_parse_failure_sentinel_alone(self):
+        collector = ErrorCollector()
+
+        result = _convert_buddhist_era_dates(self._df([date(9999, 9, 9)]), collector)
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(9999, 9, 9)]
+        assert len(collector) == 0
+
+    def test_conversion_runs_before_the_future_date_sentinel(self):
+        """The whole point: end to end, a Buddhist-era cell must reach output as
+        a date rather than as 9999-09-09."""
+        collector = ErrorCollector()
+        df = self._df([date(2567, 11, 11)])
+
+        result = _validate_dates(_convert_buddhist_era_dates(df, collector), collector)
+
+        assert result["t1d_diagnosis_date"].to_list() == [date(2024, 11, 11)]

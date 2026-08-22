@@ -488,6 +488,13 @@ class CellMismatch:
     # (ticket 21) rather than a genuine content difference. Diagnostic only;
     # never suppresses a mismatch, only informs its classification.
     row_order_candidate: bool = False
+    # Set by compare_cells when order_group_cols is given: True if r_value,
+    # read as a Buddhist-era date and shifted to Gregorian, appears in the
+    # Python side's own group for this column (ticket 61). The cleaned stage's
+    # conversion re-sorts the converted row, and R's unconverted value is by
+    # construction absent from Python's group -- so plain value membership
+    # cannot see this re-sort, only the shifted value can.
+    era_shift_row_order_candidate: bool = False
     # Set by compare_cells when order_group_cols is given and the key is
     # positional: True if this column's value on the group's LAST row agrees
     # on both sides. For a derived running total (product_balance), which is
@@ -610,9 +617,14 @@ def compare_cells(
             r_value, py_value = row[col], row[f"{col}_py"]
             if _values_differ(r_value, py_value):
                 row_order_candidate = False
+                era_shift_row_order_candidate = False
                 if gkey is not None:
                     counts = group_value_counts.get(gkey, {}).get(col)
                     row_order_candidate = bool(counts) and counts[r_value] > 0
+                    shifted = _shift_from_buddhist_era(r_value)
+                    era_shift_row_order_candidate = (
+                        bool(counts) and shifted is not None and counts[shifted] > 0
+                    )
                 mismatches.append(
                     CellMismatch(
                         key=key,
@@ -620,6 +632,7 @@ def compare_cells(
                         r_value=r_value,
                         py_value=py_value,
                         row_order_candidate=row_order_candidate,
+                        era_shift_row_order_candidate=era_shift_row_order_candidate,
                         group_endpoint_matches=group_endpoint_agrees.get((gkey, col), False),
                         row_has_bare_year_date=has_bare_year,
                         column_unit_swapped=col in swapped_pair_columns,
@@ -1198,6 +1211,23 @@ def _as_date(value: Any) -> datetime.date | None:
     return value if isinstance(value, datetime.date) else None
 
 
+def _shift_from_buddhist_era(value: Any) -> datetime.date | None:
+    """``value`` read as a Buddhist-era date and shifted to Gregorian, or None.
+
+    None whenever the shift is not meaningful: the value is not a date, its
+    year is plausible as Gregorian already, or the shifted day does not exist
+    (a Buddhist leap day, which the pipeline declines to convert for the same
+    reason).
+    """
+    as_date = _as_date(value)
+    if as_date is None or as_date.year < PATIENT_BUDDHIST_ERA_THRESHOLD:
+        return None
+    try:
+        return as_date.replace(year=as_date.year - BUDDHIST_ERA_OFFSET)
+    except ValueError:
+        return None
+
+
 def _is_r_date_error_sentinel(m: CellMismatch) -> bool:
     """R stamps 9999-09-09 on a date cell that recorded an absence; Python nulls it.
 
@@ -1603,7 +1633,66 @@ def _is_buddhist_era_typo(m: CellMismatch) -> bool:
     )
 
 
-PATIENT_BUDDHIST_ERA_CLASSIFIERS: dict[str, Classifier] = {
+def _is_python_buddhist_era_converted(m: CellMismatch) -> bool:
+    """R keeps the Buddhist-era year the clinic wrote; Python converts it.
+
+    Ticket 61: a Thai clinic's tracker is kept in a Thai-locale Excel, so its
+    dates arrive with a Buddhist-era year (BE = CE + 543) -- the calendar the
+    clinic uses, not an error it made. The cleaned stage now shifts those to
+    Gregorian (``_convert_buddhist_era_dates``, clean/patient.py, and the BE
+    band in ``_validate_entry_dates``, clean/product.py), so downstream reads
+    one calendar. R does not convert, which makes this a deliberate divergence
+    rather than a defect on either side.
+
+    On the patient arm it is also a recovery: before the conversion existed,
+    ``_validate_dates`` saw a year centuries ahead and clobbered the cell with
+    the sentinel, so 375 readings were destroyed rather than merely published
+    oddly.
+
+    The test is the shift itself -- R's year is implausible as Gregorian, and
+    Python's date is exactly the same day 543 years earlier. Anything else
+    riding along (a day that also moves, a row-order shift) fails it, so a
+    second divergence cannot hide behind this name.
+    """
+    r_date, py_date = _as_date(m.r_value), _as_date(m.py_value)
+    if r_date is None or py_date is None or SENTINEL_DATE in (r_date, py_date):
+        return False
+    return (
+        r_date.year >= PATIENT_BUDDHIST_ERA_THRESHOLD
+        and r_date.year - BUDDHIST_ERA_OFFSET == py_date.year
+        and (r_date.month, r_date.day) == (py_date.month, py_date.day)
+    )
+
+
+# Kept as its own registry because both arms need it, and it has to be checked
+# *before* the product entry-date causes: `python_out_of_window_date_preserved`
+# would otherwise claim a converted cell, whose R side is genuinely outside the
+# tracker window (ticket 61).
+def _is_buddhist_era_conversion_row_order(m: CellMismatch) -> bool:
+    """The conversion moved the row, so the ordinal now pairs two different rows.
+
+    Product rows are aligned by position within (clinic_id, sheet), and R sorts
+    an unconverted Buddhist-era date to the end of its group -- 2565-12-24 is
+    later than every Gregorian date beside it. Python converts first and sorts
+    2022-12-24 chronologically, three rows earlier, which displaces everything
+    between. Verified on the real 254-tracker pair: 2022 Chiang Mai Maharaj
+    Nakorn, sheet Dec22, "Accu-Chek Instant Test Strips" -- R's ordinal 11
+    holds 2565-12-24 where Python holds 2022-12-28, and Python's ordinal 9
+    holds the converted 2022-12-24.
+
+    This is ``row_order_divergence`` with the conversion as its trigger, and it
+    needs its own test because R's value is by construction absent from
+    Python's group -- Python converted it -- so value membership cannot fire.
+    """
+    return m.era_shift_row_order_candidate
+
+
+BUDDHIST_ERA_CONVERSION_CLASSIFIERS: dict[str, Classifier] = {
+    "python_buddhist_era_converted": _is_python_buddhist_era_converted,
+    "buddhist_era_conversion_row_order": _is_buddhist_era_conversion_row_order,
+}
+
+PATIENT_BUDDHIST_ERA_CLASSIFIERS: dict[str, Classifier] = BUDDHIST_ERA_CONVERSION_CLASSIFIERS | {
     "buddhist_era_typo": _is_buddhist_era_typo,
 }
 

@@ -365,6 +365,7 @@ cause, or left `unclassified`. ~20 classifiers exist, each named after the
 `r_join_suffix_collision`, `r_ifelse_na_propagation`, `r_date_error_sentinel`,
 `r_numeric_error_sentinel`, `row_order_divergence`,
 `derived_running_total_row_order`, `buddhist_era_typo`,
+`python_buddhist_era_converted`, `buddhist_era_conversion_row_order`,
 `python_canonical_label`, `python_future_date_sentinel`,
 `stray_date_zeroed`, `wide_format_fragment`, `r_drops_richtext_space`,
 `python_trims_merged_subvalue`, `r_ymd_first_misparse`,
@@ -671,6 +672,24 @@ Nothing here blocks review of the code — it blocks the merge.
   the product arm's. BigQuery's `errors` table has therefore never carried a
   product finding (e.g. zero of the 116 `balance_reconciliation` records).
   `run` now writes it once after both arms: 63,295 -> 97,326 records.
+
+**Buddhist-era dates are converted, not published as written (ticket 61)**
+
+Thai clinics keep their trackers in a Thai-locale Excel, so dates arrive with a
+Buddhist-era year (BE = CE + 543) — the calendar the clinic uses, not an error
+it made. The cleaned stage now shifts them to Gregorian on both arms and logs
+each one under a new `buddhist_era_converted` code; the raw stage still keeps
+what the workbook says.
+
+- **375 patient cells recovered.** `_validate_dates` saw a year centuries ahead
+  and clobbered every one with the 9999-09-09 sentinel, so these readings were
+  destroyed rather than published oddly — and invisible to the comparison,
+  because R sentinels them too.
+- **22 product rows converted.** `product_data` no longer carries a stock
+  movement dated 543 years in the future.
+- **6 cells that decode to no plausible year stay sentinelled** (`3035-03-01`,
+  `5025-05-19`), as do two `hospitalisation_date` cells whose note names a date
+  *range*. All are reported as source defects instead.
 
 **Known and accepted**
 

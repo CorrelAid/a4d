@@ -8,6 +8,7 @@ import polars as pl
 from a4d.clean.schema_product import get_product_data_schema
 from a4d.config import settings
 from a4d.migration.compare import (
+    BUDDHIST_ERA_CONVERSION_CLASSIFIERS,
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     GROUP_INVARIANT_PRODUCT_COLUMNS,
@@ -812,6 +813,57 @@ class TestCompareCells:
         assert by_id[0].row_order_candidate is True
         assert by_id[1].row_order_candidate is False
 
+    def test_era_shift_row_order_candidate_when_the_converted_date_sits_elsewhere(self):
+        """Ticket 61: converting a Buddhist-era date moves the row, because R
+        sorts an unconverted 2565 date to the end of its group while Python
+        sorts the same day chronologically. R's value is absent from Python's
+        group, so plain value membership cannot see it -- the shifted value
+        can."""
+        r_df = pl.DataFrame(
+            {
+                "grp": ["a", "a"],
+                "id": [0, 1],
+                "d": [datetime.date(2565, 12, 24), datetime.date(2022, 12, 28)],
+            }
+        )
+        py_df = pl.DataFrame(
+            {
+                "grp": ["a", "a"],
+                "id": [0, 1],
+                "d": [datetime.date(2022, 12, 28), datetime.date(2022, 12, 24)],
+            }
+        )
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        by_id = {m.key["id"]: m for m in result}
+        assert by_id[0].era_shift_row_order_candidate is True
+        assert by_id[0].row_order_candidate is False
+        assert (
+            classify(by_id[0], BUDDHIST_ERA_CONVERSION_CLASSIFIERS)
+            == "buddhist_era_conversion_row_order"
+        )
+
+    def test_era_shift_row_order_candidate_false_for_a_gregorian_value(self):
+        r_df = pl.DataFrame(
+            {
+                "grp": ["a", "a"],
+                "id": [0, 1],
+                "d": [datetime.date(2022, 12, 24), datetime.date(2022, 12, 28)],
+            }
+        )
+        py_df = pl.DataFrame(
+            {
+                "grp": ["a", "a"],
+                "id": [0, 1],
+                "d": [datetime.date(2022, 12, 28), datetime.date(2022, 12, 24)],
+            }
+        )
+
+        result = compare_cells(r_df, py_df, key_cols=["grp", "id"], order_group_cols=["grp"])
+
+        assert all(m.era_shift_row_order_candidate is False for m in result)
+
     def test_group_endpoint_matches_when_last_positional_row_agrees(self):
         """Ticket 36: a derived running total diverges on every intermediate
         row under a re-sort but still lands on the same closing value."""
@@ -1350,6 +1402,53 @@ class TestClassify:
         )
 
         assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "buddhist_era_typo"
+
+    def test_python_buddhist_era_converted_when_python_holds_the_gregorian_year(self):
+        """Ticket 61: the cleaned stage now shifts a BE date to Gregorian, so R
+        keeps the calendar the clinic wrote and Python publishes the same day
+        543 years earlier. A deliberate divergence, not a defect on either
+        side."""
+        mismatch = _mismatch(
+            r_value=datetime.date(2569, 6, 17),
+            py_value=datetime.date(2026, 6, 17),
+            column="hba1c_updated_date",
+        )
+
+        assert (
+            classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "python_buddhist_era_converted"
+        )
+
+    def test_python_buddhist_era_converted_unclassified_when_the_day_moves_too(self):
+        """A shift of exactly 543 years is what identifies the conversion. Any
+        other difference is a second, unexplained divergence riding along, and
+        naming it here would hide it."""
+        mismatch = _mismatch(
+            r_value=datetime.date(2569, 6, 17),
+            py_value=datetime.date(2026, 6, 18),
+            column="hba1c_updated_date",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_python_buddhist_era_converted_unclassified_when_r_year_is_gregorian(self):
+        mismatch = _mismatch(
+            r_value=datetime.date(2026, 6, 17),
+            py_value=datetime.date(1483, 6, 17),
+            column="hba1c_updated_date",
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_product_entry_date_carries_the_same_conversion_cause(self):
+        mismatch = _mismatch(
+            r_value=datetime.date(2567, 11, 11),
+            py_value=datetime.date(2024, 11, 11),
+            column="product_entry_date",
+        )
+
+        registry = BUDDHIST_ERA_CONVERSION_CLASSIFIERS | PRODUCT_ENTRY_DATE_CLASSIFIERS
+
+        assert classify(mismatch, registry) == "python_buddhist_era_converted"
 
     def test_buddhist_era_typo_unclassified_when_r_is_not_the_sentinel(self):
         mismatch = _mismatch(
