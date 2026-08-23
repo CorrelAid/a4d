@@ -42,6 +42,17 @@ def find_data_start_row(ws) -> int:
     This skips any non-numeric values that may appear above the patient data
     (e.g., spaces, text, product data).
 
+    A clinician who clears a row number leaves a whitespace-only string behind,
+    and that row is still a patient row -- so the numeric block is extended back
+    over any such cells directly abutting it. Starting one row too late is not a
+    lost row but a lost sheet: the header rows are read from the data, no
+    patient_id survives harmonization, and the sheet is skipped entirely (2022
+    Children's Hospital 2, Oct22). Only cells touching the block qualify;
+    matching R's "first non-empty cell" rule instead would start at row 1 on the
+    14 sheets whose column A holds a stray word up there (2026 Gensan, VNCH).
+    One row only, since a longer run of blanks has never been observed and
+    swallowing several would risk reading a header row as data instead.
+
     Args:
         ws: openpyxl worksheet object
 
@@ -55,12 +66,20 @@ def find_data_start_row(ws) -> int:
     # worksheet each ws.cell() re-parses the sheet's XML from row 1, making a
     # per-row loop O(n^2) in the row count before data starts.
     max_row = ws.max_row or 1000
+    previous_blank_string_row: int | None = None
     for row_idx, (cell_value,) in enumerate(
         ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=1, values_only=True),
         start=1,
     ):
-        if cell_value is not None and isinstance(cell_value, (int, float)):
+        if isinstance(cell_value, (int, float)) and not isinstance(cell_value, bool):
+            if previous_blank_string_row == row_idx - 1:
+                return previous_blank_string_row
             return row_idx
+
+        if isinstance(cell_value, str) and cell_value.strip() == "":
+            previous_blank_string_row = row_idx
+        else:
+            previous_blank_string_row = None
 
     raise ValueError("No patient data found in column A (looking for numeric row numbers)")
 
@@ -1050,7 +1069,38 @@ def read_all_patient_sheets(
             )
         )
 
-    # Filter out rows with patient_id starting with "#" (Excel errors like #REF!)
+    # Filter out rows with patient_id starting with "#" (Excel errors like #REF!).
+    # Dropped rather than sentinelled to "Undefined" the way fix_patient_id
+    # handles a misspelled ID: #REF! is not an identifier a clinic could
+    # reconcile against its records, so keeping the row would pool its
+    # measurements with every other unidentified patient under one group key.
+    # The measurements are real, though (2026 Preah Kossamak's May26 sheet loses
+    # a whole month this way), so each discard is reported for source correction
+    # instead of vanishing into the "filtered N invalid rows" count.
+    excel_error_id_rows = df_combined.filter(pl.col("patient_id").str.starts_with("#"))
+    if len(excel_error_id_rows) > 0:
+        logger.bind(error_code="excel_error_patient_id").error(
+            f"Dropped {len(excel_error_id_rows)} rows from {tracker_file.name} whose patient ID "
+            "cell holds an Excel formula error - the patient cannot be identified, so their "
+            "measurements are discarded; the workbook needs correcting"
+        )
+        if error_collector is not None:
+            for row in excel_error_id_rows.iter_rows(named=True):
+                error_collector.add_error(
+                    file_name=tracker_file.stem,
+                    patient_id="MISSING",
+                    column="patient_id",
+                    original_value=row["patient_id"],
+                    error_message=(
+                        f"Row in sheet '{row.get('sheet_name', 'unknown')}' has an Excel formula "
+                        f"error ({row['patient_id']}) where its patient ID should be; the row is "
+                        "dropped because the patient cannot be identified"
+                    ),
+                    error_code="excel_error_patient_id",
+                    script="extract",
+                    function_name="read_all_patient_sheets",
+                )
+
     df_combined = df_combined.filter(~pl.col("patient_id").str.starts_with("#"))
 
     filtered_rows = initial_rows - len(df_combined)

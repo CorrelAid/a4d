@@ -645,3 +645,57 @@ def test_export_patient_raw(tmp_path):
     assert df_read.equals(df)
 
     print(f"\n✓ Successfully exported and verified {len(df)} rows to parquet")
+
+
+def _tracker_with_broken_id_formula(tmp_path: Path) -> Path:
+    """A tracker whose second patient's ID cell holds an Excel #REF! error."""
+    import openpyxl
+
+    clinic_dir = tmp_path / "TST"
+    clinic_dir.mkdir()
+    tracker_path = clinic_dir / "2024_Test_Clinic.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Jan24"
+    ws.cell(2, 2).value = "Patient ID"
+    ws.cell(2, 3).value = "Name"
+    ws.cell(2, 4).value = "Age"
+
+    ws.cell(3, 1).value = 1
+    ws.cell(3, 2).value = "TS_QA001"
+    ws.cell(3, 3).value = "TS_QA001"
+    ws.cell(3, 4).value = 14
+
+    ws.cell(4, 1).value = 2
+    ws.cell(4, 2).value = "#REF!"
+    ws.cell(4, 3).value = "#REF!"
+    ws.cell(4, 4).value = 15
+
+    wb.save(tracker_path)
+    return tracker_path
+
+
+def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path):
+    """A row whose ID is a broken formula is dropped, but never silently.
+
+    #REF! is not a malformed identifier a clinic could reconcile -- the cell's
+    content is gone -- so the row cannot be kept under the Undefined sentinel
+    the way ticket 47 keeps a misspelled ID: grouping by patient_id would pool
+    it with every other unidentified patient. It is dropped, and the discard is
+    reported so the source workbook can be corrected.
+    """
+    from a4d.errors import ErrorCollector
+
+    tracker_path = _tracker_with_broken_id_formula(tmp_path)
+    collector = ErrorCollector()
+
+    df = read_all_patient_sheets(tracker_path, error_collector=collector)
+
+    assert df["patient_id"].to_list() == ["TS_QA001"]
+
+    errors = collector.to_dataframe()
+    dropped = errors.filter(pl.col("error_code") == "excel_error_patient_id")
+    assert len(dropped) == 1
+    assert dropped["original_value"][0] == "#REF!"
+    assert "Jan24" in dropped["error_message"][0]
