@@ -123,6 +123,62 @@ class TestFindDataStartRow:
 
         wb.close()
 
+    def test_blank_string_row_number_directly_above_data_is_data(self):
+        """A cleared row-number cell must not push the start past its own data row.
+
+        2022 Children's Hospital 2, Oct22: the first patient's row number was
+        deleted, leaving a whitespace-only string. Starting one row later reads
+        that patient's row as a header row, which costs the whole sheet.
+        """
+        wb = Workbook()
+        ws = wb.active
+
+        ws["B68"] = "Patient ID*"
+        ws["A70"] = " "  # row number cleared, patient data still present
+        ws["B70"] = "VN_CH001"
+        ws["A71"] = 2
+        ws["B71"] = "VN_CH002"
+
+        result = find_data_start_row(ws)
+        assert result == 70
+
+        wb.close()
+
+    def test_blank_string_far_above_data_is_not_data(self):
+        """A whitespace-only cell separated from the data block stays skipped.
+
+        NOGH 2026 and Phattalung 2021 carry one ~20 rows above the patients;
+        it is layout residue, not a row number, and the header rows sit between.
+        """
+        wb = Workbook()
+        ws = wb.active
+
+        ws["A29"] = ""  # residue well above the data block
+        ws["A48"] = 1
+        ws["A49"] = 2
+
+        result = find_data_start_row(ws)
+        assert result == 48
+
+        wb.close()
+
+    def test_leading_text_in_column_a_is_not_data(self):
+        """A stray word in column A row 1 must not be read as the data start.
+
+        2025/2026 VNCH and 2026 Gensan hold a bare 'm'/'f'/'n' in A1, which is
+        why the start cannot simply be the first non-empty cell the way R's is.
+        """
+        wb = Workbook()
+        ws = wb.active
+
+        ws["A1"] = "m"
+        ws["A84"] = 1
+
+        result = find_data_start_row(ws)
+        assert result == 84
+
+        wb.close()
+
     def test_scans_read_only_worksheet_in_one_pass(self, tmp_path):
         """Must not re-parse the sheet's XML on every row (O(n^2) on read-only sheets).
 

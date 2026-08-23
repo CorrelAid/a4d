@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [59, 60]
+blocked_by: [60]
 assignee: null
 claimed_at: null
 resolution: null
@@ -318,3 +318,14 @@ Re-derived rather than swapped, per this ticket's rule. `blocked_by` is now
   is deliberately *not* a blocker: the one fact it needs about R -- that R does
   not convert BE dates -- is already established from R's frozen output, and the
   decision itself is about what Python should publish.
+
+**2026-08-24 ([rows that pair with nothing](59-triage-unmatched-row-keys.md)
+closed).** `blocked_by` drops `59`, leaving **`[60]`**. The judgement that put
+59 on the list held: answering it did require reading `r-archive/`'s source --
+`script1_helper_read_patient_data.R:67`, R's hardcoded `+1` row offset for
+2022+ trackers, which is what makes R drop `2024_Mandalay Children's` first
+patient from 11 of 12 sheets. Re-derived rather than swapped: of the seven
+tickets still open, only [the eight pre-bar
+causes](60-audit-remaining-pre-bar-classifiers.md) needs the R source, and it
+needs it by definition. **One ticket now stands between this map and retiring
+R.**

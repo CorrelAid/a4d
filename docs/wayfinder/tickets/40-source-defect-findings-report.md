@@ -351,3 +351,36 @@ the product arm's. Measured before the fix: 63,295 records with zero
 product balance-reconciliation groups this ticket already lists were never
 actually reachable from the table. `run` now writes it once after both arms:
 63,295 -> 97,326 records.
+
+## Findings added by [rows that pair with nothing](59-triage-unmatched-row-keys.md) (2026-08-24)
+
+- **Patient ID cells holding a broken formula, 120 rows across 9 trackers**,
+  now emitted under the new `excel_error_patient_id` code. Every one of these
+  rows is discarded -- the patient cannot be identified -- so the clinic's
+  measurements for that row never reach BigQuery. Two trackers hold nearly all
+  of it: `2026_Preah Kossamak Hospital`'s `May26` sheet is **98 rows, the entire
+  month**, and they are not empty rows (50 carry an age and an updated FBG, 47 a
+  baseline HbA1c, weight, height and BMI, 45 an insulin regimen); and
+  `2026_Quirino Memorial`'s `Jan26` sheet is 5 rows carrying baseline HbA1c and
+  BMI. The remaining 17 are spread over `2025_Kantha Bopha II` (4),
+  `2024_Likas Women & Children's` (4), `2024_Sultanah Bahiyah` (3),
+  `2022_Mandalay Children's` (3), `2025_Phattalung` (2) and
+  `2025_Mandalay Children's` (1). The ID column formula needs repointing in each
+  workbook; until then the measurements are unrecoverable, since nothing else in
+  the row names the patient (the name column reads `#REF!` too).
+
+- **A patient ID that is two clinic codes spliced together.** `2026_YGH`
+  records `MM_NO55_MW_YG` in `Apr26`, `May26` and `June26` -- a transfer between
+  clinics written into the ID -- where every other patient in that tracker reads
+  `MM_YY###_YG`. It fails the template's format and no well-formed ID in the
+  tracker sits an edit away, so the pipeline sentinels it to `Undefined` per
+  [ticket 47](47-patient-ids-merged-at-cleaning.md) and the patient's three
+  months are unattributable. Only the clinic can say which ID is intended.
+
+- **A cleared patient row number, `2022_Children's Hospital 2`, `Oct22`, cell
+  A70.** The number was deleted but the cell kept a space, which is invisible in
+  Excel. Harmless to the pipeline as of this session (`find_data_start_row` now
+  reads through it), and listed only because the same residue in row 1 of eleven
+  `2024_Mandalay Children's` sheets is what makes R drop that tracker's first
+  patient -- a clinician cannot see the difference between an empty cell and one
+  holding a space, so it is worth knowing the shape exists.

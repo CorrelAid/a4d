@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 8"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -44,7 +44,6 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
     T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
   end
   subgraph BLOCKED["Blocked · 3"]
@@ -53,7 +52,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 49"]
+  subgraph DECIDED["Decided · 50"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -103,6 +102,7 @@ flowchart TD
     T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
     T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
     T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
+    T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -136,15 +136,14 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
-  T59 --> T12
   T60 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T58,T59,T60 frontier
+  class T16,T34,T35,T40,T41,T58,T60 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T61 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T61 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2318,7 +2317,80 @@ nothing](tickets/59-triage-unmatched-row-keys.md) and [the eight pre-bar
 causes](tickets/60-audit-remaining-pre-bar-classifiers.md) remain the two
 tickets standing between this map and retiring R.
 
+**[Rows that pair with nothing](tickets/59-triage-unmatched-row-keys.md) is
+closed, and it was the first ticket on this map to work a population the
+comparison could count but never show.** A row with no partner never reaches
+`compare_cells`, so the ten-round patient triage chain — which worked entirely
+off `cell_mismatches` — was structurally blind to it. What sat there turned out
+to be five separate things, and the keys alone sorted them before any code was
+read: two whole month sheets missing from Python, one patient missing from R
+eleven times, and two already-closed decisions resurfacing under a key that
+cannot pair.
+
+**The largest Python defect this map has found by row count was a single
+space.** `2022_Children's Hospital 2`'s `Oct22` sheet has its first patient's
+row number cleared, leaving `' '` in `A70`. `find_data_start_row` scans for a
+*numeric* cell, so it started at 71, read the header rows from 70 and 69, and
+row 70 is data — the patient-ID header became the literal string `VN_CH001`,
+harmonization found no `patient_id`, and the sheet was skipped whole. Fifteen
+patients' October records, gone. **The same residue costs R a patient in the
+opposite direction**: R's hardcoded `+1` for 2022+ trackers assumes exactly one
+leading empty row, and every `2024_Mandalay Children's` sheet except `Jan24`
+holds a space in row 1, so R drops `MM_MD001` from 11 of 12 sheets. Python is
+correct there and R is not being repaired.
+
+**The 254-tracker scan is what made the fix narrow.** Adopting R's rule — first
+non-empty cell — would have been the obvious repair and would have destroyed 14
+sheets whose column A holds a stray `'m'`/`'f'`/`'n'` in row 1 (2026 Gensan,
+2025/2026 VNCH). Python now extends the numeric block back over a whitespace-only
+cell *directly abutting* it, one row only; measured across the corpus, that moves
+exactly one sheet.
+
+**The third finding is the one with a decision in it, and the user made it.**
+`read_all_patient_sheets` drops any row whose patient ID starts with `#` — a
+broken formula — and did so with no error record at all. The rows are not empty:
+`2026_Preah Kossamak`'s `May26` is 98 of them, carrying 50 ages and updated FBG
+readings, 47 baseline HbA1c / weight / height / BMI, 45 insulin regimens. The
+user chose **keep dropping, start reporting**, on the grounds that `Undefined`
+is a bucket rather than an identity and keeping them would pool 98 people under
+one group key. That is compatible with [ticket
+47](tickets/47-patient-ids-merged-at-cleaning.md) keeping a *misspelled* ID
+under the same sentinel: a misspelling is an identifier a clinic could
+reconcile, `#REF!` is not one at all. The new `excel_error_patient_id` code
+fires on **120 rows across 9 trackers** — 17 more than the comparison could
+ever have shown, since it only saw the rows R also kept.
+
+**Ticket 12's `blocked_by` drops `59`, leaving `[60]` — one ticket now stands
+between this map and retiring R.** The frontier is seven; of them, only [the
+eight pre-bar causes](tickets/60-audit-remaining-pre-bar-classifiers.md) is on
+the route to the destination. The other six are standing decisions, the
+source-defect report, a separate feature (ticket 16) and ticket 58. No ticket
+was spawned: the residual unmatched population (129 cleaned / 115 raw) is
+entirely accounted for by decisions now made.
+
 ## Decisions so far
+
+- [Rows that pair with nothing on the other side, which no ticket has ever
+  triaged](tickets/59-triage-unmatched-row-keys.md) -- decided and implemented.
+  The 144 cleaned / 130 raw unmatched rows were **five populations, not one**,
+  and Python is the correct side of all five. A Python defect fixed: a cleared
+  patient row number leaves a whitespace-only cell in column A, which pushed
+  `find_data_start_row` one row past the data, made the first patient's row
+  serve as the header row, and cost `2022_Children's Hospital 2` its **entire
+  `Oct22` sheet** -- 15 patients' records. The rule was chosen by scanning all
+  254 trackers, which killed the obvious fix (R's "first non-empty cell" would
+  start 14 sheets at row 1 on a stray letter); the narrow abutting-cell rule
+  moves exactly one sheet in the corpus. An R defect documented, not fixed: R's
+  hardcoded `+1` offset for 2022+ trackers assumes one leading empty row, and
+  every `2024_Mandalay Children's` sheet but `Jan24` holds a space there, so R
+  drops that tracker's first patient 11 times. And a source defect with a
+  behaviour decision the user made: 120 rows across 9 trackers carry `#REF!`
+  where the patient ID belongs and were being dropped **silently** -- they stay
+  dropped (`Undefined` is a bucket, not an identity, so keeping them would pool
+  98 people's measurements under one group key) but now emit the new
+  `excel_error_patient_id` code. Verified end-to-end on the real 254-tracker
+  set: row-key divergence 144 -> 129 and 130 -> 115, cell mismatches +22 onto
+  existing causes, `unclassified` unmoved on all four stages.
 
 - [Decide whether a Thai clinic's Buddhist-era entry date is published as 2567
   or converted to 2024](tickets/61-decide-buddhist-era-date-conversion.md) --
@@ -3614,6 +3686,10 @@ flowchart TB
     direction LR
     U61["<b>61</b><br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published<br/>as 2567 or converted to<br/>2024"]
   end
+  subgraph S2026_08_24["Session 2026-08-24"]
+    direction LR
+    U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3629,7 +3705,6 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
     U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
   end
 
@@ -3675,7 +3750,8 @@ flowchart TB
   S2026_08_20b ~~~ S2026_08_21
   S2026_08_21 ~~~ S2026_08_22
   S2026_08_22 ~~~ S2026_08_22b
-  S2026_08_22b ~~~ Sunworked
+  S2026_08_22b ~~~ S2026_08_24
+  S2026_08_24 ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -3704,7 +3780,6 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U59 --->|blocked| U12
   U60 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
@@ -3757,11 +3832,11 @@ flowchart TB
   U32 -.->|spawned| U61
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58,U59,U60 tfrontier
+  class U16,U34,U35,U40,U41,U58,U60 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U61 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U61 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

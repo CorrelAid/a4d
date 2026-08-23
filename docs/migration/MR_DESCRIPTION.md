@@ -691,6 +691,33 @@ what the workbook says.
   `5025-05-19`), as do two `hospitalisation_date` cells whose note names a date
   *range*. All are reported as source defects instead.
 
+**A cleared row number no longer costs a whole month sheet (ticket 59)**
+
+`find_data_start_row` scanned column A for the first *numeric* cell. Where a
+clinician clears a patient's row number, Excel keeps a whitespace-only string in
+its place — so the scan started one row late, read the header rows from the
+data, found no `patient_id` after harmonization, and skipped the sheet entirely.
+
+- **15 patients' October records recovered** on `2022_Children's Hospital 2`,
+  whose `Oct22` sheet was being dropped whole.
+- The rule is deliberately narrow: only a whitespace-only cell *directly
+  abutting* the numeric block counts. Matching R's looser "first non-empty cell"
+  rule was measured across all 254 trackers and rejected — it would start 14
+  sheets at row 1 on a stray letter in `A1`.
+
+**A row whose patient ID is a broken formula is reported, not silently dropped
+(ticket 59)**
+
+Rows whose ID cell holds `#REF!` were discarded with no error record. They are
+still discarded — `Undefined` is a bucket rather than an identity, and keeping
+them would pool many patients' measurements under one group key — but each
+discard now emits the new `excel_error_patient_id` code so the workbook can be
+repaired.
+
+- **120 rows across 9 trackers**, the largest being `2026_Preah Kossamak`'s
+  `May26` sheet (98 rows, an entire month, carrying ages, FBG readings, HbA1c,
+  weight, height and insulin regimens).
+
 **Known and accepted**
 
 - The frozen R baseline covers 254 trackers via a documented, reversible rename

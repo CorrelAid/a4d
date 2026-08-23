@@ -44,6 +44,9 @@ ErrorCode = Literal[
     "implausible_era_date",  # A date past the Buddhist-era threshold that is not this
     # tracker's own BE year -- a corrupt Excel serial (1,339,576 reads as 5567-08-19), so
     # the cell is sentinelled rather than published as a date centuries in the future
+    "excel_error_patient_id",  # A row's patient ID cell holds a broken formula (#REF!), so the
+    # patient cannot be identified and the row's measurements are dropped rather than pooled
+    # under the Undefined sentinel -- only the workbook can restore the identity
 ]
 
 
