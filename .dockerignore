@@ -1,6 +1,5 @@
 .git
 .github
-r-archive/
 .pytest_cache
 .ruff_cache
 htmlcov

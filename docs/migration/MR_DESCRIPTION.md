@@ -404,7 +404,9 @@ The loop each session:
 3. **Open the real source Excel workbook** and read the cell. This is the step
    that mattered — a shape-matching heuristic is not a diagnosis. Nearly every
    real bug in the table below was found here, not in the report.
-4. Also read R's own source in `r-archive/` when the mechanism lives there.
+4. Also read R's own source when the mechanism lives there. This was
+   `r-archive/` for the whole of the triage; the archive is now deleted, and the
+   same files are reachable at `git show r-archive-removed^:r-archive/R/<file>`.
 5. Then either: fix Python (most sessions), or add a named classifier
    explaining the mechanism, or record it as an open question.
 6. Re-run the pipeline (`a4d run patient --force`) and the comparison; the
@@ -505,6 +507,15 @@ Nothing here blocks review of the code — it blocks the merge.
 **Frontier (takeable now)**
 
 **Closed since this section was last written**
+
+- **12 — retire R from the workspace, now closed. `r-archive/` is deleted**: 156
+  tracked files, 1.9M, gone from the working tree and recoverable through the
+  annotated tag `r-archive-removed` (`r-archive-removed^` is the last commit
+  containing it). `CLAUDE.md`'s "R Archive / do not modify" section is replaced
+  by that recovery recipe; `docs/CLAUDE.md`, `SETUP.md`, `pyproject.toml`'s ruff
+  exclusion, `.dockerignore` and `.gitignore` all updated. Inlining the cited R
+  excerpts first was rejected once the citation count was measured properly —
+  **35 across 12 modules**, not 8 in one — which is what became ticket 64.
 
 - **44 — cleaned-stage FBG cells where R has nothing, now closed. It ends the
   patient cleaned-stage triage: 2,955 unclassified cells -> 16, every one of
@@ -612,11 +623,17 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Frontier, continued**
 
-- **12 — retire R from the workspace.** Now unblocked: no open ticket asks a
-  question about R's code, and nothing in the codebase reads `r-archive/` at
-  runtime. Its one open question is what happens to the eight docstring
-  citations in the cause registry that name an R file and line as their
-  evidence.
+- **64 — rewrite every docstring and doc that explains the code by what R did.**
+  Spawned by 12 and the only frontier ticket on the route to the merge.
+  Documentation that justifies a behaviour with "to match R" was fine as working
+  documentation during the migration and is wrong now that R is gone: it
+  explains the code by something that no longer exists. **35 citations across 12
+  Python modules**, including production cleaning code — not the 8 in
+  `compare.py` that ticket 12's inventory claimed. Not a find-and-replace: round
+  4 found `_validate_dates` claiming its future-date guard "matches R pipeline
+  behavior" when R has no such guard at all, so a stale citation can also be
+  wrong about R. Also has to decide the fate of `src/a4d/migration/compare.py`
+  itself, whose subject is a pipeline no longer in this repo.
 - **34 — make the local pre-push checks match CI.** CI was red for four days
   unnoticed because the locally-run check set was a strict subset.
 - **35 — 17 Polars 2.0 deprecation warnings.** Each asks about a behaviour
@@ -637,13 +654,12 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Blocked**
 
-- **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Its
-  only blocker is now 63: explaining why R publishes null on `bmi`, `age` and
-  `t1d_diagnosis_age` for the respelled-ID patients is a question about R's own
-  code, not about its output. The standing reason is
-  unchanged: triage has repeatedly had to read, and sometimes run, R's actual
-  code to root-cause a mismatch rather than just diff its output.
-- **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
+- **6 — promote `migration` into `dev`** (this PR). Every one of its thirteen
+  original blockers is now closed — 12 was the last. It is re-blocked on **64**
+  alone: promotion is what turns this branch's documentation into the project's,
+  so shipping 35 docstrings that cite a deleted directory is exactly what this
+  gate exists to catch. Reversible if the data owner would rather fix docs on
+  `dev`.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
   after promotion.
 

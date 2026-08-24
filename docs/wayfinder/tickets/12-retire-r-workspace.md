@@ -2,12 +2,12 @@
 id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-24f
+claimed_at: 2026-08-24
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: null
 ---
@@ -366,3 +366,73 @@ the evidence for the cause registry, and deleting `r-archive/` makes them
 unverifiable by anyone reading them later. Whoever takes this decides whether
 that is acceptable, whether the cited excerpts get inlined first, or whether
 the archive moves rather than dies.
+
+## Resolution (session-2026-08-24f)
+
+**Decision.** `r-archive/` is **deleted outright** from the working tree -- all
+156 tracked files, 1.9M -- and recovered from git history when needed. The
+commit that removes it carries the annotated tag **`r-archive-removed`**, so
+the last state containing R is addressable as `r-archive-removed^` without
+anyone having to know a SHA:
+
+```bash
+git show r-archive-removed^:r-archive/R/script2_process_patient_data.R
+git checkout r-archive-removed^ -- r-archive
+```
+
+`CLAUDE.md`'s "R Archive" section (and its "preserved for reference. Do not
+modify." instruction -- the conflict this ticket was written to resolve) is
+replaced by that recovery recipe. `docs/CLAUDE.md`'s "`reference_data/` is
+shared with the archived R pipeline" note now describes `reference_data/` for
+what it is; `SETUP.md` no longer points new developers at a directory that does
+not exist; `pyproject.toml`'s ruff `extend-exclude` drops `r-archive` (leaving
+`docs/migration`, ticket 33's entry), and the eleven-line comment above it
+loses its R paragraph. Two dead ignore rules went with it: `.dockerignore`'s
+`r-archive/` and `.gitignore`'s `r-archive/config.yml`, `.Rproj.user` and
+`.Rhistory`.
+
+**Because.** The archive's only remaining role was as evidence for docstring
+citations, and a reader auditing one of those is already in git. Git history is
+the durable copy: it costs nothing to keep, cannot drift from the thing it
+documents, and the tag makes it as cheap to reach as the directory was. The
+user had already judged the deletion low-risk on exactly this ground.
+
+**Rejected.**
+- *Inline the cited R excerpts into the docstrings first, then delete.* Killed
+  by measurement: the citation count is **35 across 12 modules**, not the 8 in
+  `compare.py` this ticket's own inventory claimed, so inlining means editing
+  production cleaning code at 35 sites and permanently lengthening docstrings
+  that are already long, to serve an audit that happens rarely. It also
+  entrenches the framing the user wants gone.
+- *Move `r-archive/` to a separate repo or a tag-only artifact and repoint the
+  citations there.* Rejected as a second copy to maintain and a link that can
+  rot -- the map's own standing rule against hand-maintained duplicates.
+- *Keep it.* Not viable: the ticket's standing rule ("R retires only when
+  nothing still needs to read it") ran out of claimants when [ticket
+  63](63-name-the-cleaned-stage-static-join-divergence.md) closed, and keeping
+  it indefinitely was never the plan.
+
+**What this ticket did not do, deliberately.** The 35 R citations are still in
+the code. Removing them is not a find-and-replace -- the user's framing is that
+"to match R" explains nothing now and is sometimes actively wrong (round 4
+found `_validate_dates` claiming its future-date guard "matches R pipeline
+behavior" when R has no such guard at all). That is spawned as [ticket
+64](64-documentation-overhaul-drop-r-framing.md), which also has to decide
+whether `compare.py`'s cause-registry docstrings are the legitimate exception,
+since R divergence is literally their subject.
+
+**Evidence.** Executed. The inventory was re-derived rather than inherited:
+`git ls-files r-archive` (156 files), `du -sh` (1.9M), and a repo-wide `rg` for
+`r-archive|r_archive|LogViewerA4D` across every non-`docs/` path. That grep is
+what caught the citation undercount -- the ticket's figure came from matching
+the literal string `r-archive`, which misses every docstring naming an R file
+without its path (`script2_process_patient_data.R`), and a second grep for
+`script[0-9]_[a-z_]*\.R` found 35. `tools/LogViewerA4D/` and
+`test_full_pipeline_debug.R` were confirmed already gone. `SETUP.md`,
+`.dockerignore` and `.gitignore` were **not** in this ticket's inventory and
+were found by the same sweep. Full test suite, ruff and `ty check src/` run
+after the deletion.
+
+**Tense.** All of the above describes the state after this session's changes,
+which are committed. The 35 surviving citations are current behaviour, not a
+consequence of a proposed design.

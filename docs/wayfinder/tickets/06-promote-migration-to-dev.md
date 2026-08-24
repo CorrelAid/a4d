@@ -3,7 +3,7 @@ id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
-blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23]
+blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23, 64]
 assignee: null
 claimed_at: null
 resolution: null
@@ -54,3 +54,27 @@ gated only on the work above landing first.
 
 With the merge done, CI green, and a real production run validated, close out
 PR #2 and merge `migration` into `dev`. This is the destination.
+
+## Premise update (session-2026-08-24f)
+
+[Retiring R from the workspace](12-retire-r-workspace.md) closed, and with it
+**every ticket in this list was closed** -- the first time this ticket has been
+fully unblocked. It was re-blocked in the same session, on one new ticket, and
+that is argued rather than applied.
+
+`blocked_by` gains **64** ([Rewrite every docstring and doc that explains the
+code by what R did](64-documentation-overhaul-drop-r-framing.md)). The user's
+statement closing ticket 12 was that documentation justifying a behaviour by
+"to match R" is not merely stale but **wrong**, now that the migration has
+reached its end and R is gone. Thirty-five such citations are live in twelve
+Python modules, including production cleaning code. Promoting `migration` into
+`dev` is the act that turns this branch's documentation into the project's
+documentation, so shipping it while it is wrong is the one thing this gate
+exists to prevent -- the destination's own words are that the migration is
+"detail-sensitive enough that things get missed unless checked".
+
+The alternative -- promote now and fix the docs on `dev` afterwards -- was
+rejected because it inverts the map's whole sequencing preference (make it
+ready, *then* promote) and because a docstring citing a directory that no
+longer exists is a defect a reviewer of PR #2 would reasonably raise.
+Reversible: dropping `64` from this list is a one-line edit.

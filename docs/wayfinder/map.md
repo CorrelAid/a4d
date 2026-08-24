@@ -38,19 +38,19 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 6"]
     direction TB
-    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
+    T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
   end
   subgraph BLOCKED["Blocked · 2"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 54"]
+  subgraph DECIDED["Decided · 55"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -60,6 +60,7 @@ flowchart TD
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
     T11["<b>11</b> · grilling<br/>Decide what CLI/TUI UX and<br/>error-log observability<br/>improvements<br/>admins/developers need<br/>before rollout"]
+    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
@@ -138,13 +139,14 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
+  T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T12,T16,T34,T35,T40,T41 frontier
+  class T16,T34,T35,T40,T41,T64 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -241,13 +243,16 @@ flowchart TD
   cemented the bug as "explained". A cause that is genuinely undecidable
   from the evidence available is recorded as an open question, not closed
   with a label.
-- **R retires only when nothing still needs to read it** (user, 2026-08-20).
-  [Ticket 12](tickets/12-retire-r-workspace.md)'s `blocked_by` is a derived
-  list of the open tickets that currently need the R *source* in `r-archive/`
-  -- re-derived whenever a ticket closes or a new one is spawned, so a
-  later ticket that needs R is added without re-arguing it. The frozen output
-  baseline on the data drive is out of scope: it is not in the repo and this
-  ticket never touches it.
+- **R is retired.** `r-archive/` was deleted 2026-08-24 by [ticket
+  12](tickets/12-retire-r-workspace.md). The rule that governed it for eleven
+  rounds -- *R retires only when nothing still needs to read it*, the user's
+  2026-08-20 standing instruction that made ticket 12's `blocked_by` a derived
+  list -- is now discharged and is recorded here as history, not as a live
+  constraint. To read R again: `git show r-archive-removed^:r-archive/R/<file>`
+  (the `r-archive-removed` tag marks the removal commit, so `^` is the last
+  state containing it). The frozen output baseline on the data drive
+  (`output_r/`) is untouched by any of this and remains the comparison's
+  reference -- it never lived in the repo.
 - Redraw command: `~/.claude/skills/wayfinder/scripts/render-map.sh docs/wayfinder`
 
 ## Where this map stands
@@ -2585,7 +2590,67 @@ R](tickets/12-retire-r-workspace.md) is now the only one on the route to the
 destination. The other five are standing decisions, the source-defect report
 and a separate feature (ticket 16).
 
+**[Retiring R from the workspace](tickets/12-retire-r-workspace.md) is closed,
+and `r-archive/` is gone — 156 tracked files, 1.9M, deleted outright.** It is
+recoverable through the annotated tag `r-archive-removed`, whose `^` is the last
+commit containing it, so a citation can still be checked with one `git show` and
+nobody has to know a SHA. The ticket had waited through eleven rounds of triage
+on a single derived rule — *R retires only when nothing still needs to read it*
+— and that rule finally ran out of claimants when [ticket
+63](tickets/63-name-the-cleaned-stage-static-join-divergence.md) closed. Four
+config/doc sites moved with it: `CLAUDE.md`'s "R Archive" section and its "do
+not modify" instruction (the conflict this ticket was written to resolve),
+`docs/CLAUDE.md`'s `reference_data/` note, `SETUP.md`'s pointer, and
+`pyproject.toml`'s ruff exclusion — plus two dead ignore rules the ticket's own
+inventory did not know about.
+
+**The one thing that made the decision was measuring the ticket's own headline
+number, which was wrong by a factor of four.** Its inventory said the only
+non-doc references to R were two lint exclusions and eight docstring citations
+in `compare.py`. That figure came from grepping the literal string `r-archive`,
+which misses every citation naming an R file without its path. Grepping
+`script[0-9]_[a-z_]*\.R` instead finds **35 citations across 12 modules** —
+`compare.py` has 17, but `clean/patient.py` has 10, and six other production
+modules carry the rest. That killed the option of inlining the cited excerpts
+before deleting, and it is why the residue is a ticket rather than a footnote.
+
+**The destination moved closer in one respect and further in another.** Ticket
+12 was the last open blocker of [promoting `migration` into
+`dev`](tickets/06-promote-migration-to-dev.md), so for the first time every
+ticket in that list is closed. It was re-blocked in the same session on the one
+ticket this session spawned: [rewriting every docstring and doc that explains
+the code by what R did](tickets/64-documentation-overhaul-drop-r-framing.md).
+The user's framing is that "to match R" was fine as *working* documentation and
+is now simply wrong — it explains the code by something that no longer exists —
+and promotion is the act that turns this branch's documentation into the
+project's. Round 4's precedent is why that is a rewrite and not a
+find-and-replace: `_validate_dates` carried a docstring claiming its future-date
+guard "matches R pipeline behavior" when R has no such guard at all, so a stale
+R citation can also be *wrong about R*. **The frontier is six** — ticket 12
+leaving it, ticket 64 joining — and ticket 64 is now the only one on the route
+to the destination.
+
 ## Decisions so far
+
+- [Retire R from the workspace once the pipeline is fully verified
+  Python-only](tickets/12-retire-r-workspace.md) -- decided and executed.
+  `r-archive/` **deleted outright** (156 tracked files, 1.9M), recoverable via
+  the annotated tag `r-archive-removed` (`r-archive-removed^` is the last commit
+  containing it), which is now the recipe `CLAUDE.md` carries in place of its
+  "R Archive / do not modify" section. `docs/CLAUDE.md`, `SETUP.md`,
+  `pyproject.toml`'s ruff `extend-exclude`, `.dockerignore` and `.gitignore`
+  all updated; the last three were absent from the ticket's own inventory and
+  were found by re-deriving it. Inlining the cited R excerpts first was
+  **rejected on measurement**: the citation count is **35 across 12 modules**,
+  not the 8 in `compare.py` the ticket claimed (its grep matched only the
+  literal path `r-archive`, missing every bare `script2_*.R` citation), so
+  inlining meant editing production cleaning code at 35 sites to entrench a
+  framing that is being removed. Moving the archive to its own repo was
+  rejected as a second copy that can rot. Suite green (980 passed, 1 skipped,
+  86% coverage), ruff and `ty check src/` clean with the exclusion gone.
+  Spawned [ticket 64](tickets/64-documentation-overhaul-drop-r-framing.md) for
+  the 35 citations, and wired it as the sole remaining blocker of [ticket
+  6](tickets/06-promote-migration-to-dev.md).
 
 - [Monthly rows with a misspelled ID silently lose their Patient List
   demographics](tickets/58-patient-list-join-uses-unfixed-id.md) -- decided and
@@ -3785,10 +3850,15 @@ folded into Decisions so far above.)
   and nobody has yet said whether the extra selections are wanted. Not sharp
   enough to ticket until someone has measured how many trackers lay a block out
   this way and what the downstream consumer expects.
-- Whether the R pipeline (`r-archive/`) gets formally retired/archived-further
-  once `migration` reaches `dev`/`main`, and what "official migration"
-  communication or cutover steps that implies — out of this map's current
-  resolution but likely to surface once the promotion ticket is close.
+- What **"official migration" communication or cutover** means once `migration`
+  reaches `dev`/`main` — who is told, what the A4D-facing announcement says,
+  whether anything outside this repo still runs R. The *repo* half of this
+  patch has graduated and closed: `r-archive/` is deleted ([ticket
+  12](tickets/12-retire-r-workspace.md)). What is left is organisational, is
+  likely a separate map, and has one open thread inside this repo — [ticket
+  64](tickets/64-documentation-overhaul-drop-r-framing.md) has to decide the
+  fate of `src/a4d/migration/compare.py` itself, a tool whose entire subject is
+  a pipeline that no longer exists here.
 - Cloud Scheduler / production scheduling cutover (mentioned in the Migration
   Guide's state-management open item) — not yet sharp enough to ticket; may
   turn out to be a separate map entirely once `dev` is reached. Confirmed
@@ -4018,6 +4088,10 @@ flowchart TB
     direction LR
     U63["<b>63</b><br/>The cleaned stage has<br/>4,949 cells with no<br/>cause, because the ID<br/>spelling that explains<br/>them is gone by then"]
   end
+  subgraph S2026_08_24f["Session 2026-08-24f"]
+    direction LR
+    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4026,12 +4100,12 @@ flowchart TB
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
+    U64["<b>64</b><br/>Rewrite every docstring<br/>and doc that explains<br/>the code by what R did"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4081,7 +4155,8 @@ flowchart TB
   S2026_08_24b ~~~ S2026_08_24c
   S2026_08_24c ~~~ S2026_08_24d
   S2026_08_24d ~~~ S2026_08_24e
-  S2026_08_24e ~~~ Sunworked
+  S2026_08_24e ~~~ S2026_08_24f
+  S2026_08_24f ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4102,6 +4177,7 @@ flowchart TB
   U21 --->|blocked| U6
   U22 --->|blocked| U6
   U23 --->|blocked| U6
+  U64 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -4161,13 +4237,14 @@ flowchart TB
   U32 -.->|spawned| U61
   U60 -.->|spawned| U62
   U58 -.->|spawned| U63
+  U12 -.->|spawned| U64
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U12,U16,U34,U35,U40,U41 tfrontier
+  class U16,U34,U35,U40,U41,U64 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

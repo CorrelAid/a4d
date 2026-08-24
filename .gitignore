@@ -73,8 +73,5 @@ Thumbs.db
 # Secrets (GCP service accounts, etc.)
 secrets/
 .opencode
-.Rproj.user
 CLAUDE.local.md
-.Rhistory
-r-archive/config.yml
 coverage.xml

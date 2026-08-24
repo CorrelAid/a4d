@@ -197,6 +197,10 @@ flowchart TB
     direction LR
     U63["<b>63</b><br/>The cleaned stage has<br/>4,949 cells with no<br/>cause, because the ID<br/>spelling that explains<br/>them is gone by then"]
   end
+  subgraph S2026_08_24f["Session 2026-08-24f"]
+    direction LR
+    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -205,12 +209,12 @@ flowchart TB
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
+    U64["<b>64</b><br/>Rewrite every docstring<br/>and doc that explains<br/>the code by what R did"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -260,7 +264,8 @@ flowchart TB
   S2026_08_24b ~~~ S2026_08_24c
   S2026_08_24c ~~~ S2026_08_24d
   S2026_08_24d ~~~ S2026_08_24e
-  S2026_08_24e ~~~ Sunworked
+  S2026_08_24e ~~~ S2026_08_24f
+  S2026_08_24f ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -281,6 +286,7 @@ flowchart TB
   U21 --->|blocked| U6
   U22 --->|blocked| U6
   U23 --->|blocked| U6
+  U64 --->|blocked| U6
   U1 -.->|spawned| U7
   U1 -.->|spawned| U8
   U7 --->|blocked| U8
@@ -340,12 +346,13 @@ flowchart TB
   U32 -.->|spawned| U61
   U60 -.->|spawned| U62
   U58 -.->|spawned| U63
+  U12 -.->|spawned| U64
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U12,U16,U34,U35,U40,U41 tfrontier
+  class U16,U34,U35,U40,U41,U64 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
