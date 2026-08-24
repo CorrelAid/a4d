@@ -35,6 +35,7 @@ from a4d.clean.glucose import (
 )
 from a4d.clean.validators import load_numeric_ranges, load_validation_rules, sanitize_str
 from a4d.config import settings
+from a4d.extract.common import normalize_patient_id_expr
 
 SENTINEL_DATE = datetime.date(9999, 9, 9)
 
@@ -1178,6 +1179,58 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
 
 PATIENT_R_EXTRACTION_GAP_CLASSIFIERS: dict[str, Classifier] = {
     "r_extraction_gap": _is_r_extraction_gap,
+}
+
+
+def _is_r_static_join_misses_respelled_id(m: CellMismatch) -> bool:
+    """R attached the Patient List on the raw ID, so a respelled month row missed it.
+
+    Both pipelines join the whole-tracker sheets (``Patient List``, ``Annual``)
+    onto the month rows during *extraction*, long before either fixes the ID.
+    Where a month sheet spells a patient differently from the Patient List in
+    the same workbook -- 2023/2024 Mahosot write ``LA-QA056`` against a Patient
+    List entry of ``LA_QA056``, 2024 CDA ``KH-QA016``, 2026 Surat Thani
+    ``TH-QG029`` -- the raw key cannot match, and every static column comes out
+    null. Ticket 58 made Python key on the normalized ID; R still does not, so
+    Python now carries values R has nothing for.
+
+    Verified against the source workbooks: 2024 Mahosot's ``Patient List``
+    holds a full row for ``LA_QA056`` (Vientiane Capital, M, D.O.B.
+    2014-02-22, recruited 2021-06-22), and R's own cleaned output publishes
+    null for all four of that patient's twelve month rows. Python is the
+    correct side; the workbook's inconsistent spelling is a source defect
+    reported separately.
+
+    **Raw stage only.** The discriminator is the month row's own ID still
+    carrying the hyphen or transfer-clinic suffix, which is exactly what
+    normalization removes -- so by the cleaned stage both sides publish
+    ``LA_QA056`` and this cause can no longer tell itself apart from
+    ``r_extraction_gap``'s column-naming failures. That is why it is wired to
+    the raw stage's columns only.
+    """
+    if m.r_value is not None or m.py_value is None:
+        return False
+    if not isinstance(m.key, dict):
+        return False
+    # add_row_ordinal renames every key column to __key_<col>, so match on the
+    # suffix -- keying on the bare name finds nothing and the cause never fires
+    # (the same trap _sheet_year documents).
+    patient_id = next(
+        (v for k, v in m.key.items() if str(k).endswith("patient_id") and isinstance(v, str)),
+        None,
+    )
+    if patient_id is None:
+        return False
+    normalized = (
+        pl.DataFrame({"patient_id": [patient_id]})
+        .select(normalize_patient_id_expr(pl.col("patient_id")))
+        .item()
+    )
+    return normalized != patient_id
+
+
+PATIENT_STATIC_JOIN_CLASSIFIERS: dict[str, Classifier] = {
+    "r_static_join_misses_respelled_id": _is_r_static_join_misses_respelled_id,
 }
 
 

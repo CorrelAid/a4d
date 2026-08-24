@@ -70,6 +70,7 @@ from a4d.migration.compare import (
     PATIENT_R_EXTRACTION_GAP_CLASSIFIERS,
     PATIENT_RICHTEXT_SPACE_CLASSIFIERS,
     PATIENT_SCREENING_SELECTION_CLASSIFIERS,
+    PATIENT_STATIC_JOIN_CLASSIFIERS,
     PATIENT_UNICODE_SANITIZER_CLASSIFIERS,
     PATIENT_UNREADABLE_MONTH_CLASSIFIERS,
     PATIENT_UNRECONSTRUCTABLE_DATE_CLASSIFIERS,
@@ -683,6 +684,47 @@ CLASSIFIERS_BY_COLUMN |= {
 CLASSIFIERS_BY_COLUMN |= {
     col: BUDDHIST_ERA_CONVERSION_CLASSIFIERS | CLASSIFIERS_BY_COLUMN.get(col, {})
     for col in get_date_columns()
+}
+
+# ticket 58: Python now attaches the Patient List and Annual sheets on the
+# normalized ID; R still joins on the raw one, so a month row spelled
+# LA-QA056 against a Patient List entry of LA_QA056 comes out null on R's side
+# for every static column at once. Prepended, because r_extraction_gap's
+# column-naming shape matches these cells too and would otherwise absorb them
+# under the wrong reason. Declines on the cleaned stage by construction: both
+# pipelines normalize patient_id there, so the discriminator is gone.
+#
+# The column list is explicit rather than "every patient column". Wiring it
+# corpus-wide was tried and measured first, and it over-claimed on exactly the
+# three columns the month sheets *also* carry: t1d_diagnosis_age (1,069 rows
+# against a join-miss population of 679), bmi (144) and age (1). For those, R's
+# null is not necessarily the join's fault -- R read the month sheet too -- so
+# they keep their existing causes and the residue is ticket 63's. Every column
+# below fires on exactly the join-miss population, matching the measured
+# per-column delta cell for cell.
+PATIENT_STATIC_JOIN_COLUMNS = [
+    "blood_pressure_dias_mmhg",
+    "blood_pressure_sys_mmhg",
+    "blood_pressure_updated",
+    "dob",
+    "edu_occ",
+    "edu_occ_updated",
+    "fbg_baseline_mg",
+    "fbg_baseline_mmol",
+    "hba1c_baseline",
+    "lost_date",
+    "other_issues",
+    "patient_consent",
+    "province",
+    "recruitment_date",
+    "sex",
+    "status_out",
+    "t1d_diagnosis_date",
+    "t1d_diagnosis_with_dka",
+]
+CLASSIFIERS_BY_COLUMN |= {
+    col: PATIENT_STATIC_JOIN_CLASSIFIERS | CLASSIFIERS_BY_COLUMN.get(col, {})
+    for col in PATIENT_STATIC_JOIN_COLUMNS
 }
 
 

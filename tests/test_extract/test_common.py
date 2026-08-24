@@ -2,12 +2,14 @@
 
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from a4d.extract.common import (
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
+    normalize_patient_id_expr,
 )
 
 
@@ -64,3 +66,33 @@ def test_re_export_from_patient_module_still_works():
     assert p_extract_tracker_month is extract_tracker_month
     assert p_find_month_sheets is find_month_sheets
     assert p_get_tracker_year is get_tracker_year
+
+
+def _normalize(ids: list[str | None]) -> list[str | None]:
+    return (
+        pl.DataFrame({"patient_id": ids}, schema={"patient_id": pl.Utf8})
+        .select(normalize_patient_id_expr(pl.col("patient_id")).alias("k"))["k"]
+        .to_list()
+    )
+
+
+def test_normalize_patient_id_folds_hyphen_to_underscore():
+    """The Mahosot case: month sheets write LA-QA056, the Patient List LA_QA056."""
+    assert _normalize(["LA-QA056", "LA_QA056"]) == ["LA_QA056", "LA_QA056"]
+
+
+def test_normalize_patient_id_strips_transfer_clinic_suffix():
+    assert _normalize(["MY_QH003_SB", "LA-QA093_LF"]) == ["MY_QH003", "LA_QA093"]
+
+
+def test_normalize_patient_id_leaves_well_formed_ids_alone():
+    assert _normalize(["KH_QE026", "TH_QG029"]) == ["KH_QE026", "TH_QG029"]
+
+
+def test_normalize_patient_id_passes_through_ids_without_separator():
+    """An ID with no underscore has no country/clinic split to extract."""
+    assert _normalize(["ABC123", ""]) == ["ABC123", ""]
+
+
+def test_normalize_patient_id_preserves_null():
+    assert _normalize([None, "LA-QA056"]) == [None, "LA_QA056"]

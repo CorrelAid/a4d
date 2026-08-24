@@ -650,9 +650,9 @@ Nothing here blocks review of the code — it blocks the merge.
 **Blocked**
 
 - **12 — retire R from the workspace** (`r-archive/`, stray R scripts). Its
-  blockers are now 59 and 60: the second half of the classifier audit reads R's
-  source by definition, and explaining the rows that pair with nothing on the
-  other side is a question about R's row handling. The standing reason is
+  only blocker is now 63: explaining why R publishes null on `bmi`, `age` and
+  `t1d_diagnosis_age` for the respelled-ID patients is a question about R's own
+  code, not about its output. The standing reason is
   unchanged: triage has repeatedly had to read, and sometimes run, R's actual
   code to root-cause a mismatch rather than just diff its output.
 - **6 — promote `migration` into `dev`** (this PR). Blocked on 12.
@@ -717,6 +717,31 @@ repaired.
 - **120 rows across 9 trackers**, the largest being `2026_Preah Kossamak`'s
   `May26` sheet (98 rows, an entire month, carrying ages, FBG readings, HbA1c,
   weight, height and insulin regimens).
+
+**Patients whose ID is spelled two ways keep their demographics (ticket 58)**
+
+Both whole-tracker joins in extraction — the `Patient List` demographics and
+the `Annual` sheet — attached on the raw `patient_id`, while the fix that makes
+a respelled ID usable runs later, in cleaning. Where a month sheet spells a
+patient differently from the Patient List in the same workbook, the join could
+not match: the row kept its measurements and lost every static column. Both
+joins now key on a derived normalized ID; the raw `patient_id` column is
+untouched.
+
+- **680 rows / 6,863 Patient List cells recovered** across 6 trackers, plus 8
+  rows / 40 cells from the Annual join. `dob`, `sex`, `province`,
+  `t1d_diagnosis_date`, `hba1c_baseline`, `recruitment_date`,
+  `patient_consent`, `lost_date` and `status_out` among them.
+- **672 of those rows are the 2023 and 2024 Mahosot trackers**, whose month
+  sheets write `LA-QA056` and up with a hyphen against a Patient List spelled
+  `LA_QA056` — 38 patients in 2024, 27 in 2023.
+- R has the same gap, so the comparison never showed it: both sides were null.
+  Verified against R's own frozen cleaned output.
+- **No fan-out risk**: measured across all 192 Patient-List-bearing trackers,
+  zero have two entries folding to one normalized key.
+- The 15 rows that still miss are source defects — `2023_NPH`'s stray `H`, and
+  `2024_Mandalay General`'s `MM_QF013_MG`, which that Patient List does not
+  contain under any spelling.
 
 **Known and accepted**
 

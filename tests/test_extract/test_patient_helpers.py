@@ -4,6 +4,7 @@ import datetime
 import random
 from unittest.mock import Mock
 
+import polars as pl
 import pytest
 from openpyxl import Workbook
 
@@ -12,6 +13,7 @@ from a4d.extract.patient import (
     find_data_start_row,
     find_dropped_data_columns,
     find_layout_changes,
+    join_static_sheet,
     merge_headers,
     read_header_rows,
     read_patient_rows,
@@ -989,3 +991,61 @@ class TestFindLayoutChanges:
         changes = find_layout_changes(layouts, mapper)
 
         assert [c.index for c in changes] == [1]
+
+
+class TestJoinStaticSheet:
+    """The whole-tracker joins key on the normalized ID, not the raw one (ticket 58)."""
+
+    @staticmethod
+    def _monthly(ids: list[str]) -> pl.DataFrame:
+        return pl.DataFrame({"patient_id": ids, "fbg_updated_mg": [1.0] * len(ids)})
+
+    @staticmethod
+    def _static(ids: list[str]) -> pl.DataFrame:
+        return pl.DataFrame(
+            {"patient_id": ids, "dob": [f"2010-01-0{i + 1}" for i in range(len(ids))]}
+        )
+
+    @classmethod
+    def _join(cls, monthly_ids: list[str], static_ids: list[str]) -> pl.DataFrame:
+        return join_static_sheet(
+            cls._monthly(monthly_ids), cls._static(static_ids), ".static", "Patient List"
+        )
+
+    def test_hyphen_spelled_monthly_id_finds_its_underscore_patient_list_entry(self):
+        """2023/2024 Mahosot: 672 rows lost every demographic to this mismatch."""
+        assert self._join(["LA-QA056"], ["LA_QA056"])["dob"].to_list() == ["2010-01-01"]
+
+    def test_transfer_clinic_suffix_does_not_block_the_match(self):
+        assert self._join(["MY_QH003_SB"], ["MY_QH003"])["dob"].to_list() == ["2010-01-01"]
+
+    def test_raw_patient_id_column_is_not_rewritten(self):
+        """The comparison's row-alignment key depends on the raw spelling surviving."""
+        assert self._join(["LA-QA056"], ["LA_QA056"])["patient_id"].to_list() == ["LA-QA056"]
+
+    def test_no_join_key_column_leaks_into_the_output(self):
+        result = self._join(["LA-QA056"], ["LA_QA056"])
+        assert result.columns == ["patient_id", "fbg_updated_mg", "dob"]
+
+    def test_unmatched_monthly_id_keeps_its_row_with_null_demographics(self):
+        """MM_QF013_MG has no Patient List entry at all -- a source defect, not a key bug."""
+        result = self._join(["MM_QF013_MG"], ["MM_QB013"])
+        assert result.height == 1
+        assert result["dob"].to_list() == [None]
+
+    def test_a_row_never_gains_a_second_partner(self):
+        """Two spellings folding to one key must not duplicate the month row."""
+        assert self._join(["TH_QG029"], ["TH-QG029", "TH_QG029"]).height == 1
+
+    def test_colliding_columns_take_the_suffix_the_caller_asked_for(self):
+        monthly = pl.DataFrame({"patient_id": ["LA-QA056"], "province": ["monthly"]})
+        static = pl.DataFrame({"patient_id": ["LA_QA056"], "province": ["static"]})
+        result = join_static_sheet(monthly, static, ".static", "Patient List")
+        assert result["province"].to_list() == ["monthly"]
+        assert result["province.static"].to_list() == ["static"]
+
+    def test_the_annual_sheet_join_gets_the_same_key_and_its_own_suffix(self):
+        """2024 CDA and 2026 Surat Thani lose Annual columns to the same mismatch."""
+        annual = pl.DataFrame({"patient_id": ["KH_QA016"], "edu_occ": ["Student"]})
+        result = join_static_sheet(self._monthly(["KH-QA016"]), annual, ".annual", "Annual")
+        assert result["edu_occ"].to_list() == ["Student"]

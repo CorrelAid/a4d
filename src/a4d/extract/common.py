@@ -9,6 +9,7 @@ import calendar
 import re
 from pathlib import Path
 
+import polars as pl
 from loguru import logger
 
 from a4d.config import settings
@@ -26,6 +27,26 @@ EXCEL_ERROR_STRINGS: tuple[str, ...] = (
     "#N/A",
     "#NULL!",
 )
+
+
+def normalize_patient_id_expr(col: pl.Expr) -> pl.Expr:
+    """Fold a patient ID to the identity the clinic meant, as a Polars expression.
+
+    Folds hyphens to underscores and drops any transfer-clinic suffix, so
+    ``LA-QA056`` and ``MY_QH003_SB`` become ``LA_QA056`` and ``MY_QH003``.
+
+    Lives here rather than in the cleaning layer because both arms need it:
+    cleaning applies it to publish one identity per patient, and extraction
+    applies it to the *Patient List join key* only (ticket 58) -- the raw
+    ``patient_id`` column itself stays exactly as the source workbook wrote it,
+    which the comparison tool's row-alignment key depends on.
+    """
+    normalized = col.str.replace_all("-", "_")
+    return (
+        pl.when(normalized.str.contains("_"))
+        .then(normalized.str.extract(r"^([A-Z]+_[^_]+)", 1))
+        .otherwise(normalized)
+    )
 
 
 def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
