@@ -36,15 +36,18 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 7"]
+  subgraph FRONTIER["Frontier · 6"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T65["<b>65</b> · grilling<br/>Two values published into<br/>the logs table still name<br/>R scripts"]
+    T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
+  end
+  subgraph BLOCKED["Blocked · 1"]
+    direction TB
+    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
   end
   subgraph DECIDED["Decided · 57"]
     direction TB
@@ -106,9 +109,10 @@ flowchart TD
     T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
   end
-  subgraph DROPPED["Out of scope · 1"]
+  subgraph DROPPED["Out of scope · 2"]
     direction TB
     T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
+    T65["<b>65</b> · grilling<br/>Two values published into<br/>the logs table still name<br/>R scripts"]
   end
 
   T2 --> T15
@@ -138,13 +142,16 @@ flowchart TD
   T23 --> T6
   T45 --> T46
   T64 --> T6
+  T66 --> T16
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T16,T34,T35,T40,T41,T65 frontier
+  class T9,T34,T35,T40,T41,T66 frontier
+  classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
+  class T16 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
-  class T1 dropped
+  class T1,T65 dropped
 ```
 <!-- graph:end -->
 
@@ -2721,6 +2728,16 @@ written, except ticket 16 under the reading above.
 
 ## Decisions so far
 
+- [Two values published into the logs table still name R
+  scripts](tickets/65-logs-table-r-named-values.md) -- **superseded**, not
+  answered, and folded into [ticket 66](tickets/66-unify-finding-channels.md).
+  Ticket 66 rewrites the same published tables far more substantially, so
+  renaming these two values inside that change costs nothing where doing it
+  separately means two breaking changes to the same consumers. **What was
+  skipped rather than settled**: nobody measured whether anything actually
+  consumes `script` or `function_name`; that is now ticket 66's question 7 and
+  still has to be answered.
+
 - [Promote migration into dev via PR #2](tickets/06-promote-migration-to-dev.md)
   -- **done. PR #2 is MERGED** (2026-08-24T20:55:49Z), and this is the
   destination's terminal act. Merged as a **local fast-forward**, not through
@@ -3910,6 +3927,56 @@ unverified, was confirmed rather than overturned by
 [the completeness audit](tickets/07-pipeline-completeness-audit.md) and is now
 folded into Decisions so far above.)
 
+**[The drill-down log analyzer](tickets/16-log-analyzer-drill-down.md) was
+worked but not resolved, and splitting was the session's work.** Grilling it
+established that the tool cannot be built well on the data as it stands, and the
+reason is structural: **the pipeline has two independent channels for reporting
+data-quality findings, and they never meet.** `ErrorCollector.add_error` (34
+call sites) appends to an in-memory list that becomes `table_errors`;
+`logger.bind(error_code=...)` (35 call sites) writes per-tracker JSON that
+becomes `table_logs`. `src/a4d/errors.py` imports no logger at all, so no
+cell-level finding ever reaches the log files. The user's account of how this
+happened is the useful part: `ErrorCollector` was added so the CLI could print a
+per-run summary, and was never meant to be a second reporting system.
+
+**Three consequences, all measured against a real 254-tracker run and against
+current `src/`.** The error codes are **disjoint** — the workbook-structural
+defects A4D staff must act on (`blank_header_with_data`,
+`tracker_layout_changed`, `duplicate_source_columns`, `missing_column`,
+`invalid_tracker`) exist **only** in the logs, while the cell-level ones
+(`type_conversion`, `source_formula_error`, `buddhist_era_converted`) exist only
+in the errors table. The two tables **cannot be joined at all**: 252 distinct
+`file_name` against 233, **overlap zero**, because `logging.py:156` binds the
+`_patient`/`_product`-suffixed name — stripping it takes the overlap to 231 of
+251. And **25 rows carry a blank `file_name`**, against the user's rule that a
+finding without one should never exist.
+
+**The ticket's own headline fact was wrong, and measuring it changed the
+answer.** It claimed the logs table is "1M+ rows" and that any Python equivalent
+therefore needed "a different shape". It is **216,871** rows over 254 trackers,
+one tracker's entire detail is a few hundred rows, and both tables together
+answer any question in under a second in `duckdb`. This was never a big-data
+problem — which is what killed the dashboard framing and settled the deliverable
+as an Excel workbook.
+
+**The decision taken: unify the channels.** `ErrorCollector` stays the in-run
+accumulator feeding the CLI summary and becomes the single source for findings
+output too — one emit point, three consumers. The seam is *not* merging the two
+tables but separating **operational logs** (what the pipeline did; for
+debugging) from **data-quality findings** (what is wrong with a workbook; for
+the operator and for A4D). That became [ticket
+66](tickets/66-unify-finding-channels.md), which also quantifies the hard part:
+**6 of the 35 log sites have no `ErrorCollector` in scope at all**
+(`reference/synonyms.py`, `clean/transformers.py`, `clean/date_parser.py`), and
+one precondition can invalidate the whole design — the per-tracker JSON logs are
+written to ephemeral Cloud Run storage, so production runs may have no
+per-tracker detail at all. Unverified deliberately; it is ticket 66's first
+task, not an assumption.
+
+**The frontier is six.** Ticket 16 leaves it (now blocked on 66), [ticket
+65](tickets/65-logs-table-r-named-values.md) closes as superseded, and ticket 66
+joins as the only one on the route.
+
 ## Not yet specified
 
 - Whether **R's inability to read a slash-separated month/year** deserves its
@@ -4240,6 +4307,7 @@ flowchart TB
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
+    U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -4249,7 +4317,7 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
+    U66["<b>66</b><br/>Unify the two separate<br/>channels that report<br/>data-quality findings"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4337,6 +4405,7 @@ flowchart TB
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
   U11 -.->|spawned| U16
+  U66 --->|blocked| U16
   U15 -.->|spawned| U17
   U17 -.->|spawned| U18
   U17 -.->|spawned| U19
@@ -4385,12 +4454,16 @@ flowchart TB
   U58 -.->|spawned| U63
   U12 -.->|spawned| U64
   U64 -.->|spawned| U65
+  U66 ==>|closed| U65
+  U16 -.->|spawned| U66
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U16,U34,U35,U40,U41,U65 tfrontier
+  class U9,U34,U35,U40,U41,U66 tfrontier
+  classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
+  class U16 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
-  class U1 tdropped
+  class U1,U65 tdropped
 ```
 <!-- route:end -->

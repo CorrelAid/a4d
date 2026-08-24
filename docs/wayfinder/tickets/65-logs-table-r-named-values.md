@@ -2,13 +2,13 @@
 id: 65
 title: Two values published into the logs table still name R scripts
 labels: [wayfinder:grilling]
-status: open
+status: closed
 blocked_by: []
 assignee: null
 claimed_at: null
-resolution: null
-evidence: null
-closed_by: null
+resolution: superseded
+evidence: read
+closed_by: 66
 spawned_by: 64
 ---
 
@@ -68,3 +68,25 @@ What has to be decided:
   wired as a blocker: it changes published data rather than correctness, and
   the promotion gate was argued on documentation being wrong, which this no
   longer is.
+
+## Resolution (session-2026-08-24i)
+
+**Superseded, not answered.** Folded into
+[unify the finding channels](66-unify-finding-channels.md) at the user's
+direction.
+
+**Because.** This ticket asked whether two published values naming R scripts
+should be renamed, and warned that doing so changes BigQuery output. Ticket 66
+changes those same published tables far more substantially -- a new
+`table_findings`, `table_errors` superseded, `file_name` normalised on every log
+row. Renaming these two values inside that change costs nothing; doing it
+separately means two breaking changes to the same consumers.
+
+**What was skipped rather than settled:** the measurement this ticket asked for
+-- whether anything actually consumes `script` or `function_name` -- was never
+run. It is now question 7 of ticket 66 and still has to be answered there; being
+superseded does not make it moot.
+
+**Evidence.** Read. No query was run against the `logs` table; GCP auth had
+expired during the session and the finding rests on reading the emit sites in
+`src/a4d/extract/product.py` and `src/a4d/tables/product.py`.

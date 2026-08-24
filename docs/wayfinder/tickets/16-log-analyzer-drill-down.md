@@ -3,7 +3,7 @@ id: 16
 title: Build a drill-down log analyzer for admins to inspect a specific tracker file's errors/logs
 labels: [wayfinder:grilling]
 status: open
-blocked_by: []
+blocked_by: [66]
 assignee: null
 claimed_at: null
 resolution: null
@@ -61,3 +61,36 @@ Questions to resolve:
   (this map's destination), or is "good enough to operate day to day"
   already met by the combined run summary alone, making this a nice-to-have
   outside the promotion path?
+
+## Re-scoped (session-2026-08-24i)
+
+This ticket was worked, not resolved: the grilling established that the tool it
+asks for cannot be built well on the data as it stands, so the session split
+rather than sprawled. `blocked_by` gains **66**
+([unify the finding channels](66-unify-finding-channels.md)), which carries
+every measurement taken here.
+
+**What this ticket is now:** build the report -- and it is an **Excel workbook**,
+not a TUI or a dashboard. The user's goal is to replace a Looker error dashboard
+that is a lot of work to maintain, and to answer two questions: how to address
+data-quality issues, and what to tell A4D staff about their trackers.
+
+Shape, agreed with the user:
+
+- **A summary sheet** ranked by the *workbook is wrong* category, so the first
+  thing visible is "these trackers need a human", not 103,000 rows.
+- **One findings sheet** with autofilter, over `table_findings`. Explicitly
+  **not one sheet per tracker**: 254 tabs is unnavigable, and filtering
+  `file_name` gives the same view while also allowing cross-tracker questions a
+  tab cannot answer.
+- **A glossary sheet** -- each `error_code`, what it means, what to do about it.
+
+**Two premise corrections from this session.** The ticket claimed the `logs`
+table is "1M+ rows" and that a Python equivalent therefore "needs a different
+shape"; it is **216,871** rows over 254 trackers, and one tracker's entire
+detail is a few hundred rows. This was never a big-data problem, and the premise
+that pushed it toward a dashboard does not survive measurement. Its fourth
+question -- whether this is needed *before* `migration` promotes to `dev` -- is
+**dead**: the promotion happened on 2026-08-24, so the question cannot be asked
+in that form. What survives is whether it is needed to operate day to day, and
+the user's answer is yes.
