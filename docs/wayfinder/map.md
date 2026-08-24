@@ -3977,6 +3977,35 @@ task, not an assumption.
 65](tickets/65-logs-table-r-named-values.md) closes as superseded, and ticket 66
 joins as the only one on the route.
 
+**The precondition is now checked, and it holds — but it was hiding a live bug
+that has been fixed.** Ticket 66 is still open; this session answered its
+question 1 and half of its question 8, nothing more. The per-tracker logs are
+**not** lost to ephemeral storage: `run_all_cmd` uploads `logs/` alongside
+`tables/` under a per-run timestamped prefix, and the latest production run
+holds 514 log files in GCS. So the unified channel may be file-first.
+
+**What the check turned up instead: the BigQuery `logs` table had never
+contained a single product row.** `create_table_logs` snapshots whatever `.log`
+files exist when it is called, and it was called from inside the patient arm —
+before the product arm runs. Live production table: 248 patient files, **zero**
+product. The same run had written **249 `_product.log` files** to GCS holding
+33,698 lines, **10,237 of them carrying an `error_code`** (4,714
+`invalid_tracker`, 2,452 `missing_column`, 4 ERROR-level `critical_abort`).
+Exactly the workbook-structural findings A4D staff act on, uploaded and then
+dropped on the floor. This is the same shape of bug [ticket
+32](tickets/32-audit-classifiers-against-decision-bar.md) fixed for the errors
+table, and the fix is the same: build the table in `run_all_cmd` after both
+arms. Landed with a regression test; product rows go 0 → 34 on the fixture run.
+
+**Two of ticket 66's own claims were wrong and are corrected on it.** Ticket
+65's R-named values (`script`, `function_name`) live on the **errors** table,
+not `logs`, and are **not yet published** — they are set only in the product
+arm, which never reached that table, so ticket 32's fix means the *next*
+production run publishes them for the first time. And the 526 null-`file_name`
+log rows are run-level operational lines (`main_pipeline_*.log`), not instances
+of the blank-`file_name` defect; under ticket 66's own split, having no
+`file_name` is correct for them.
+
 ## Not yet specified
 
 - Whether **R's inability to read a slash-separated month/year** deserves its

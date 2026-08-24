@@ -1449,6 +1449,23 @@ def run_all_cmd(
     else:
         console.print("[bold]Step 3c/5:[/bold] Skipping product pipeline (--skip-product)\n")
 
+    # Logs table — written here, after both arms, for the same reason as the
+    # errors table below. create_table_logs snapshots whatever .log files exist
+    # under logs/ when it is called, so building it inside the patient arm
+    # captured patient files only: the product arm had not run yet. Measured on
+    # the 2026-08-09 production run — BigQuery `logs` held 248 patient files and
+    # zero product, while the same run uploaded 249 `_product.log` files to GCS
+    # carrying 10,237 lines with an error_code, four of them ERROR-level
+    # critical_abort. Those are workbook-structural defects A4D staff act on,
+    # and they existed only in the logs channel.
+    if logs_dir.exists():
+        console.print("[bold]Step 3d/5:[/bold] Creating logs table (both arms)...")
+        try:
+            logs_table_path = create_table_logs(logs_dir, tables_dir)
+            console.print(f"  ✓ Logs table created: {logs_table_path.name}\n")
+        except Exception as e:
+            console.print(f"  [bold yellow]Warning: logs table failed: {e}[/bold yellow]\n")
+
     # Errors table — written here, after both arms, rather than by either arm.
     # The patient arm writes it from inside run_patient_pipeline and the product
     # arm never wrote it at all, so `run` published a patient-only errors table
@@ -1463,7 +1480,7 @@ def run_all_cmd(
         for error in tracker.data_errors
     ]
     if arm_errors:
-        console.print("[bold]Step 3d/5:[/bold] Creating errors table (both arms)...")
+        console.print("[bold]Step 3e/5:[/bold] Creating errors table (both arms)...")
         try:
             create_table_errors(arm_errors, tables_dir)
             console.print(f"  ✓ Errors table created ({len(arm_errors):,} records)\n")
@@ -1473,7 +1490,7 @@ def run_all_cmd(
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.
     if settings.data_root.exists():
-        console.print("[bold]Step 3e/5:[/bold] Creating tracker metadata table...\n")
+        console.print("[bold]Step 3f/5:[/bold] Creating tracker metadata table...\n")
         try:
             from a4d.tables.metadata import create_table_tracker_metadata
 
@@ -1482,7 +1499,7 @@ def run_all_cmd(
         except Exception as e:
             console.print(f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n")
 
-    # Step 3e – Product-patient link validation (logging-only, post-tables).
+    # Step 3g – Product-patient link validation (logging-only, post-tables).
     # Joins against patient_data_monthly (one row per patient per tracker
     # file/month) — NOT
     # patient_data_static, which collapses each patient to a single latest
@@ -1494,7 +1511,7 @@ def run_all_cmd(
     product_table = tables_dir / "product_data.parquet"
     patient_monthly = tables_dir / "patient_data_monthly.parquet"
     if not skip_patient and product_table.exists() and patient_monthly.exists():
-        console.print("[bold]Step 3f/5:[/bold] Validating product-patient links...")
+        console.print("[bold]Step 3g/5:[/bold] Validating product-patient links...")
         try:
             from a4d.tables.product import link_product_patient
 

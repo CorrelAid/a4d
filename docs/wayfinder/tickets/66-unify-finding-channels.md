@@ -60,16 +60,20 @@ Consequences, all measured:
   `pipeline/tracker.py:61,140` passes the suffixed name to `file_logger`, and
   `logging.py:156` binds it as the `file_name` context on every line.
 - **25 rows in `table_errors` carry a blank `file_name`.** The user's rule
-  (2026-08-24): there should never be a finding without one.
+  (2026-08-24): there should never be a finding without one. In the *published*
+  production table the figure is **33 blank, 0 null**, over 243 distinct files
+  and 49,927 rows (measured 2026-08-25 against BigQuery); the 25 was the local
+  254-tracker parquet run.
 - **Volume shape** (254-tracker run): `table_logs` 216,871 rows -- DEBUG
   146,527 / WARNING 39,568 / INFO 30,704 / ERROR 72 -- and `table_errors`
   63,553. Note the ticket 16 premise claimed "1M+ rows"; that is wrong.
   Per file: logs median 646 / p90 1,849 / max 4,340; errors median 90 / p90
   833 / max 2,507.
-- **Unverified, do not assume either way:** in that run every WARNING/ERROR log
-  row is `_patient`-suffixed, with **zero** product rows. Current code does
-  write `_product` logs (`pipeline/tracker.py:140`), and the run predates
-  ticket 32's fix, so this may already be resolved. Needs a current run.
+- ~~**Unverified, do not assume either way:** in that run every WARNING/ERROR
+  log row is `_patient`-suffixed, with **zero** product rows.~~ **Measured
+  2026-08-25 and fixed — see "What the 2026-08-25 session settled" below.** It
+  was not an artifact of the parquet run: the published BigQuery `logs` table
+  had zero product rows too, and the cause was an ordering bug, not ticket 32.
 
 **Supersedes [ticket 65](65-logs-table-r-named-values.md)** (two published log
 values naming R scripts). Folded in here at the user's direction, since both
@@ -77,6 +81,75 @@ change published BigQuery tables and one breaking change beats two.
 
 Void, rather than merely rewritten, if the decision to keep an in-memory
 collector at all is reversed.
+
+### What the 2026-08-25 session settled
+
+All of this was **executed** — against live BigQuery, live GCS, and a test run —
+not read.
+
+**1. The Cloud Run precondition is clear: per-tracker logs are not lost.**
+`run_all_cmd` uploads `logs/` alongside `tables/` under a per-run timestamped
+prefix (`cli.py`, step 4). GCS confirms it: every run since 2026-03 has both,
+and the latest production run holds **514** log files at
+`gs://a4dphase2_output/2026/08/09/010107/logs/`. The unified channel may be
+file-first; it does not have to be BigQuery-first. **Question 1 is answered.**
+
+**2. The reason product findings were missing is an ordering bug, now fixed.**
+`create_table_logs` snapshots whatever `.log` files exist under `logs/` at the
+moment it is called. It was called from inside `run_patient_pipeline`
+(`pipeline/patient.py:313`), which `run_all_cmd` runs *before* the product arm.
+On a fresh container that is patient files only, and there was no second call
+anywhere in `run_all_cmd`. Measured on the 2026-08-09 production run:
+
+| arm | DEBUG | INFO | WARNING | ERROR | files |
+|---|---|---|---|---|---|
+| patient | 145,472 | 34,750 | 47,444 | 52 | 248 |
+| **product** | **0** | **0** | **0** | **0** | **0** |
+| (null `file_name`) | 249 | 277 | — | — | 0 |
+
+The same run wrote **249 `_product.log` files** to GCS holding **33,698 lines**,
+of which **10,237 carry an `error_code`**: 4,714 `invalid_tracker`, 2,995
+`invalid_value`, 2,452 `missing_column`, 72 `typo_rescued`, 4
+`empty_product_data`, 4 ERROR-level `critical_abort`. Uploaded to GCS, absent
+from BigQuery.
+
+Fixed by moving the call out of the patient arm into `run_all_cmd` after both
+arms, mirroring what [ticket 32](32-audit-classifiers-against-decision-bar.md)
+did for `create_table_errors`. Regression test:
+`tests/test_cli/test_run_all_logs_table.py`. Before: `{null: 24, patient: 62,
+product: 0}`. After: `{patient: 102, product: 34, null: 48}`.
+
+**This closes the logs half of question 8.** `create_table_errors` is still
+called from `pipeline/patient.py`, but `run_all_cmd` already rebuilds it from
+both arms afterwards, so that one is a redundant write rather than a missing
+arm. Still worth removing when the emit point lands.
+
+**3. The null-`file_name` rows are not the blank-`file_name` defect.** The 526
+null rows in `logs` come from `main_pipeline_patient.log` /
+`main_pipeline_product.log` — run-level operational lines with no per-tracker
+binding. Under this ticket's own split they are *operational logs*, so having no
+`file_name` is correct for them. The "never blank" rule in question 4 applies to
+findings, and must not be written so as to force a `file_name` onto these.
+
+**4. Question 7's premise needs correcting, in two ways.** `script` and
+`function_name` are columns on the **`errors`** table, not `logs` — the `logs`
+schema has no `script` column at all. And the R-shaped values are **not yet
+published**: `script="script1"`/`"script3"` and
+`function_name="read_product_data_step1"` are set only in
+`extract/product.py:311` and `tables/product.py:89`, i.e. the product arm, which
+never reached the published errors table in the 2026-08-09 run. Production
+currently shows `clean`/`extract` with real Python function names. Ticket 32's
+fix means the **next** production run publishes the R-shaped values for the
+first time — so this is a pending consequence, not current behaviour, and
+fixing it before that run avoids ever publishing them.
+
+**5. One more input for question 4's record design:** `logs.timestamp` is a
+BigQuery `FLOAT` (unix epoch) while `errors.timestamp` is a proper `TIMESTAMP`.
+The unified record should take the latter.
+
+**Still entirely undone:** questions 2, 3, 4, 5, 6, 7 — the single emit point,
+the 6 hard call sites, the record shape, the category derivation, the
+`table_findings`/`table_logs` split and its BigQuery migration.
 
 ## Question
 
@@ -95,12 +168,9 @@ currently tangled across both:
 
 What has to be decided and built:
 
-1. **Verify the Cloud Run precondition first -- it can invalidate the design.**
-   Per-tracker JSON logs are written to `output_root/logs/`, which on Cloud Run
-   is ephemeral container storage. If they are not uploaded before the container
-   exits, production runs have **no** per-tracker detail, and the unified
-   channel must be BigQuery-first rather than file-first. Check before
-   designing, not after.
+1. ~~**Verify the Cloud Run precondition first.**~~ **Answered 2026-08-25: the
+   logs are uploaded to GCS per run, so nothing is lost and the design stands.
+   File-first is viable.** Detail above.
 
 2. **One emit point.** `add_error` (or a renamed `report_finding`) both appends
    to the collector *and* emits a bound loguru line, so a finding cannot exist
@@ -137,7 +207,12 @@ What has to be decided and built:
 
 7. **Fold in ticket 65**: `function_name="read_product_data_step1"` becomes the
    emitting Python function, and `script="script1"`/`"script3"` become stage
-   names consistent with the `"clean"` default.
+   names consistent with the `"clean"` default. These are **`errors`** columns,
+   not `logs` ones, and are not published yet — see correction 4 above. The
+   measurement ticket 65 never ran (does anything consume them?) is still open.
 
-8. **Fix the arm-ownership smell**: `create_table_errors` should not be called
-   from inside the patient arm.
+8. **Fix the arm-ownership smell.** **Logs half done 2026-08-25** — the logs
+   table is now built in `run_all_cmd` after both arms. `create_table_errors` is
+   still called from inside the patient arm; harmless today because
+   `run_all_cmd` rebuilds it from both arms afterwards, but it should go when
+   the emit point lands.
