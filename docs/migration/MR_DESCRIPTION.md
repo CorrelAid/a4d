@@ -32,7 +32,7 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 47 of 59 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 54 of 63 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
     L["Patient cleaned: COMPLETE<br/>16 unclassified, all owned by open questions"]
@@ -41,18 +41,15 @@ flowchart TD
   end
 
   subgraph OPEN["Still open"]
-    P["32 - re-audit all classifiers"]
+    U["12 - retire R from the workspace"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
     T["16 - per-file log drill-down"]
     X["40 - source-defect findings Excel"]
     Y["41 - 2026 new Patient List fields"]
-    Z["58 - misspelled ID loses demographics"]
-    Z2["59 - rows that pair with nothing"]
   end
 
   subgraph BLOCKED["Blocked on the above"]
-    U["12 - retire R from the workspace"]
     V["6 - promote migration to dev"]
     W["9 - golden-master snapshot tests"]
   end
@@ -61,16 +58,15 @@ flowchart TD
   B --> C
   C --> D --> F
   C --> I --> TRIAGE
-  L --> P
-  P --> U
+  L --> U
   U --> V --> W
 
   classDef done fill:#1a7f37,stroke:#116329,color:#fff
   classDef open fill:#1f6feb,stroke:#0b3d91,color:#fff
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
   class A,B,C,D,E,F,G,H,I,J,K,L,M,M2,N done
-  class P,Q,R,T,X,Y,Z,Z2 open
-  class U,V,W blocked
+  class U,Q,R,T,X,Y open
+  class V,W blocked
 ```
 
 ---
@@ -616,26 +612,18 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Frontier, continued**
 
-- **58 — monthly rows with a misspelled ID lose their Patient List
-  demographics.** Extraction joins the Patient List on the *unfixed*
-  `patient_id`, long before cleaning repairs it, so ticket 47's recovered rows
-  have their identity back but null `dob`, `sex` and `province`. The hyphen-
-  spelled Mahosot and Surat Thani rows are the likely larger population; the
-  count is not yet derived.
-- **32 — re-audit every cause classifier.** ~20 exist. Each was source-verified
-  when written, but the decision bar was tightened partway through; this
-  re-checks that none merely labels a diff it never explained.
+- **12 — retire R from the workspace.** Now unblocked: no open ticket asks a
+  question about R's code, and nothing in the codebase reads `r-archive/` at
+  runtime. Its one open question is what happens to the eight docstring
+  citations in the cause registry that name an R file and line as their
+  evidence.
 - **34 — make the local pre-push checks match CI.** CI was red for four days
   unnoticed because the locally-run check set was a strict subset.
 - **35 — 17 Polars 2.0 deprecation warnings.** Each asks about a behaviour
   change; they need decisions, not silencing.
-- **39 — dates buried in clinical notes.** Now owns `hospitalisation_date`'s
-  whole 489-cell residual, measured by round 6 to be 100% notes. Runs three
-  ways: 302 where Python sentinels and R has a date, 179 where **Python already
-  recovers a date and R sentinels**, and 65 where both find a date and disagree
-  about which of several recorded admissions the cell means. So the question is
-  not only recover-or-discard but *which* date, when the note lists more than
-  one.
+- **40 — one Excel of every source-tracker defect**, so the workbooks
+  themselves can be corrected rather than guessed at in the pipeline.
+- **41 — the 2026 template's five new Patient List fields**: in or out.
 - **16 — per-file log drill-down.** Replaces `LogViewerA4D`'s job. Not yet
   decided whether it gates rollout or is a nice-to-have.
 - **40 — one Excel of every source-tracker defect** (file, sheet, patient, row,
@@ -742,6 +730,29 @@ untouched.
 - The 15 rows that still miss are source defects — `2023_NPH`'s stray `H`, and
   `2024_Mandalay General`'s `MM_YG013_MG`, which that Patient List does not
   contain under any spelling.
+
+**Naming what that fix changed, on the stage that cannot see it (ticket 63)**
+
+The cause above recognises a cell by the month row's own ID still carrying the
+hyphen — and cleaning normalizes exactly that, on both sides. So the fix took
+the cleaned stage from 16 unexplained cells to **4,949**. The comparison now
+derives the affected identities per file from the run's own *raw* output and
+carries them to the cleaned stage as a flag; production output is untouched.
+Cleaned `unclassified` is back to **16**, with the four-stage totals unchanged.
+
+- **A column R lost file-wide is a different defect**, and the naive wiring
+  claimed 43 files instead of 6. 2024 Preah Kossamak reads zero
+  `recruitment_date` in 863 rows (R's `xml:space` header defect) where 2024
+  Mahosot reads 672 of 1,068. A new `r_column_empty_in_file` guard keeps 2,336
+  cells off the wrong label.
+- **Four existing causes were silently holding join-miss cells** and handed
+  back 671 `recruitment_date`, 677 `fbg_baseline_mg`, 224 each of `edu_occ`
+  and `edu_occ_updated`, and 9 per blood-pressure column — every figure now
+  matching the raw stage's own count for that column, computed a different way.
+- **`age` is derived, so it got its own cause.** `_fix_age_from_dob` overrides
+  the sheet's Age cell with the D.O.B.-derived age; R has no D.O.B. for these
+  patients (null in all 275 rows) and keeps the clinic's typed figure. 113
+  cells; Python is the correct side.
 
 **Known and accepted**
 

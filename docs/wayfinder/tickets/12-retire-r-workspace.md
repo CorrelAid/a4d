@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [63]
+blocked_by: []
 assignee: null
 claimed_at: null
 resolution: null
@@ -345,3 +345,24 @@ on `bmi`, `age` and `t1d_diagnosis_age` for these patients when the month
 sheets carry those columns -- a question about R's own code, not about its
 output. Tickets 6, 9, 16, 34, 35, 40 and 41 were each checked again and need
 none. **One ticket still stands between this map and retiring R.**
+
+## The list is now empty (re-derived 2026-08-24, session e)
+
+Closing [ticket 63](63-name-the-cleaned-stage-static-join-divergence.md) leaves
+**no open ticket that needs the R source**. Re-derived rather than inherited,
+per the rule above: tickets 6, 9, 16, 34, 35, 40 and 41 were each checked and
+none asks a question about R's code -- verified by grepping every open ticket
+body for `r-archive`, `R source`, `script<n>_`, `readxl` and `openxlsx`, which
+matches nothing. Ticket 63 itself needed R only for its frozen *output*, which
+this ticket's scope excludes.
+
+Nothing in the codebase reads `r-archive/` at runtime either: the only
+references outside `docs/` are `pyproject.toml`'s two lint exclusions and
+**eight docstring citations** in `src/a4d/migration/compare.py`, which name the
+R file and line each cause was traced to.
+
+**That is this ticket's one open question, not a blocker.** Those citations are
+the evidence for the cause registry, and deleting `r-archive/` makes them
+unverifiable by anyone reading them later. Whoever takes this decides whether
+that is acceptable, whether the cited excerpts get inlined first, or whether
+the archive moves rather than dies.

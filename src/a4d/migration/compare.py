@@ -519,6 +519,28 @@ class CellMismatch:
     # unclassified for exactly this reason. The fact is read back from the
     # pipeline's own glucose_unit_swapped error records, not re-derived here.
     column_unit_swapped: bool = False
+    # Set by compare_cells when static_join_missed_ids is given (ticket 63):
+    # True if this row's patient is one whose month sheets spell the ID
+    # differently from the Patient List in the same workbook. The raw stage
+    # reads that off the key itself, but cleaning normalizes patient_id on both
+    # sides, so by then the only surviving discriminator is a per-file fact
+    # derived from the raw output -- the same shape column_unit_swapped uses
+    # for a property of a column rather than of a cell.
+    static_join_missed_id: bool = False
+    # Set by compare_cells (ticket 63): True if R holds no value for this
+    # column anywhere in this file. R's column-level failures are file-level by
+    # construction -- a header it cannot map is unmapped for every row at once
+    # (ticket 62 measured recruitment_date's xml:space defect as exactly this:
+    # 91 files reading zero, none reading some) -- so this separates "R lost
+    # the column" from "R lost this row", which are otherwise the same null.
+    r_column_empty_in_file: bool = False
+    # Set by compare_cells (ticket 63): True if this row's dob is null on R and
+    # present on Python. age is derived from dob rather than published from the
+    # sheet, so a birth date only one side holds moves the derived column too --
+    # a cascade, keyed on the mechanism like row_has_bare_year_date rather than
+    # on the derived values' shape, which cannot tell it from a real
+    # disagreement about someone's age.
+    row_dob_recovered: bool = False
     # Set by compare_cells (ticket 44): for a mmol glucose column, the
     # (r_value, py_value) of the same row's mg sibling. The mmol column is not
     # independently recorded -- both pipelines derive it from the mg cell -- so
@@ -553,8 +575,15 @@ def compare_cells(
     order_group_cols: list[str] | None = None,
     unit_swapped_columns: set[str] | None = None,
     tracker_year_col: str | None = None,
+    static_join_missed_ids: set[str] | None = None,
 ) -> list[CellMismatch]:
     """Diff matched rows cell-by-cell.
+
+    ``static_join_missed_ids`` (ticket 63) is this file's set of normalized
+    patient IDs whose month rows spell the ID differently from the Patient
+    List, derived from the raw output by ``static_join_missed_ids``. Supplied
+    on the cleaned stage only, where normalization has erased the spelling the
+    raw stage discriminates on.
 
     ``unit_swapped_columns`` (ticket 44) is this file's set of mg/dL-labelled
     glucose columns that ``resolve_glucose_units`` found to be recorded in
@@ -590,6 +619,11 @@ def compare_cells(
             for col in value_cols:
                 per_column.setdefault(col, Counter())[row[col]] += 1
 
+    # Measured on r_df rather than on the joined frame: a column R lost is a
+    # fact about R's whole output for this file, not about the rows that
+    # happened to pair.
+    r_empty_columns = {c for c in value_cols if r_df[c].null_count() == len(r_df)}
+
     group_endpoint_agrees = _group_endpoint_agreement(
         joined, order_group_cols, key_cols, value_cols
     )
@@ -606,6 +640,10 @@ def compare_cells(
     mismatches = []
     for row in joined.iter_rows(named=True):
         key = {k: row[k] for k in key_cols}
+        row_static_join_missed = (
+            static_join_missed_ids is not None and _key_patient_id(key) in static_join_missed_ids
+        )
+        dob_recovered = "dob" in value_cols and row["dob"] is None and row["dob_py"] is not None
         tracker_year = _as_year(row[year_field]) if year_field else None
         gkey = tuple(row[c] for c in order_group_cols) if order_group_cols else None
         has_bare_year = any(
@@ -637,6 +675,9 @@ def compare_cells(
                         group_endpoint_matches=group_endpoint_agrees.get((gkey, col), False),
                         row_has_bare_year_date=has_bare_year,
                         column_unit_swapped=col in swapped_pair_columns,
+                        static_join_missed_id=row_static_join_missed,
+                        r_column_empty_in_file=col in r_empty_columns,
+                        row_dob_recovered=dob_recovered,
                         mg_sibling=(
                             (row[mg_col], row[f"{mg_col}_py"])
                             if (mg_col := mg_by_mmol.get(col)) is not None
@@ -688,6 +729,51 @@ def load_glucose_unit_swaps(errors: pl.DataFrame) -> dict[str, set[str]]:
     for row in swapped.iter_rows(named=True):
         by_tracker.setdefault(row["file_name"], set()).add(row["column"])
     return by_tracker
+
+
+def _key_patient_id(key: Any) -> str | None:
+    """The patient ID out of a row key, whatever add_row_ordinal prefixed it with.
+
+    ``add_row_ordinal`` renames every key column to ``__key_<col>``, so a bare
+    ``patient_id`` lookup silently finds nothing -- the same trap ``_sheet_year``
+    documents. Matching on the suffix survives both spellings.
+    """
+    if not isinstance(key, dict):
+        return None
+    return next(
+        (v for k, v in key.items() if str(k).endswith("patient_id") and isinstance(v, str)),
+        None,
+    )
+
+
+def static_join_missed_ids(raw_df: pl.DataFrame) -> set[str]:
+    """Which identities in one raw frame were spelled two ways in their workbook.
+
+    Returns the *normalized* spelling, because that is what the cleaned stage's
+    row key holds -- the raw spelling exists only here (ticket 63). A patient
+    appears when its month rows carry a hyphen or a transfer-clinic suffix the
+    Patient List does not, which is exactly the condition under which R's
+    raw-keyed join comes back null for every static column at once.
+
+    Read off the raw output rather than restated as a list of affected
+    trackers: the set is derived from the same run being compared, so a
+    workbook whose spelling is later corrected drops out without a second edit.
+    """
+    # An all-null patient_id column comes back as pl.Null, where the string
+    # expressions normalization is built from do not apply at all.
+    if "patient_id" not in raw_df.columns or not len(raw_df):
+        return set()
+    if raw_df.schema["patient_id"] != pl.String:
+        return set()
+    respelled = raw_df.select(
+        pl.col("patient_id"),
+        normalize_patient_id_expr(pl.col("patient_id")).alias("__normalized"),
+    ).filter(
+        pl.col("patient_id").is_not_null()
+        & pl.col("__normalized").is_not_null()
+        & (pl.col("patient_id") != pl.col("__normalized"))
+    )
+    return set(respelled["__normalized"].to_list())
 
 
 def _group_endpoint_agreement(
@@ -1201,24 +1287,44 @@ def _is_r_static_join_misses_respelled_id(m: CellMismatch) -> bool:
     correct side; the workbook's inconsistent spelling is a source defect
     reported separately.
 
-    **Raw stage only.** The discriminator is the month row's own ID still
-    carrying the hyphen or transfer-clinic suffix, which is exactly what
-    normalization removes -- so by the cleaned stage both sides publish
-    ``LA_MH056`` and this cause can no longer tell itself apart from
-    ``r_extraction_gap``'s column-naming failures. That is why it is wired to
-    the raw stage's columns only.
+    **Two discriminators, one per stage** (ticket 63). At the raw stage the
+    month row's own ID still carries the hyphen or transfer-clinic suffix, so
+    the cell speaks for itself. Cleaning normalizes exactly that, on both
+    sides, so at the cleaned stage the spelling is gone and the cause would
+    otherwise fall through to ``r_extraction_gap``'s column-naming failures --
+    the wrong reason over the right label. ``static_join_missed_id`` supplies
+    the missing fact instead: the per-file set of affected identities, derived
+    from the run's own raw output by ``static_join_missed_ids``.
+
+    R-null and Python-present still gate both paths. The flag is a property of
+    the *patient*, not of the cell, so a flagged row whose column R populated
+    from the month sheet is not this cause.
+
+    The cleaned path additionally declines a column R lost across the whole
+    file, because there the join miss is incidental: 2024 Preah Kossamak reads
+    **zero** ``recruitment_date`` in 863 rows and 2024 Yangon General zero in
+    1,057, which is ``r_extraction_gap``'s file-level ``xml:space`` header
+    defect, while 2024 Mahosot reads 672 of 1,068 and so its nulls really are
+    per-patient. Without the guard the prepended cause takes 2,336 cells whose
+    reason is R's header, not R's key -- the ticket-32 failure mode of a right
+    label over a wrong mechanism. Only the cleaned stage needs it: at the raw
+    stage a column R never mapped is absent entirely and is reported as column
+    divergence, so no cell reaches here.
+
+    **Its one measured over-claim is 5 cells, and it is not fixable at this
+    stage.** The flag is a property of the patient, so where a workbook spells
+    the *same* patient both ways in month rows -- 2026 Surat Thani carries both
+    ``TH_ST029`` and ``TH-ST029`` in ``May26`` -- normalization folds the two
+    rows together and neither can be told from the other. The raw stage labels
+    the canonical row ``r_extraction_gap`` instead, and that is the residue:
+    one row, five columns. Named rather than bounded out, because excluding the
+    identity would cost two correct classifications to avoid one wrong one.
     """
     if m.r_value is not None or m.py_value is None:
         return False
-    if not isinstance(m.key, dict):
-        return False
-    # add_row_ordinal renames every key column to __key_<col>, so match on the
-    # suffix -- keying on the bare name finds nothing and the cause never fires
-    # (the same trap _sheet_year documents).
-    patient_id = next(
-        (v for k, v in m.key.items() if str(k).endswith("patient_id") and isinstance(v, str)),
-        None,
-    )
+    if m.static_join_missed_id:
+        return not m.r_column_empty_in_file
+    patient_id = _key_patient_id(m.key)
     if patient_id is None:
         return False
     normalized = (
@@ -1231,6 +1337,42 @@ def _is_r_static_join_misses_respelled_id(m: CellMismatch) -> bool:
 
 PATIENT_STATIC_JOIN_CLASSIFIERS: dict[str, Classifier] = {
     "r_static_join_misses_respelled_id": _is_r_static_join_misses_respelled_id,
+}
+
+
+def _is_r_age_not_derived_without_dob(m: CellMismatch) -> bool:
+    """R keeps the month sheet's typed age, having no D.O.B. to recompute from.
+
+    ``age`` is not published as the workbook wrote it: ``_fix_age_from_dob``
+    (clean/patient.py) overrides the sheet's Age cell with the age derived from
+    ``dob`` whenever a birth date exists, and records an ``invalid_value``
+    error saying so. Ticket 58's join fix gave Python a D.O.B. for patients
+    whose month rows are spelled differently from the Patient List; R's join
+    still misses, so R has no birth date and falls back to whatever the Age
+    cell said, or to nothing.
+
+    Executed against the frozen baseline: R's cleaned 2023 Mahosot holds
+    ``dob`` null for **all 275 rows** of the affected patients, and publishes
+    LA_MH060 as 13 in ``Jan23`` where Python publishes 14 -- that patient's
+    recovered D.O.B. is 2009-01-16, so on any January 2023 sheet they are 14
+    and R's figure is the clinic's own, updated a month late. Python is the
+    correct side; the divergence is a cascade of the recovered birth date, not
+    a disagreement about the patient.
+
+    Keyed on ``row_dob_recovered`` rather than on the file-level identity set,
+    because it is the birth date the derivation actually consumes -- a row
+    whose D.O.B. R has too is not this cause however its ID is spelled. Both
+    directions of the population are covered: 53 cells where R publishes a
+    typed age that differs, and 60 where the Age cell is empty and R, unlike
+    Python, has nothing to derive from.
+    """
+    if m.py_value is None:
+        return False
+    return m.row_dob_recovered
+
+
+PATIENT_AGE_CASCADE_CLASSIFIERS: dict[str, Classifier] = {
+    "r_age_not_derived_without_dob": _is_r_age_not_derived_without_dob,
 }
 
 
@@ -2219,6 +2361,17 @@ def _is_r_never_derives_diagnosis_age(m: CellMismatch) -> bool:
     (ticket 52), which fires only where the row's own date cells disagree. The
     rest of the population has no date mismatch at all, so it needs the
     mechanism stated directly.
+
+    **Where the two dates come from matters, though the reason above does
+    not change** (ticket 63). 683 of this cause's cells are the respelled-ID
+    patients ticket 58 recovered: 2024 Mahosot's LA_MH056 is null on all three
+    of ``dob``, ``t1d_diagnosis_date`` and ``t1d_diagnosis_age`` in R's frozen
+    output, while Python holds 2014-02-22, 2021-06-22 and 7. So these rows are
+    divergences ticket 58 *created* -- before it, Python had no dates to derive
+    from either. The cause still states the right reason, because R would
+    publish nothing here even holding both dates: its ``fix_t1d_diagnosis_age``
+    call site is commented out. Recorded rather than re-labelled, and no count
+    moves.
     """
     if m.py_value is None:
         return False
@@ -2891,9 +3044,11 @@ def compare_directory(
     order_group_cols: list[str] | None = None,
     unit_swapped_columns: dict[str, set[str]] | None = None,
     tracker_year_col: str | None = None,
+    static_join_missed_ids_by_frame: dict[str, set[str]] | None = None,
 ) -> DirectoryComparison:
     numeric_cols = numeric_cols or []
     unit_swapped_columns = unit_swapped_columns or {}
+    static_join_missed_ids_by_frame = static_join_missed_ids_by_frame or {}
     categorical_cols = categorical_cols or []
     r_names, py_names = set(r_frames), set(py_frames)
     common = sorted(r_names & py_names)
@@ -2917,6 +3072,7 @@ def compare_directory(
                     order_group_cols,
                     unit_swapped_columns.get(name),
                     tracker_year_col,
+                    static_join_missed_ids_by_frame.get(name),
                 ),
             )
         )

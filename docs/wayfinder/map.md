@@ -38,20 +38,19 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 6"]
     direction TB
+    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T63["<b>63</b> · task<br/>The cleaned stage has<br/>3,593 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
   end
-  subgraph BLOCKED["Blocked · 3"]
+  subgraph BLOCKED["Blocked · 2"]
     direction TB
     T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 53"]
+  subgraph DECIDED["Decided · 54"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -106,6 +105,7 @@ flowchart TD
     T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
     T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
+    T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -138,14 +138,13 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
-  T63 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T63 frontier
+  class T12,T16,T34,T35,T40,T41 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9,T12 blocked
+  class T6,T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2532,6 +2531,60 @@ Ticket 63 does: its question 2 asks what mechanism leaves R null on `bmi`,
 `age` and `t1d_diagnosis_age` for these patients, which is a question about R's
 code. **The frontier is six**, and ticket 63 is the only one on the route.
 
+**[The cleaned stage's 4,949 unnamed cells](tickets/63-name-the-cleaned-stage-static-join-divergence.md)
+is closed, and the first thing it found was that its own headline number was
+wrong.** The ticket said 3,593; five consecutive comparison runs say **4,949**.
+The fix is the cheap one — the affected identities are derived per file from
+the run's own *raw* output, which is the last place the two ID spellings
+coexist, and threaded to the cleaned stage as a `CellMismatch` flag. No
+production code moved.
+
+**Wiring it naively would have been the session's mistake, and measuring is
+what caught it.** The prepended cause immediately claimed 9,302 cells across
+**43 files**, against a join miss that touches 6. 2024 Preah Kossamak reads
+**zero** `recruitment_date` in 863 rows and 2024 Yangon General zero in 1,057
+— that is `r_extraction_gap`'s file-level `xml:space` header defect, which
+[ticket 62](tickets/62-finish-the-pre-bar-classifier-audit.md) established
+nulls a column for every patient at once — while 2024 Mahosot reads 672 of
+1,068, so *its* nulls really are per-patient. A new `r_column_empty_in_file`
+flag makes the cause decline the first case, keeping 2,336 cells off a label
+whose reason is R's header rather than R's key.
+
+**The strongest evidence the reassignment is right is that two independent
+discriminators now agree.** Four existing causes were quietly holding
+join-miss cells on the cleaned side —
+`recruitment_date|r_extraction_gap` (671),
+`fbg_baseline_mg|r_join_suffix_collision` (677), `edu_occ` and
+`edu_occ_updated` (224 each) and the three blood-pressure columns (9 each) —
+and every one of those figures now matches the **raw** stage's count for the
+same column cell-for-cell, though the two stages compute the discriminator in
+completely different ways.
+
+**`age` turned out not to be a wiring question at all.** Its 113 cells are a
+cascade: `_fix_age_from_dob` overrides the sheet's Age cell with the age
+derived from `dob`, and R's `dob` is null for **all 275 rows** of the affected
+patients, so R publishes the clinic's typed figure or nothing. LA_MH060's
+recovered D.O.B. is 2009-01-16, so `Jan23` is 14 — Python's value; R says 13,
+the clinic's own, a month stale. New cause `r_age_not_derived_without_dob`.
+Of the ticket's other two over-claim columns, `bmi` has **zero** cells on
+these identities and `t1d_diagnosis_age`'s 1,078 keep their causes, whose
+reason was right but incomplete — a docstring correction with no count moving,
+which is [ticket 62](tickets/62-finish-the-pre-bar-classifier-audit.md)'s
+shape a third time.
+
+**Ticket 12's `blocked_by` is now empty, and R can retire.** Re-derived rather
+than inherited: tickets 6, 9, 16, 34, 35, 40 and 41 were each grepped for a
+question about R's code and none has one, and nothing in the codebase reads
+`r-archive/` at runtime — the only references outside `docs/` are two lint
+exclusions and eight docstring citations. Those citations are the one open
+question recorded on ticket 12, not a blocker: deleting the archive makes the
+evidence behind the cause registry unverifiable, and whoever takes the ticket
+decides what to do about that. **The frontier is six** — ticket 63 leaving it
+and ticket 12 joining it — and [retiring
+R](tickets/12-retire-r-workspace.md) is now the only one on the route to the
+destination. The other five are standing decisions, the source-defect report
+and a separate feature (ticket 16).
+
 ## Decisions so far
 
 - [Monthly rows with a misspelled ID silently lose their Patient List
@@ -2544,6 +2597,24 @@ code. **The frontier is six**, and ticket 63 is the only one on the route.
   `r_static_join_misses_respelled_id` (raw stage only, 5,959 cells, raw
   `unclassified` -> 0); the cleaned-stage half is [ticket
   63](tickets/63-name-the-cleaned-stage-static-join-divergence.md).
+
+- [The cleaned stage has 4,949 cells with no cause, because the ID spelling that
+  explains them is gone by
+  then](tickets/63-name-the-cleaned-stage-static-join-divergence.md) -- decided
+  and implemented. The surviving discriminator is derived per file from the
+  run's own **raw** output (`static_join_missed_ids`), comparison-side only, so
+  production output is untouched. The ticket's own figure was understated:
+  measured, cleaned `unclassified` was **4,949, not 3,593**, and it is now
+  **16** -- the pre-session baseline -- with raw still 0 and the four-stage
+  totals unchanged. Two guards were needed before the cause was true: a column
+  R lost **file-wide** is `r_extraction_gap`'s `xml:space` defect, not this one
+  (2024 Preah Kossamak reads zero `recruitment_date` in 863 rows against 2024
+  Mahosot's 672 of 1,068), which kept 2,336 cells off the wrong label; and
+  `age` is *derived*, so it got its own cause
+  `r_age_not_derived_without_dob` (113 cells) keyed on the row's recovered
+  D.O.B. **Four existing causes were silently holding join-miss cells** and
+  handed back 671 + 677 + 224 + 224 + 27 -- each now matching the raw stage's
+  count for the same column cell-for-cell.
 
 - [Audit the eight pre-bar causes the first classifier pass did not
   reach](tickets/60-audit-remaining-pre-bar-classifiers.md) -- decided and
@@ -3943,6 +4014,10 @@ flowchart TB
     direction LR
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
   end
+  subgraph S2026_08_24e["Session 2026-08-24e"]
+    direction LR
+    U63["<b>63</b><br/>The cleaned stage has<br/>4,949 cells with no<br/>cause, because the ID<br/>spelling that explains<br/>them is gone by then"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3957,7 +4032,6 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U63["<b>63</b><br/>The cleaned stage has<br/>3,593 cells with no<br/>cause, because the ID<br/>spelling that explains<br/>them is gone by then"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4006,7 +4080,8 @@ flowchart TB
   S2026_08_24 ~~~ S2026_08_24b
   S2026_08_24b ~~~ S2026_08_24c
   S2026_08_24c ~~~ S2026_08_24d
-  S2026_08_24d ~~~ Sunworked
+  S2026_08_24d ~~~ S2026_08_24e
+  S2026_08_24e ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4035,7 +4110,6 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U63 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -4089,11 +4163,11 @@ flowchart TB
   U58 -.->|spawned| U63
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U63 tfrontier
+  class U12,U16,U34,U35,U40,U41 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9,U12 tblocked
+  class U6,U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
