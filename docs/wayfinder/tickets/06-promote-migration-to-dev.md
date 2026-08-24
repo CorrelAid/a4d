@@ -4,8 +4,8 @@ title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
 status: open
 blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23, 64]
-assignee: null
-claimed_at: null
+assignee: session-2026-08-24h
+claimed_at: 2026-08-24
 resolution: null
 evidence: null
 closed_by: null
@@ -95,3 +95,34 @@ satisfied was argued on documentation being *wrong*; ticket 65 is about
 published field values being *inconsistent*, which is a different and lesser
 claim, and fixing it changes BigQuery output rather than correcting a falsehood.
 Reversible if the data owner would rather have it in before promotion.
+
+## Prepared, not merged (session-2026-08-24h)
+
+The merge itself is a human-only action per the map's Notes, so this session
+prepared it and stopped.
+
+State verified rather than assumed, at head `ec12f48`:
+
+- `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
+- CI green on the head commit (both `test` jobs SUCCESS).
+- `origin/dev` is an ancestor of `migration` and has **zero** commits
+  `migration` lacks, so there is nothing to reconcile.
+- Local and remote `migration` identical; working tree clean.
+- Both recovery tags are on the remote:
+  `r-archive-removed` -> `87530b1`, `migration-archive-frozen` -> `0dcc02d`.
+- `dev` has **no branch protection**, so no review is required by the repo and
+  nothing will block the button.
+- `delete_branch_on_merge` is **false**, so `migration` survives the merge.
+
+The PR body was replaced with the current `docs/archive/MR_DESCRIPTION.md`
+(43,815 chars, was 23,547 and stale). Two claims in that document were false and
+were corrected first: it opened with "**This MR is not ready to merge yet**",
+and its "Still open" section said the listed work "blocks the merge". Neither
+is true now.
+
+**Open question for whoever merges: squash or merge commit.** Both are enabled.
+Squashing collapses 285 commits whose messages are the migration's own
+evidence trail and which the wayfinder tickets cite by SHA. The R-recovery
+recipe survives either way -- an annotated tag pins its commit regardless of
+merge strategy -- **provided the two tags above are never deleted**. That is
+the one thing that would make `r-archive/` genuinely unrecoverable.
