@@ -11,8 +11,11 @@ and an R/Python comparison harness used to verify the migration cell by cell.
 > This document is live until PR #2 merges, then frozen with the rest of
 > [`docs/archive/`](README.md) at tag `migration-archive-frozen`.
 
-**This MR is not ready to merge yet** — see "Still open" at the end. It is
-posted so the state is reviewable while the remaining verification work runs.
+**This MR is ready to merge.** Every ticket that gated it is closed: the
+cell-by-cell R/Python triage over 254 trackers, the production verification
+run, the dependency audit, the performance profile, R's retirement, and the
+documentation overhaul. CI is green on the head commit. What remains open is
+listed at the end and none of it blocks the merge.
 
 > Keep this document current: update it at the end of every working session,
 > alongside [docs/wayfinder/map.md](../wayfinder/map.md).
@@ -510,7 +513,8 @@ the pipeline *should* publish, not a difference nobody understands.
 
 # Still open
 
-Nothing here blocks review of the code — it blocks the merge.
+**None of this blocks the merge.** It is the work the wayfinder map carries
+forward past this PR.
 
 **Frontier (takeable now)**
 
