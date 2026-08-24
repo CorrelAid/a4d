@@ -3198,3 +3198,107 @@ class TestClinicalNoteClassifiers:
         )
 
         assert classify(mismatch, PATIENT_CLINICAL_NOTE_CLASSIFIERS) == "unclassified"
+
+
+class TestBuddhistEraTypoBand:
+    """Ticket 60: ``buddhist_era_typo`` tested only ``year >= 2400``, so it
+    claimed any far-future date as a Buddhist-era typo. Since ticket 61 the
+    cleaned stage *converts* genuine BE dates, so a residual year above the
+    threshold is by construction not a recoverable BE date -- and the two real
+    populations it was claiming (3035-03-01 in a 2025 CDA tracker, 5025-05-19
+    in a 2025 Surat Thani tracker) are ordinary year typos in the source
+    workbook, verified against the cells themselves.
+    """
+
+    def test_buddhist_era_typo_when_the_year_sits_in_the_sheets_own_be_band(self):
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "Jun26"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2569, 6, 17),
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "buddhist_era_typo"
+
+    def test_buddhist_era_typo_declines_a_year_far_outside_the_be_band(self):
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "Mar25"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(3035, 3, 1),
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_buddhist_era_typo_declines_the_surat_thani_year_typo(self):
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "May25"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(5025, 5, 19),
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "unclassified"
+
+    def test_buddhist_era_typo_still_fires_when_the_sheet_year_is_unknown(self):
+        """Without a sheet year the band cannot be applied, so the cause keeps
+        its old behaviour rather than silently dropping a real BE date."""
+        mismatch = CellMismatch(
+            key={"id": 1},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2569, 6, 17),
+        )
+
+        assert classify(mismatch, PATIENT_BUDDHIST_ERA_CLASSIFIERS) == "buddhist_era_typo"
+
+
+class TestAbsurdExcelSerialOnPatientDates:
+    """Ticket 60: bounding ``buddhist_era_typo`` exposed five 2025 Surat Thani
+    raw cells whose R side is the Excel serial ``1141523`` and whose Python
+    side is ``5025-05-19``. They fell through to
+    ``r_parse_order_cannot_read_cell``, which is false about R -- R did not
+    fail its parse orders, it carried the serial through as a string, and the
+    comparison's own ``normalize_date_column`` is what produced the sentinel.
+    ``python_absurd_excel_serial`` (ticket 32) already names this shape; it was
+    only ever wired to the product entry-date registry.
+    """
+
+    def test_absurd_serial_claims_the_surat_thani_raw_cell(self):
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "May25"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(5025, 5, 19),
+        )
+
+        registry = _compare_outputs_module().CLASSIFIERS_BY_COLUMN["fbg_updated_date"]
+
+        assert classify(mismatch, registry) == "python_absurd_excel_serial"
+
+    def test_a_genuine_be_year_still_reaches_buddhist_era_typo(self):
+        """The absurd-serial cause must not out-rank a real Buddhist-era date,
+        which in the raw stage is not yet converted and so also sits above the
+        2100 threshold."""
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "Jun26"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2569, 6, 17),
+        )
+
+        registry = _compare_outputs_module().CLASSIFIERS_BY_COLUMN["fbg_updated_date"]
+
+        assert classify(mismatch, registry) == "buddhist_era_typo"
+
+    def test_a_day_past_12_with_a_plausible_year_still_reaches_parse_order(self):
+        mismatch = CellMismatch(
+            key={"__key_sheet_name": "May25"},
+            column="fbg_updated_date",
+            r_value=SENTINEL_DATE,
+            py_value=datetime.date(2025, 5, 19),
+        )
+
+        registry = _compare_outputs_module().CLASSIFIERS_BY_COLUMN["fbg_updated_date"]
+
+        assert classify(mismatch, registry) == "r_parse_order_cannot_read_cell"

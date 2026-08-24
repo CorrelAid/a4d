@@ -46,6 +46,7 @@ from a4d.migration.compare import (
     BUDDHIST_ERA_CONVERSION_CLASSIFIERS,
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
+    PATIENT_ABSURD_SERIAL_CLASSIFIERS,
     PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS,
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
@@ -541,6 +542,17 @@ CLASSIFIERS_BY_COLUMN |= {
 # carry it in the current tracker set.
 CLASSIFIERS_BY_COLUMN |= {
     col: CLASSIFIERS_BY_COLUMN.get(col, {}) | PATIENT_YMD_FIRST_CLASSIFIERS
+    for col in get_date_columns()
+}
+
+# ticket 60: a junk Excel serial published as a year-3000-plus date is not
+# evidence about R -- it was reaching r_parse_order_cannot_read_cell, which
+# asserts R's parse orders failed, when R had simply carried the serial
+# through as a string. Prepended rather than appended because the cause it
+# must out-rank is itself schema-derived; safe to run first because its own
+# Buddhist-era band check declines a genuine BE year.
+CLASSIFIERS_BY_COLUMN |= {
+    col: PATIENT_ABSURD_SERIAL_CLASSIFIERS | CLASSIFIERS_BY_COLUMN.get(col, {})
     for col in get_date_columns()
 }
 
