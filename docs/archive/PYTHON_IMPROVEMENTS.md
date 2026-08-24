@@ -1,5 +1,16 @@
 # Python Pipeline Improvements Over R
 
+> **ARCHIVED — frozen, and known to be incomplete.** See
+> [`docs/archive/README.md`](README.md). This was a hand-maintained list
+> written early in the migration, and the completeness audit
+> ([wayfinder ticket 7](../wayfinder/tickets/07-pipeline-completeness-audit.md))
+> found it **undercounting the known divergences**. It was superseded by two
+> things that derive rather than list: the cause registry in
+> `src/a4d/migration/compare.py`, where every divergence is tied to a mechanism
+> traced in real source workbooks, and the wayfinder map's Decisions-so-far.
+> Read those for the real inventory; read this for early context only. Frozen
+> at tag `migration-archive-frozen`.
+
 This document tracks cases where the Python pipeline implementation is **more correct** than the R pipeline, resulting in intentional differences between R and Python outputs.
 
 ## 1. insulin_type Derivation Bug Fix

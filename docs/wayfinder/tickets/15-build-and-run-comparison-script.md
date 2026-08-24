@@ -21,7 +21,7 @@ existing output directories (Python's and the already-frozen
 `/Volumes/USB SanDisk 3.2Gen1 Media/a4d/output_r/`, no R re-run), four
 layered checks (shape, totals, columns, cell-by-cell), an extensible
 cause-classifier registry seeded with the four causes already known from
-`docs/migration/Product pipeline parity presentation.pdf` for
+`docs/archive/Product pipeline parity presentation.pdf` for
 `Product_entry_date`, HTML report output, lives at `scripts/` +
 `just compare-outputs` (not `a4d.cli`).
 

@@ -168,7 +168,8 @@ class TestFindDataStartRow:
         """A stray word in column A row 1 must not be read as the data start.
 
         2025/2026 VNCH and 2026 Gensan hold a bare 'm'/'f'/'n' in A1, which is
-        why the start cannot simply be the first non-empty cell the way R's is.
+        why the start cannot simply be the first non-empty cell in column A --
+        measured across all 254 trackers, that rule would start 14 sheets here.
         """
         wb = Workbook()
         ws = wb.active
@@ -238,9 +239,9 @@ class TestReadPatientRows:
 
     def test_keeps_an_unnumbered_row_that_carries_data(self):
         """2024_Mahosot Jun24 row 380: a real patient record whose row number
-        was never filled in. R drops it -- its data block is the span of the
-        row-number column alone -- so Python keeping it is a deliberate
-        divergence, not an accident."""
+        was never filled in. Bounding the data block by the row-number column
+        alone would silently discard it, which is why an unnumbered row that
+        carries actual data is kept."""
         wb, ws = self._sheet([[None, "LA-MH088", "LA-MH088", "Y", "2024-06-19"]])
 
         assert len(read_patient_rows(ws, 1, 5)) == 1
@@ -607,8 +608,9 @@ class TestMergeHeaders:
         """The 2022 template labels an update-date column "Updated 2022".
 
         The subject it belongs to is only in the column to its left, so
-        "Updated <year>" alone must not become the column name. Mirrors R's
-        script1_helper_read_patient_data.R fixup, which rewrites the same cell.
+        "Updated <year>" alone must not become the column name. Without this,
+        blood_pressure_updated and edu_occ_updated go unmapped on every 2022
+        tracker -- 7,165 values.
         """
         h1 = ["mm HG", "Date"]
         h2 = ["Blood Pressure ", "Updated\n2022"]
@@ -680,8 +682,7 @@ class TestMergeHeadersWithMergedSpans:
         The 2022 template merges "Insulin Regimen" across two columns whose
         second holds a near-duplicate of the first ("Basal-bolus MDI (AN/HI)"
         against "Basal-bolus (AN/HI)"). Naming both would comma-join them into
-        one value, which is worse data than the first column alone -- and is
-        what R already declines to do.
+        one value, which is worse data than the first column alone.
         """
         h1 = [None, None]
         h2 = ["Insulin Regimen", None]

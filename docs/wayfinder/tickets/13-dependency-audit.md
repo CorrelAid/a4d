@@ -76,7 +76,7 @@ user hasn't asked for.
   `uv run pytest -q` -> 488 passed, 0 failed (was 488 passed before the bump
   too — no regressions). `uv run ruff check .` and `uv run ruff format
   --check .` both clean (the one "unformatted" hit is a markdown code
-  example in `docs/migration/MIGRATION_GUIDE.md`, not real source).
+  example in `docs/archive/MIGRATION_GUIDE.md`, not real source).
 - `uv run --with pip-audit pip-audit -r <exported requirements>`:
   19 known vulnerabilities before the upgrade, 0 after.
 - `uv run ty check src/` (the CI-gating command — CI only checks `src/`, not

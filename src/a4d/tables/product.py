@@ -1,7 +1,7 @@
 """Product table creation.
 
-Covers R Script 3 (steps 3.1-3.3): merge all cleaned product parquets into
-a single ``product_data`` table with the canonical 20-column schema.
+Merges all cleaned product parquets into a single ``product_data`` table with
+the canonical 20-column schema.
 """
 
 from pathlib import Path
@@ -37,7 +37,6 @@ def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
 def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Path:
     """Build the final ``product_data`` table from cleaned tracker parquets.
 
-    Covers R steps 3.1-3.3:
     1. Concatenate every cleaned product parquet.
     2. Preserve ``product_released_to`` as ``orig_product_released_to`` and
        normalise ``product_released_to`` via ``fix_patient_id``.
@@ -125,16 +124,15 @@ def link_product_patient(
     Logging-only — does not modify either table and never raises.
 
     ``patient_table_path`` must have one row per ``(file_name, patient_id)``
-    pair actually present in each tracker file — i.e. ``patient_data_monthly``,
-    matching R's ``run_script_3_create_tables.R`` call. **Not**
+    pair actually present in each tracker file — i.e. ``patient_data_monthly``.
+    **Not**
     ``patient_data_static``: that table collapses each patient down to a
     single latest record/file, so joining against it only covers each
     patient's most recent tracker file and misreports every product row tied
     to an earlier file as unmatched (verified against real data: an 88%
     mismatch rate against `static` dropped to 1.4% against `monthly`).
 
-    Mirrors R's ``script3_link_product_patient.R`` with one deviation:
-    rows where ``product_released_to`` is null or equals the
+    Rows where ``product_released_to`` is null or equals the
     ``error_val_character`` sentinel ("Undefined") are filtered out
     before joining. Those are not real patient IDs and would flood the
     log with non-issues.

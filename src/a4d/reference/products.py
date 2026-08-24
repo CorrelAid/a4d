@@ -1,4 +1,4 @@
-"""Product reference-data loaders (R cleaning steps 2.19 and 2.20).
+"""Product reference-data loaders, backing cleaning steps 2.19 and 2.20.
 
 Loads the known-products list and product category mapping from the
 ``Stock_Summary`` sheet of ``master_tracker_variables.xlsx`` in the
@@ -52,7 +52,7 @@ def _read_stock_summary() -> pl.DataFrame:
 def load_known_products() -> list[str]:
     """Load the lowercased list of known product names.
 
-    Covers the reference data read for R step 2.19
+    Backs step 2.19 (flagging product names absent from the reference)
     (``report_unknown_products``). Reads the ``Stock_Summary`` sheet of
     ``reference_data/master_tracker_variables.xlsx`` and returns each
     product name lowercased.
@@ -66,7 +66,7 @@ def load_known_products() -> list[str]:
 def load_product_categories() -> pl.DataFrame:
     """Load the product-to-category mapping.
 
-    Covers the reference data read for R step 2.20
+    Backs step 2.20 (joining each product's category)
     (``add_product_categories``). Reads the ``Stock_Summary`` sheet of
     ``reference_data/master_tracker_variables.xlsx`` and returns a
     two-column DataFrame.

@@ -1,10 +1,10 @@
-"""Unit tests for Mandalay wide-format tracker reshaping (R steps 1.4a/1.4b)."""
+"""Unit tests for Mandalay wide-format tracker reshaping (steps 1.4a/1.4b)."""
 
 import polars as pl
 
 from a4d.extract.wide_format import handle_wide_format_cells, handle_wide_format_columns
 
-# --- handle_wide_format_columns (R step 1.4a: 2020-2021 wide columns) ---
+# --- handle_wide_format_columns (step 1.4a: 2020-2021 wide columns) ---
 
 _TOTAL = "Total Units Released"
 _PER_PERSON = "Units Released per person"
@@ -136,7 +136,7 @@ def test_columns_handles_missing_date_column():
     assert result.height == 3
 
 
-# --- handle_wide_format_cells (R step 1.4b: 2017-2019 comma-separated cells) ---
+# --- handle_wide_format_cells (step 1.4b: 2017-2019 comma-separated cells) ---
 
 
 def _cells_df(rows: list[dict]) -> pl.DataFrame:

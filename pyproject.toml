@@ -45,14 +45,14 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-# docs/migration/ holds working spec/history documents (MIGRATION_GUIDE.md,
+# docs/archive/ holds working spec/history documents (MIGRATION_GUIDE.md,
 # PYTHON_IMPROVEMENTS.md). Their fenced Python blocks are illustrative prose
 # -- never imported, never executed -- so there is nothing for ruff to
 # validate, and reformatting them only rewraps examples chosen for
 # readability (ticket 33: this silently broke CI for four days, because
 # `ruff format` rewrites them without asking and the diff reads as
 # unrelated noise).
-extend-exclude = ["docs/migration"]
+extend-exclude = ["docs/archive"]
 lint.select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings

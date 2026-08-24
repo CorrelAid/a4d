@@ -386,7 +386,7 @@ replaced by that recovery recipe. `docs/CLAUDE.md`'s "`reference_data/` is
 shared with the archived R pipeline" note now describes `reference_data/` for
 what it is; `SETUP.md` no longer points new developers at a directory that does
 not exist; `pyproject.toml`'s ruff `extend-exclude` drops `r-archive` (leaving
-`docs/migration`, ticket 33's entry), and the eleven-line comment above it
+`docs/archive`, ticket 33's entry), and the eleven-line comment above it
 loses its R paragraph. Two dead ignore rules went with it: `.dockerignore`'s
 `r-archive/` and `.gitignore`'s `r-archive/config.yml`, `.Rproj.user` and
 `.Rhistory`.

@@ -992,8 +992,7 @@ def upload_tables_cmd(
     """Upload pipeline output tables to BigQuery.
 
     Loads parquet files from the tables directory into the configured
-    BigQuery dataset. By default, existing tables are replaced (matching
-    the R pipeline behavior).
+    BigQuery dataset. By default, existing tables are replaced.
 
     \b
     Examples:
@@ -1485,7 +1484,7 @@ def run_all_cmd(
 
     # Step 3e – Product-patient link validation (logging-only, post-tables).
     # Joins against patient_data_monthly (one row per patient per tracker
-    # file/month), matching R's run_script_3_create_tables.R — NOT
+    # file/month) — NOT
     # patient_data_static, which collapses each patient to a single latest
     # record and therefore only covers each patient's most recent file. That
     # mismatch alone previously produced an 88% false-positive mismatch rate.

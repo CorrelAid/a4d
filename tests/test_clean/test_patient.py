@@ -448,9 +448,8 @@ class TestFixT1dDiagnosisAge:
 
     def test_keeps_recorded_age_when_dates_missing(self):
         """A real recorded diagnosis age must survive even if the dates
-        needed to recompute it don't parse -- R never recomputes this field
-        at all, so a directly recorded value should never be discarded to
-        null just because the calculation can't run."""
+        needed to recompute it don't parse: a value the clinic typed is not
+        discarded to null just because the arithmetic cannot run."""
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
@@ -489,8 +488,7 @@ class TestStripStringWhitespace:
     patient's did not, so the same tracker's `file_name` and `sheet_name`
     disagreed between `patient_data_cleaned` and `product_data_cleaned` --
     silently dropping rows from any join between the two arms. Stripping runs
-    before validation, matching readxl's `trim_ws = TRUE` default on R's side,
-    so a value is not rejected for whitespace alone.
+    before validation, so a value is not rejected for whitespace alone.
     """
 
     def test_strips_identifier_columns(self):
@@ -538,10 +536,11 @@ def test_apply_type_conversions_keeps_the_year_of_a_space_separated_date():
 class TestHeightRangeValidation:
     """Height cm-to-m conversion must not rescue implausible source values.
 
-    R converts only above 50 (transform_cm_to_m), so a value between 2.3 and 50
-    is neither metres nor centimetres and falls out of the [0, 2.3] bound as an
-    error. Dividing it by 100 instead manufactures a plausible-looking metre
-    reading from an unusable cell (ticket 55).
+    Conversion applies only above 50, so a value between 2.3 and 50 is neither
+    metres nor centimetres and falls out of the [0, 2.3] bound as an error.
+    Dividing it by 100 instead manufactures a plausible-looking metre reading
+    from an unusable cell -- 120 such cells were published as 0.069 metres
+    (ticket 55).
     """
 
     def _validate(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -569,7 +568,10 @@ class TestHeightRangeValidation:
         assert self._validate(df)["height"].to_list() == [settings.error_val_numeric] * 3
 
     def test_bmi_is_derived_from_the_validated_height(self):
-        """R cuts height before fix_bmi, so an unusable height voids the BMI."""
+        """An unusable height voids the BMI rather than producing one.
+
+        Deriving BMI before the height bound gave 60 / 2.43^2 = 10.16, which
+        then passed its own bound and reached production."""
         df = pl.DataFrame(
             {
                 "height": [2.43, 1.75],
@@ -629,8 +631,11 @@ class TestInsulinSubtypeDerivation:
         assert result["insulin_subtype"].to_list() == [""]
 
     def test_no_tick_at_all_leaves_the_subtype_empty(self):
-        """Allowed-value validation turns the empty string into "Undefined", and
-        R does the same -- the two agree, so this ticket does not change it."""
+        """Allowed-value validation turns the empty string into "Undefined".
+
+        This overstates what the clinic recorded on 17,418 rows; nulling them
+        instead was measured and reverted (ticket 55), so the behaviour is
+        pinned here deliberately rather than left unexamined."""
         result = self._derive(
             human_insulin_pre_mixed=["-"],
             human_insulin_short_acting=["-"],
@@ -643,11 +648,11 @@ class TestInsulinSubtypeDerivation:
 
 
 class TestExtractDateFromMeasurement:
-    """R's extract_date_from_measurement makes the closing parenthesis optional
-    (`[)]?`, script2_helper_patient_data_fix.R:124) and its own test suite covers
-    an unclosed cell. Python required the closer, so the 2017/2018 Mandalay, CDA
-    and Mahosot trackers -- which write `180(May-2017` without ever closing it --
-    lost the measurement date entirely.
+    """The closing parenthesis is optional, because the source often omits it.
+
+    The 2017/2018 Mandalay, CDA and Mahosot trackers write `180(May-2017`
+    without ever closing the bracket -- 25 of the 30 cells in this population
+    -- and requiring the closer lost the measurement date on every one.
     """
 
     @staticmethod
@@ -663,10 +668,9 @@ class TestExtractDateFromMeasurement:
         assert self._extract("180(May-2017") == ("180", "May-2017")
 
     def test_doubled_opening_parenthesis_uses_the_last_one(self):
-        """R's greedy `.*` prefix consumes the first `(`, so the date starts
-        after the second -- but Python does not keep the stray `(` in the value
-        the way R does, because R's own numeric cast then fails on it and the
-        reading of 196 is lost."""
+        """The greedy prefix consumes the first `(`, so the date starts after
+        the second. The stray `(` is stripped from the value rather than kept,
+        because leaving it fails the numeric cast and loses the 196."""
         assert self._extract("196((Dec-2017)") == ("196", "Dec-2017")
 
     def test_no_parenthesis_leaves_the_value_alone(self):
@@ -683,8 +687,7 @@ class TestBuddhistEraConversion:
     with a Buddhist-era year (BE = CE + 543). Before this conversion existed,
     _validate_dates saw a year centuries in the future and clobbered the cell
     with the 9999-09-09 sentinel -- 381 cells across the real corpus, destroyed
-    rather than published oddly, and invisible to the R comparison because R
-    sentinels them too.
+    rather than published oddly.
     """
 
     @staticmethod

@@ -479,8 +479,8 @@ def test_parse_date_flexible_recovers_separator_damage(source, expected):
 @pytest.mark.parametrize(
     "source",
     [
-        # Glued digit runs: where the missing separator goes is a guess, and R's
-        # own reading of "10/1023" is not stable across its call sites.
+        # Glued digit runs: where the missing separator goes is a guess, and
+        # any reading invents information the cell does not carry.
         "26/102022",
         "10/1023",
         # A date with a stray digit group nobody can resolve. A year *was*
@@ -524,12 +524,12 @@ def test_parse_date_column_rescues_typo_and_logs():
 
 
 def test_parse_date_column_logs_unparseable_dates():
-    """Pin parse_date_column's existing observability for genuinely unparseable
-    cells. R has a separate 'non_processed_dates' warning that fires on rows
-    R cannot parse via its narrower harmoniser; Python's parse_date_flexible
-    parses many of those rows successfully (e.g. "Mar 18" abbreviated formats)
-    and only sentinels truly-unparseable ones — at which point this existing
-    type_conversion log entry covers the equivalent signal with strictly
+    """Pin parse_date_column's observability for genuinely unparseable cells.
+
+    A cell that cannot be read must be recoverable from the log rather than
+    silently sentinelled, so the type_conversion entry carries the original
+    value. Abbreviated forms like "Mar 18" parse successfully and must not
+    appear here — the log covers unreadable cells with strictly
     better signal-to-noise. See cleaning_divergences.md §10.
     """
     df = pl.DataFrame(
@@ -566,8 +566,9 @@ def test_parse_date_flexible_month_with_four_digit_year_is_first_of_month():
     """ "Jun 2006" is a real recorded diagnosis date in 2017-era trackers.
 
     Without an explicit branch dateutil fills the missing day from *today*,
-    which makes the pipeline's output depend on the day it runs. R's own
-    harmoniser resolves the same cell to the first of the month.
+    which makes the pipeline's output depend on the day it runs. The first of
+    the month is the only defensible reading: it is the earliest the recorded
+    month can mean.
     """
     assert parse_date_flexible("Jun 2006") == date(2006, 6, 1)
     assert parse_date_flexible("March 2011") == date(2011, 3, 1)
@@ -589,8 +590,8 @@ def test_parse_date_flexible_handles_full_month_names():
 
 
 def test_parse_date_flexible_handles_a_month_name_run_into_its_year():
-    """readxl drops a whitespace-only rich-text run, so "July 2014" reaches the
-    comparison as "July2014" (ticket 50, 2017 Yangon Children's Feb17!I66).
+    """A rich-text run can leave a month name glued to its year -- "July2014"
+    (ticket 50, 2017 Yangon Children's Feb17!I66).
 
     The month-name truncation required a word boundary after the name, which a
     following digit does not provide, so the month-year branch never saw it and
@@ -719,9 +720,9 @@ def test_parse_date_flexible_rejects_a_year_with_a_digit_missing():
     """A source year typed short is unusable, not a date in antiquity.
 
     2024 Vietnam National Children's writes `1/16/224` and `5/16/223`, 2023
-    Yangon General writes `13-Mar-0202`, and dateutil reads each literally --
-    Python published `0224-01-16` into production output where R sentinels
-    (ticket 55). No clinical date this dataset records predates 1900, and no
+    Yangon General writes `13-Mar-0202`, and dateutil reads each literally, so
+    `0224-01-16` reached production output (ticket 55). No clinical date this
+    dataset records predates 1900, and no
     arithmetic recovers the missing digit, so the cell is unreadable.
     """
     assert parse_date_flexible("1/16/224") == date(9999, 9, 9)

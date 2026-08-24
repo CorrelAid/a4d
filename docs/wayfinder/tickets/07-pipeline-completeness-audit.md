@@ -22,8 +22,8 @@ output; (b) comparing R vs. Python output is analysis, not a pytest concern;
 (c) neither product's nor patient's "done" status has actually been audited —
 patient's completeness has been assumed (`docs/CLAUDE.md`: "Patient pipeline
 is complete and deployed to production"), product's completeness is claimed
-only in `docs/migration/MIGRATION_GUIDE.md` ("Phases 0-9 complete") and
-`docs/migration/PYTHON_IMPROVEMENTS.md` ("production-ready") on the
+only in `docs/archive/MIGRATION_GUIDE.md` ("Phases 0-9 complete") and
+`docs/archive/PYTHON_IMPROVEMENTS.md` ("production-ready") on the
 `product-pipeline` branch, both unverified by this map so far. The user has
 not looked at the product pipeline's code themselves and is relying entirely
 on secondhand claims ("what the intern said").

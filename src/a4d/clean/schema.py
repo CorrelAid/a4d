@@ -1,4 +1,9 @@
-"""Meta schema definition for patient data - matches R pipeline exactly."""
+"""Meta schema definition for patient data.
+
+Every cleaned patient parquet conforms to this, whichever columns its source
+tracker happened to carry -- so downstream consumers see one stable shape
+across 254 trackers and nine template years.
+"""
 
 import polars as pl
 
@@ -6,20 +11,20 @@ import polars as pl
 def get_patient_data_schema() -> dict[str, type[pl.DataType] | pl.DataType]:
     """Get the complete meta schema for patient data.
 
-    This schema EXACTLY matches the R pipeline's schema in script2_process_patient_data.R.
-    Column order matches R's alphabetical order.
+    Columns are in alphabetical order. The order is part of the contract:
+    BigQuery consumers and the parquet snapshots both depend on it.
 
     Returns:
         Dictionary mapping column names to Polars data types
     """
     return {
-        "age": pl.Int32,  # integer() in R
-        "analog_insulin_long_acting": pl.String,  # character() in R
+        "age": pl.Int32,
+        "analog_insulin_long_acting": pl.String,
         "analog_insulin_rapid_acting": pl.String,
         "blood_pressure_dias_mmhg": pl.Int32,
         "blood_pressure_sys_mmhg": pl.Int32,
         "blood_pressure_updated": pl.Date,
-        "bmi": pl.Float64,  # numeric() in R
+        "bmi": pl.Float64,
         "bmi_date": pl.Date,
         "clinic_id": pl.String,
         "clinic_visit": pl.String,
@@ -56,7 +61,7 @@ def get_patient_data_schema() -> dict[str, type[pl.DataType] | pl.DataType]:
         "fbg_updated_mmol": pl.Float64,
         "file_name": pl.String,
         "hba1c_baseline": pl.Float64,
-        "hba1c_baseline_exceeds": pl.Boolean,  # logical() in R
+        "hba1c_baseline_exceeds": pl.Boolean,
         "hba1c_updated": pl.Float64,
         "hba1c_updated_exceeds": pl.Boolean,
         "hba1c_updated_date": pl.Date,

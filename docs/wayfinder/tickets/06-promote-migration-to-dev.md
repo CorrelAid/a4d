@@ -78,3 +78,20 @@ rejected because it inverts the map's whole sequencing preference (make it
 ready, *then* promote) and because a docstring citing a directory that no
 longer exists is a defect a reviewer of PR #2 would reasonably raise.
 Reversible: dropping `64` from this list is a one-line edit.
+
+## Premise update (session-2026-08-24g)
+
+[The documentation overhaul](64-documentation-overhaul-drop-r-framing.md) is
+closed, so **every ticket in `blocked_by` is now closed and this ticket is
+genuinely unblocked** -- for the first time, and this time without a
+replacement. It is the last ticket on the route to the destination.
+
+`blocked_by` is kept as the historical record of what gated the promotion; the
+renderer reads it as satisfied because every entry is closed.
+
+One open ticket was deliberately **not** wired here: [the logs table's two
+R-named values](65-logs-table-r-named-values.md). The gate that ticket 64
+satisfied was argued on documentation being *wrong*; ticket 65 is about
+published field values being *inconsistent*, which is a different and lesser
+claim, and fixing it changes BigQuery output rather than correcting a falsehood.
+Reversible if the data owner would rather have it in before promotion.

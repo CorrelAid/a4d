@@ -1,7 +1,7 @@
 """Flexible date parsing for A4D tracker data.
 
-Matches R's parse_dates() function (script2_helper_patient_data_fix.R:174-211).
-Handles various date formats found in legacy trackers including:
+Handles the date formats found across nine years of tracker templates,
+including:
 - Standard formats: "28/8/2017", "01-03-2018"
 - Abbreviated month-year: "Mar-18", "Jan-20"
 - Full month-year: "March-2018", "January-20"
@@ -162,8 +162,8 @@ _INVISIBLE_CHARS = str.maketrans(dict.fromkeys("\u200b\u200c\u200d\u2060\ufeff")
 # A separator run damaged by a stray keystroke: either two or more separator
 # characters where one belongs ("26-05- 2007", "23/05//2025", "02-Apr=-2026"),
 # or a single character that is never a date separator to begin with ("_", "=").
-# R recovers all of these because lubridate splits on any non-alphanumeric run,
-# where dateutil requires the separator to be well-formed (ticket 56).
+# dateutil requires the separator to be well-formed, so without this repair
+# each of these loses its date entirely (ticket 56).
 #
 # Deliberately narrow. A single "/" or "." is left alone so that no
 # already-parsing value changes reading, and a whitespace-only run is left alone
@@ -317,8 +317,8 @@ _MONTH_TOKEN = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
 # are tried at each scan position (ticket 39). Every alternative is anchored on
 # a day/month/year shape, so a cell carrying numbers and no date -- "3 month
 # come back meet Doctor", "on stamlor 5mg" -- yields nothing rather than a date
-# built from today, which is what dateutil's fuzzy mode returns for all of them
-# and how R reads "7-15 Apr" as 2015-07-01.
+# built from today, which is what dateutil's fuzzy mode returns for all of
+# them.
 #
 # The two range alternatives come first because a stay is written with both
 # endpoints ("6-12 Nov 2020", "20-29/12/2020") and the day wanted is the

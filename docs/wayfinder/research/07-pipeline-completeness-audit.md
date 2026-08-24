@@ -120,7 +120,7 @@ the product side and mixed on the patient side:
   `YEAR_FLOOR_DELTA`, `PRODUCT_DATE_NA_MARKERS`, `MIN_PLAUSIBLE_EXCEL_SERIAL`,
   lines 42-75) carry multi-line comments explaining exactly which R quirk
   each guard works around and why. **Documented in code.**
-- `docs/migration/PYTHON_IMPROVEMENTS.md` on `origin/product-pipeline` (not
+- `docs/archive/PYTHON_IMPROVEMENTS.md` on `origin/product-pipeline` (not
   on `migration` — see §3) has a full section (§5, "Product Pipeline: Date
   Parsing Robustness") with per-issue R-vs-Python behavior tables, row
   counts, and affected tracker names for the "Sept" abbreviation bug, the
@@ -143,7 +143,7 @@ the product side and mixed on the patient side:
   `ACCEPTABLE_DIFFERENCES` / `FILE_COLUMN_EXCEPTIONS` /
   `PATIENT_LEVEL_EXCEPTIONS` dicts (42 tracker-level entries, 15 with
   `"reason"` strings) — i.e. only inside a slow/USB-drive-gated test file,
-  not in `docs/migration/PYTHON_IMPROVEMENTS.md`'s "Summary" table on
+  not in `docs/archive/PYTHON_IMPROVEMENTS.md`'s "Summary" table on
   `migration`, which lists only 3 items (insulin_subtype typo,
   insulin_total_units extraction, BMI precision). The patient
   divergence-documentation is real but scattered and incomplete relative to
@@ -254,13 +254,13 @@ test files on `product-pipeline`; `migration` has 26, `product-pipeline` has
     ("production-verification-run", still `blocked`) treating this as
     unverified.
 
-### `docs/migration/MIGRATION_GUIDE.md` and `PYTHON_IMPROVEMENTS.md`
+### `docs/archive/MIGRATION_GUIDE.md` and `PYTHON_IMPROVEMENTS.md`
 
 - `migration` branch: `MIGRATION_GUIDE.md:5` says "Phases 0–7 complete...
   Product pipeline not yet started" — accurate for that branch's actual
   tree (no `src/a4d/*product*` files exist there).
 - `origin/product-pipeline` branch (`git show
-  origin/product-pipeline:docs/migration/MIGRATION_GUIDE.md`): line 5 says
+  origin/product-pipeline:docs/archive/MIGRATION_GUIDE.md`): line 5 says
   "Phases 0–9 complete... Product pipeline merged into `src/a4d/` on
   2026-04-23." This is accurate *self-referentially* (that branch's tree
   really does contain the product modules, confirmed by the `git diff
@@ -269,7 +269,7 @@ test files on `product-pipeline`; `migration` has 26, `product-pipeline` has
   is not (`git branch -a` shows `product-pipeline` only as a remote branch,
   ticket 03 "Merge product-pipeline (PR #6) into migration" is still open).
 - `PYTHON_IMPROVEMENTS.md` diff (`git diff migration origin/product-pipeline
-  -- docs/migration/PYTHON_IMPROVEMENTS.md`, 87 lines added) adds §5/§6 for
+  -- docs/archive/PYTHON_IMPROVEMENTS.md`, 87 lines added) adds §5/§6 for
   product date-parsing and running-balance precision, plus updates the
   "Migration Validation Status" summary to declare "production-ready" and
   "All value differences are Python improvements over R bugs or negligible
@@ -334,7 +334,7 @@ comment mapping its private helpers to R script line ranges.
    "no notebooks, ever" / automated-report preference) each time this is
    run, or soften the docs claim to reflect that it's manually-verified,
    not continuously verified.
-2. `docs/migration/PYTHON_IMPROVEMENTS.md`'s "Summary" table on `migration`
+2. `docs/archive/PYTHON_IMPROVEMENTS.md`'s "Summary" table on `migration`
    lists only 3 known R/Python divergences, while `test_r_validation.py`'s
    exception dictionaries document ~15+ distinct, reasoned divergences
    (province validation, Unicode ≥/≤ handling, duplicate patient IDs,
@@ -360,8 +360,8 @@ git ls-tree -r --name-only HEAD -- tests/ | sort
 git ls-tree -r --name-only origin/product-pipeline -- tests/ | sort
 git diff migration origin/product-pipeline -- tests/test_integration/test_e2e.py ...
 git show origin/product-pipeline:<path>         # read files on that branch
-git diff migration origin/product-pipeline -- docs/migration/PYTHON_IMPROVEMENTS.md
-git diff migration origin/product-pipeline -- docs/migration/MIGRATION_GUIDE.md   # via saved copy + diff
+git diff migration origin/product-pipeline -- docs/archive/PYTHON_IMPROVEMENTS.md
+git diff migration origin/product-pipeline -- docs/archive/MIGRATION_GUIDE.md   # via saved copy + diff
 rg -n "^[a-zA-Z_.]+\s*<-\s*function" r-archive/R/helper_product_data.R (and other R files)
 rg -n "^def |^class " <python module>
 find . -iname "*residual_dig*" ; git ls-tree -r --name-only HEAD | grep -i ali_internship

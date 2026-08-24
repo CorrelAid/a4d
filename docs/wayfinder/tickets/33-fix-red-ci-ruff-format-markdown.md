@@ -39,7 +39,7 @@ suite never runs, which is why each run dies in ~15s. Diagnosed
 current cause is:
 
 **`ruff format --check` wants to reformat the Python code blocks embedded in
-`docs/migration/MIGRATION_GUIDE.md`** (4 blocks: the `settings.*`
+`docs/archive/MIGRATION_GUIDE.md`** (4 blocks: the `settings.*`
 configuration example around line 158, the vectorized `with_columns`
 example around 194, and the GCS/BigQuery/loguru snippets around 214-230).
 Ruff formats fenced Python in markdown, and this file has never been run
@@ -85,7 +85,7 @@ checks had diverged.
 
 ## Resolution
 
-**Decision:** Option 2 — `docs/migration` added to ruff's `extend-exclude`
+**Decision:** Option 2 — `docs/archive` added to ruff's `extend-exclude`
 in `pyproject.toml`, alongside the existing `r-archive` entry. The user
 overrode this ticket's recommendation of option 1, and was right to:
 `MIGRATION_GUIDE.md` is a **working spec document**, and there is nothing in
@@ -94,7 +94,7 @@ imported, never executed — so formatting it enforces code rules on something
 that is not code, and only rewraps examples whose line breaks were chosen for
 readability.
 
-**Because:** scoped to the whole `docs/migration/` directory rather than
+**Because:** scoped to the whole `docs/archive/` directory rather than
 just the one failing file. Both markdown files in the repo containing
 `” ```python ”` fences live there (`MIGRATION_GUIDE.md`,
 `PYTHON_IMPROVEMENTS.md`, confirmed by grep across `docs/` and root); the
@@ -108,13 +108,13 @@ code style. That confuses "code shown in a document" with "code" — the
 snippets are explanatory and are allowed to prioritize clarity over
 formatter rules. Also rejected: excluding all markdown repo-wide, which
 would silently cover future docs that might genuinely want formatting;
-`docs/migration/` is the meaningful boundary.
+`docs/archive/` is the meaningful boundary.
 
 **Evidence:** executed — every CI step reproduced locally and passing:
 `ruff check .` (all checks passed), `ruff format --check .` (144 files, was
 "1 file would be reformatted"), `ty check src/`, `pytest -m "not slow and
 not integration"` (555 passed, 1 skipped), and the product coverage gate
-(88%, floor 85). `git status docs/migration/` confirms the markdown itself
+(88%, floor 85). `git status docs/archive/` confirms the markdown itself
 is untouched. Final confirmation is a green run on `migration` after push —
 the whole point of this ticket being that local and CI check sets had
 diverged, so a local pass alone is not the proof.

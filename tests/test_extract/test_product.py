@@ -247,8 +247,8 @@ def test_remove_header_rows_empty_input():
 
 
 def test_remove_header_rows_drops_row_of_empty_strings():
-    # A formula-emptied Excel cell can surface as "" rather than None; such a
-    # row carries no information and R's is.na()-based check drops it too.
+    # A formula-emptied Excel cell surfaces as "" rather than None; such a row
+    # carries no information and must not reach the output as a movement.
     df = pl.DataFrame(
         {
             "product": ["Insulin", ""],

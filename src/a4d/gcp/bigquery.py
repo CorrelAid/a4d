@@ -1,8 +1,7 @@
 """BigQuery table loading from parquet files.
 
-Replaces the R pipeline's `ingest_data()` function which used the `bq` CLI tool.
-Uses the google-cloud-bigquery Python client for loading parquet files with
-clustering configuration matching the R pipeline.
+Uses the google-cloud-bigquery Python client to load parquet files, with
+per-table clustering configuration.
 """
 
 from pathlib import Path
@@ -14,8 +13,8 @@ from loguru import logger
 
 from a4d.config import settings
 
-# Table configurations matching the R pipeline's clustering fields.
-# Each table maps to the clustering fields used for optimal query performance.
+# Clustering fields per table. These are the columns consumers filter on
+# most, and clustering on them is what keeps a full-corpus query cheap.
 TABLE_CONFIGS: dict[str, list[str]] = {
     "patient_data_monthly": ["clinic_id", "patient_id", "tracker_date"],
     "patient_data_annual": ["patient_id", "tracker_date"],
@@ -83,8 +82,7 @@ def load_table(
 ) -> bigquery.LoadJob:
     """Load a parquet file into a BigQuery table.
 
-    Replicates the R pipeline's `ingest_data()` function:
-    1. Optionally deletes the existing table (replace=True, matching R's delete=T default)
+    1. Optionally deletes the existing table (replace=True by default)
     2. Loads the parquet file with clustering fields
 
     Args:
@@ -93,7 +91,7 @@ def load_table(
         client: BigQuery client (created if not provided)
         dataset: Dataset name (defaults to settings.dataset)
         project_id: GCP project ID (defaults to settings.project_id)
-        replace: If True, replaces the existing table (default matches R pipeline)
+        replace: If True, deletes and recreates the table (default)
 
     Returns:
         Completed LoadJob
@@ -115,8 +113,9 @@ def load_table(
     table_ref = f"{project_id}.{dataset}.{table_name}"
     logger.info(f"Loading {parquet_path.name} → {table_ref}")
 
-    # WRITE_TRUNCATE preserves existing clustering, so deleting first ensures
-    # any schema or clustering changes (e.g. from R→Python migration) take effect.
+    # WRITE_TRUNCATE preserves the existing clustering and schema, so a
+    # deliberate change to either would silently not take effect -- delete
+    # first instead.
     if replace:
         try:
             client.delete_table(table_ref)

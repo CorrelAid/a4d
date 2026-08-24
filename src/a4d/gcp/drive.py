@@ -1,7 +1,7 @@
 """Google Drive download utilities.
 
-Replaces the R pipeline's googledrive::drive_download() calls.
-Authentication uses Application Default Credentials (ADC), same as GCS/BigQuery.
+Authentication uses Application Default Credentials (ADC), same as
+GCS/BigQuery.
 """
 
 from pathlib import Path
@@ -10,8 +10,8 @@ import google.auth
 import google.auth.transport.requests
 from loguru import logger
 
-# Google Drive file ID for clinic_data.xlsx
-# R pipeline: googledrive::as_id("1HOxi0o9fTAoHySjW_M3F-09TRBnUITOzzxGx2HwRMAw")
+# Google Drive file ID for clinic_data.xlsx. Hardcoded because this is a
+# single, long-lived document owned by A4D, not a per-run input.
 CLINIC_DATA_FILE_ID = "1HOxi0o9fTAoHySjW_M3F-09TRBnUITOzzxGx2HwRMAw"
 
 _DRIVE_API_URL = "https://www.googleapis.com/drive/v3/files"
@@ -43,7 +43,7 @@ def download_clinic_data(destination: Path) -> Path:
     session = google.auth.transport.requests.AuthorizedSession(credentials)
 
     # clinic_data is a Google Sheets file — must use export endpoint, not alt=media.
-    # R pipeline equivalent: googledrive::drive_download(..., type = "xlsx")
+
     url = (
         f"{_DRIVE_API_URL}/{CLINIC_DATA_FILE_ID}/export"
         f"?mimeType={_XLSX_MIME}&supportsAllDrives=true"

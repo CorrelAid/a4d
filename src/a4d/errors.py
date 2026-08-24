@@ -14,7 +14,8 @@ from typing import Any, Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
-# Error code types based on R pipeline
+# Error code taxonomy. Every row-level data-quality finding carries one of
+# these, so the logs table can be filtered by kind of problem.
 ErrorCode = Literal[
     "type_conversion",  # Failed to convert type (e.g., "abc" -> int)
     "invalid_value",  # Value outside allowed range or not in allowed list

@@ -48,9 +48,11 @@ def find_data_start_row(ws) -> int:
     over any such cells directly abutting it. Starting one row too late is not a
     lost row but a lost sheet: the header rows are read from the data, no
     patient_id survives harmonization, and the sheet is skipped entirely (2022
-    Children's Hospital 2, Oct22). Only cells touching the block qualify;
-    matching R's "first non-empty cell" rule instead would start at row 1 on the
-    14 sheets whose column A holds a stray word up there (2026 Gensan, VNCH).
+    Children's Hospital 2, Oct22). Only cells touching the block qualify: the
+    broader "first non-empty cell in column A" rule was measured across all 254
+    trackers and would start 14 sheets at row 1 on a stray 'm'/'f'/'n' left up
+    there (2026 Gensan, 2025/2026 VNCH). The narrow rule moves exactly one
+    sheet in the corpus.
     One row only, since a longer run of blanks has never been observed and
     swallowing several would risk reading a header row as data instead.
 
@@ -238,8 +240,9 @@ def _merge_header_pair(
         if h2 is not None and _is_updated_year_marker(h2) and prev_h2:
             # The 2022 template labels an update-date column "Updated 2022"
             # instead of repeating its subject, so the marker alone is not a
-            # column name -- the subject sits in the column to its left. R
-            # rewrites the same cell in script1_helper_read_patient_data.R.
+            # column name -- the subject sits in the column to its left.
+            # Without this, blood_pressure_updated and edu_occ_updated go
+            # unmapped on every 2022 tracker (7,165 values).
             h2 = prev_h2
 
         if h1 and h2:
@@ -291,9 +294,9 @@ def merge_headers(
     `complication_screening`, which one already claims (290 sheets), and in the
     2022 "Insulin Regimen" merge it would comma-join two columns holding
     near-duplicate values ("Basal-bolus MDI (AN/HI)" against "Basal-bolus
-    (AN/HI)") into one worse value. R keeps the first column alone in both
-    cases, and so do we. Two sub-headers that would qualify to the same name
-    are refused for the same reason.
+    (AN/HI)") into one worse value -- 3,659 near-duplicate cells. So the first
+    column is kept alone in both cases. Two sub-headers that would qualify to
+    the same name are refused for the same reason.
 
     Args:
         header_1: First header row (closer to data), 0-indexed
@@ -356,10 +359,13 @@ _IMPOSSIBLE_DATE_BEFORE = datetime.datetime(1906, 1, 1)
 def _recover_number_typed_as_date(value: object) -> object:
     """Undo Excel's date formatting of a plainly numeric entry.
 
-    R's readxl guesses a column's type from its majority values and so reads
-    the underlying number; openpyxl honors each cell's own format and returns
-    a datetime, which the numeric conversion then rejects into a 999999
-    sentinel. Verified against the real source Excel (2025 Hat Yai, Annual!H
+    openpyxl honors each cell's own format, so a plain number sitting in a
+    date-formatted cell comes back as a datetime, which the numeric conversion
+    then rejects into a 999999 sentinel -- 24 systolic readings were reaching
+    BigQuery that way. Excel's 1899-12-30 epoch is what makes this recoverable:
+    such a "date" is a small number, so a pre-1903 datetime converts back to
+    the serial the clinician actually typed. Verified against the real source
+    Excel (2025 Hat Yai, Annual!H
     for TH_HY035: a dd-mmm-yyyy-formatted cell holding datetime(1900, 4, 29),
     i.e. the systolic 120 the neighbouring diastolic 74 belongs with).
 
@@ -383,14 +389,14 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
     number is missing (handles data quality issues in Excel files).
 
     An unnumbered row must additionally carry a value that is not just a
-    repeat of its own identifier. R bounds the data block by the row-number
-    column alone, so it never sees these rows at all; keeping every one of
-    them instead turned a bare list of patient IDs left below the data block
-    into invented monthly records (2024_Vietnam National Children's Jul24,
-    24 rows of nothing but the ID twice), which then picked up real-looking
-    demographics from the Patient List join. Requiring actual data keeps the
-    case the "or" was written for -- 2024_Mahosot's Jun24 LA-MH088 is a
-    complete record that simply lost its row number, and R does lose it.
+    repeat of its own identifier. Keeping every unnumbered row instead turned a
+    bare list of patient IDs left below the data block into invented monthly
+    records (2024_Vietnam National Children's Jul24, 24 rows of nothing but the
+    ID twice), which then picked up real-looking demographics from the Patient
+    List join. Bounding the block by the row-number column alone would be the
+    other obvious fix, but a 254-tracker sweep showed it loses a genuine record
+    -- 2024_Mahosot's Jun24 LA-MH088 is a complete patient row that simply lost
+    its row number. Requiring actual data keeps that case and drops the other.
 
     Args:
         ws: openpyxl worksheet object
@@ -433,7 +439,10 @@ def merge_duplicate_columns_data(
 
     When Excel cells are merged both horizontally and vertically, the forward-fill
     logic in merge_headers() can create duplicate column names. This function
-    merges the data from duplicate columns (like R's tidyr::unite()).
+    concatenates their values rather than keeping only the first, which was
+    discarding 2,489 recorded values across 27 trackers -- the 2023 template's
+    B.P./Kidney/Eye/Foot/Lipids screening sub-columns all share one canonical
+    name.
 
     Args:
         headers: List of header strings (may contain duplicates)
@@ -905,7 +914,8 @@ def join_static_sheet(
 
     The key is derived for the join only: ``patient_id`` in the returned frame
     is still the spelling the month sheet used, which is what the raw layer
-    promises and what the R/Python comparison aligns rows on.
+    promises: the raw stage records what the workbook says, and only cleaning
+    resolves identity.
     """
     key = "__static_join_key"
     static = static_sheet.with_columns(
@@ -1062,7 +1072,9 @@ def read_all_patient_sheets(
     if not all_sheets_data:
         raise ValueError(f"No valid patient data found in any month sheets of {tracker_file.name}")
 
-    # Use diagonal_relaxed to handle type mismatches (e.g., Null vs String) like R's bind_rows
+    # diagonal_relaxed: sheets within one workbook differ in which columns they
+    # carry and in inferred dtype (Null vs String for an all-blank column), and
+    # a strict concat would fail on either.
     logger.info(f"Combining {len(all_sheets_data)} sheets...")
     df_combined = pl.concat(all_sheets_data, how="diagonal_relaxed")
 
@@ -1163,7 +1175,7 @@ def read_all_patient_sheets(
     # Use already-loaded workbook for sheet checking
     all_sheets = wb.sheetnames
 
-    # Process Patient List sheet if it exists (R: lines 103-130)
+    # Process Patient List sheet if it exists
     if "Patient List" in all_sheets:
         logger.info("Processing 'Patient List' sheet...")
         try:
@@ -1190,7 +1202,9 @@ def read_all_patient_sheets(
 
                     patient_list = patient_list.filter(~pl.col("patient_id").str.starts_with("#"))
 
-                    # R: select(-any_of(c("hba1c_baseline"))) and select(-any_of(c("name")))
+                    # Drop the monthly hba1c_baseline and name before joining:
+                    # the Patient List is the authority for both, and keeping
+                    # each side's copy collides the names on join.
                     df_monthly = (
                         df_combined.drop("hba1c_baseline")
                         if "hba1c_baseline" in df_combined.columns
@@ -1217,7 +1231,7 @@ def read_all_patient_sheets(
                 f"Could not process Patient List sheet: {e}"
             )
 
-    # Process Annual sheet if it exists (R: lines 132-160)
+    # Process Annual sheet if it exists
     if "Annual" in all_sheets:
         logger.info("Processing 'Annual' sheet...")
         try:
@@ -1244,7 +1258,7 @@ def read_all_patient_sheets(
 
                     annual_data = annual_data.filter(~pl.col("patient_id").str.starts_with("#"))
 
-                    # R: select(-any_of(c("status", "name")))
+                    # status and name come from the Patient List, not here.
                     cols_to_drop = [col for col in ["status", "name"] if col in annual_data.columns]
                     annual_data_join = (
                         annual_data.drop(cols_to_drop) if cols_to_drop else annual_data
@@ -1290,7 +1304,6 @@ def export_patient_raw(
 ) -> Path:
     """Export raw patient data to parquet file.
 
-    Matches R pipeline behavior:
     - Filename: {tracker_name}_patient_raw.parquet
     - Location: output_dir/{tracker_name}_patient_raw.parquet
 

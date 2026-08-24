@@ -36,21 +36,21 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 6"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
+    T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
+    T65["<b>65</b> · grilling<br/>Two values published into<br/>the logs table still name<br/>R scripts"]
   end
-  subgraph BLOCKED["Blocked · 2"]
+  subgraph BLOCKED["Blocked · 1"]
     direction TB
-    T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
   end
-  subgraph DECIDED["Decided · 55"]
+  subgraph DECIDED["Decided · 56"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -107,6 +107,7 @@ flowchart TD
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
     T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
     T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
+    T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -142,11 +143,11 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T64 frontier
+  class T6,T16,T34,T35,T40,T41,T65 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T6,T9 blocked
+  class T9 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -181,7 +182,7 @@ flowchart TD
   sensitive data or production GCP — see guardrails above.
 - Domain: A4D medical tracker data pipeline, R-to-Python migration. See
   [CLAUDE.md](../../CLAUDE.md) and [docs/CLAUDE.md](../CLAUDE.md) for the
-  codebase map, and [MIGRATION_GUIDE.md](../migration/MIGRATION_GUIDE.md) for
+  codebase map, and [MIGRATION_GUIDE.md](../archive/MIGRATION_GUIDE.md) for
   the migration's own history (note: the copy on `migration` is stale relative
   to `product-pipeline`'s copy, which claims Phases 0-9 complete — that claim
   is unverified, which is exactly what this map exists to check).
@@ -1280,7 +1281,7 @@ workbook rather than sampled.
 **Session 2026-08-15, no ticket claimed — a living MR description, and four
 real staleness findings.** The user asked for a merge-request description for
 PR #2 and said it must be kept current after every session, so
-[docs/migration/MR_DESCRIPTION.md](../migration/MR_DESCRIPTION.md) is now a
+[docs/archive/MR_DESCRIPTION.md](../archive/MR_DESCRIPTION.md) is now a
 second session-end deliverable beside this map: treasure-map diagram, `a4d`
 package overview + usage scenarios, the production Cloud Run Job setup, the
 comparison harness and the triage loop it supports, the defects fixed, the
@@ -2630,7 +2631,87 @@ R citation can also be *wrong about R*. **The frontier is six** — ticket 12
 leaving it, ticket 64 joining — and ticket 64 is now the only one on the route
 to the destination.
 
+**[The documentation overhaul](tickets/64-documentation-overhaul-drop-r-framing.md)
+is closed, and with it the map reaches the state its destination describes: the
+promotion ticket is genuinely unblocked, with no replacement blocker.** The
+session measured its population before editing anything — 353 R references in
+`src/`, 88 in `tests/`, 65 in markdown — and the shape of the fix came from
+sampling the hardest sites first rather than from the count. Four kinds turned
+up, and only one was a real rewrite: pure provenance carrying no information
+("like R does", where the actual reason already sat in the same sentence); R
+standing in for evidence that now exists; a deliberate divergence documented
+against R, which had to be restated as a positive claim; and an R *library*
+explaining a Python choice.
+
+**The exemption was argued, not assumed.** `src/a4d/migration/compare.py` holds
+179 of the 353 — more than every other module combined — because R divergence is
+literally its subject, and stripping R from it would leave it documenting
+nothing. The user chose to mark it historical rather than merely exempt it, so
+its module docstring now states that the tool will never run again, that it is
+kept because its cause registry is the written evidence behind 56 tickets of
+triage, and how to reach the R source. The script itself is untouched.
+
+**`docs/migration/` became `docs/archive/`, and the archive was corrected before
+it was frozen.** Freezing a document while its facts are wrong preserves the
+error, so each was brought to the true current state first: `MIGRATION_GUIDE`'s
+"Phases 0-9" status became the real final state, `MR_DESCRIPTION`'s "240 commits
+/ 664 tests" became 285 / 981, and `PYTHON_IMPROVEMENTS` now says in its own
+header that [the completeness audit](tickets/07-pipeline-completeness-audit.md)
+found it undercounting. `docs/VALIDATION_SUMMARY.md` was **deleted** rather than
+banner-ed: a 174-tracker R-vs-Python verdict superseded by the 254-tracker
+comparison is stale as well as R-framed.
+
+**The guard is a test, not a lint hook**, so CI enforces it without waiting on
+[ticket 34](tickets/34-local-ci-parity-guard.md). It derives its file list from
+the tree rather than hardcoding one, exempts the migration package and itself,
+and assembles its patterns from parts so it cannot match its own source. Proven
+non-vacuous by introducing a violation and watching it name the file and line.
+
+**The one thing the session declined to fix is the sharpest finding in it.**
+`extract/product.py` publishes `function_name="read_product_data_step1"` — the
+only one of twenty `function_name` values that is not the emitting Python
+function — and four sites publish `script="script1"`/`"script3"` into a column
+whose default is the stage name `"clean"`. These are **data in the BigQuery
+logs table**, not comments, so renaming them changes published output. Recorded
+as [ticket 65](tickets/65-logs-table-r-named-values.md) rather than changed
+silently, and deliberately not wired as a promotion blocker: ticket 64's gate
+was argued on documentation being *wrong*, and this is inconsistency rather than
+falsehood.
+
+**The frontier is seven, and [promoting `migration` into
+`dev`](tickets/06-promote-migration-to-dev.md) is on it** — the destination
+itself, and the only frontier ticket on the route. The other six are standing
+decisions, the source-defect report, a separate feature (ticket 16) and the logs
+residue.
+
 ## Decisions so far
+
+- [Rewrite every docstring and doc that explains the code by what R
+  did](tickets/64-documentation-overhaul-drop-r-framing.md) -- decided and
+  implemented. Every module outside `src/a4d/migration/` now explains itself in
+  its own terms: **`src/` 174 -> 0, `tests/` 46 -> 0, user-facing markdown 65 ->
+  0**, with the comparison package's 179 + 42 exempt by decision. The
+  replacement shape is *what the rule does, the source evidence that forced it,
+  and what breaks without it* -- so the cm-to-m threshold cites the 120 cells
+  published as 0.069 metres rather than citing R, and the optional closing
+  parenthesis cites the 25 of 30 source cells written `180(May-2017`.
+  `src/a4d/migration/` is **marked historical rather than merely excused**: its
+  docstring says the tool will never run again, that it is kept because its
+  cause registry is the evidence behind the migration's conclusions, and how to
+  reach the R source. `docs/migration/` moved to **`docs/archive/`** with a
+  README index, and every document was brought to the true current state
+  *before* being frozen (`MR_DESCRIPTION`'s "240 commits / 664 tests" -> 285 /
+  981; `PYTHON_IMPROVEMENTS` now states in its own header that [ticket
+  7](tickets/07-pipeline-completeness-audit.md) found it undercounting).
+  `docs/VALIDATION_SUMMARY.md` **deleted** -- a 174-tracker verdict superseded
+  by the 254-tracker comparison, stale as well as R-framed. A CI guard
+  (`tests/test_docs_have_no_r_framing.py`) derives its file list from the tree,
+  exempts the migration package and itself, and was proven non-vacuous by
+  introducing a violation. Suite **1,080 passed** (980 + the guard's 100 cases),
+  86% coverage. Residue spawned as [ticket
+  65](tickets/65-logs-table-r-named-values.md): two values naming R scripts are
+  **published into the BigQuery logs table**, so they were recorded rather than
+  silently changed.
 
 - [Retire R from the workspace once the pipeline is fully verified
   Python-only](tickets/12-retire-r-workspace.md) -- decided and executed.
@@ -3458,7 +3539,7 @@ to the destination.
 
 - [Fix red CI — ruff format --check fails on Python snippets inside markdown
   docs](tickets/33-fix-red-ci-ruff-format-markdown.md) — decided and
-  implemented: `docs/migration` added to ruff's `extend-exclude` in
+  implemented: `docs/archive` added to ruff's `extend-exclude` in
   `pyproject.toml`, next to the existing `r-archive` entry. The user
   overrode this ticket's own recommendation (which had been to accept the
   reformatting) on the grounds that `MIGRATION_GUIDE.md` is a working spec
@@ -3478,7 +3559,7 @@ to the destination.
   when the user asked to fix CI before more pipeline work. Not a regression
   of [ticket 4](tickets/04-fix-migration-ci.md)'s fix: the sole cause is
   `ruff format --check` wanting to reformat Python snippets inside
-  `docs/migration/MIGRATION_GUIDE.md`, so the step fails in ~15s and the
+  `docs/archive/MIGRATION_GUIDE.md`, so the step fails in ~15s and the
   test suite never runs at all. Every triage ticket closed since was
   verified against a green *local* suite while CI itself was red — local
   and CI check sets had silently diverged. Fixed the same session — see the ticket-33 entry above; ticket 33's
@@ -3852,13 +3933,12 @@ folded into Decisions so far above.)
   this way and what the downstream consumer expects.
 - What **"official migration" communication or cutover** means once `migration`
   reaches `dev`/`main` — who is told, what the A4D-facing announcement says,
-  whether anything outside this repo still runs R. The *repo* half of this
-  patch has graduated and closed: `r-archive/` is deleted ([ticket
-  12](tickets/12-retire-r-workspace.md)). What is left is organisational, is
-  likely a separate map, and has one open thread inside this repo — [ticket
-  64](tickets/64-documentation-overhaul-drop-r-framing.md) has to decide the
-  fate of `src/a4d/migration/compare.py` itself, a tool whose entire subject is
-  a pipeline that no longer exists here.
+  whether anything outside this repo still runs R. Both repo-side threads have
+  now graduated and closed: `r-archive/` is deleted ([ticket
+  12](tickets/12-retire-r-workspace.md)), and `src/a4d/migration/compare.py`'s
+  fate is settled — kept, exempt, and marked historical ([ticket
+  64](tickets/64-documentation-overhaul-drop-r-framing.md)). What remains is
+  organisational and is likely a separate map.
 - Cloud Scheduler / production scheduling cutover (mentioned in the Migration
   Guide's state-management open item) — not yet sharp enough to ticket; may
   turn out to be a separate map entirely once `dev` is reached. Confirmed
@@ -4092,6 +4172,10 @@ flowchart TB
     direction LR
     U12["<b>12</b><br/>Retire R from the<br/>workspace once the<br/>pipeline is fully<br/>verified Python-only"]
   end
+  subgraph S2026_08_24g["Session 2026-08-24g"]
+    direction LR
+    U64["<b>64</b><br/>Rewrite every docstring<br/>and doc that explains<br/>the code by what R did"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4105,7 +4189,7 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U64["<b>64</b><br/>Rewrite every docstring<br/>and doc that explains<br/>the code by what R did"]
+    U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4156,7 +4240,8 @@ flowchart TB
   S2026_08_24c ~~~ S2026_08_24d
   S2026_08_24d ~~~ S2026_08_24e
   S2026_08_24e ~~~ S2026_08_24f
-  S2026_08_24f ~~~ Sunworked
+  S2026_08_24f ~~~ S2026_08_24g
+  S2026_08_24g ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4238,13 +4323,14 @@ flowchart TB
   U60 -.->|spawned| U62
   U58 -.->|spawned| U63
   U12 -.->|spawned| U64
+  U64 -.->|spawned| U65
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U64 tfrontier
+  class U6,U16,U34,U35,U40,U41,U65 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U6,U9 tblocked
+  class U9 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

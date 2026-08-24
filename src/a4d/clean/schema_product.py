@@ -1,4 +1,9 @@
-"""Meta schema definition for product data - matches R pipeline's preparing_product_fields()."""
+"""Meta schema definition for product data.
+
+Every cleaned product parquet conforms to this regardless of which columns its
+source sheet carried, including trackers from years before product tracking
+existed, which yield a conformant empty frame rather than failing.
+"""
 
 import polars as pl
 
@@ -6,24 +11,23 @@ import polars as pl
 def get_product_data_schema() -> dict[str, type[pl.DataType] | pl.DataType]:
     """Get the complete meta schema for product data.
 
-    This schema matches the R pipeline's preparing_product_fields() in
-    script3_create_table_product_data.R. Column order matches R's field list.
+    Column order is part of the contract: BigQuery consumers depend on it.
 
     Returns:
         Dictionary mapping column names to Polars data types
     """
     return {
-        "product": pl.String,  # character() in R
+        "product": pl.String,
         "product_units_notes": pl.String,
-        "product_entry_date": pl.Date,  # Date in R
-        "product_units_released": pl.Float64,  # numeric() in R
+        "product_entry_date": pl.Date,
+        "product_units_released": pl.Float64,
         "product_released_to": pl.String,
         "product_units_received": pl.Float64,
         "product_received_from": pl.String,
         "product_balance": pl.Float64,
         "product_units_returned": pl.Float64,
         "product_returned_by": pl.String,
-        "product_table_month": pl.Int32,  # integer() in R
+        "product_table_month": pl.Int32,
         "product_table_year": pl.Int32,
         "product_sheet_name": pl.String,
         "file_name": pl.String,

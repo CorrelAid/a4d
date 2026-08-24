@@ -1,7 +1,7 @@
 """Tracker metadata table generator.
 
-Mirrors R's ``run_script_5_create_metadata_table.R``: for each ``.xlsx`` tracker
-under ``data_root``, emits a row with an MD5 hash and presence flags for the
+For each ``.xlsx`` tracker under ``data_root``, emits a row with an MD5 hash
+and presence flags for the
 four per-tracker output subdirs (``patient_data_{raw,cleaned}`` and
 ``product_data_{raw,cleaned}``).
 
@@ -18,7 +18,8 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
-# Order matches R's subdirs vector; BigQuery consumers may depend on it.
+# Column order is part of the published table's contract; BigQuery consumers
+# may depend on it.
 _SUBDIRS: tuple[str, ...] = (
     "patient_data_cleaned",
     "patient_data_raw",

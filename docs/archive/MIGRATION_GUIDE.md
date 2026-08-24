@@ -1,9 +1,20 @@
 # R to Python Migration Guide
 
+> **ARCHIVED — frozen, not current guidance.** See
+> [`docs/archive/README.md`](README.md). This document planned the migration;
+> the migration is done. Where it describes intent, read it as history. The R
+> pipeline it maps onto was deleted on 2026-08-24
+> (`git show r-archive-removed^:r-archive/R/<file>`). Frozen at tag
+> `migration-archive-frozen`.
+
 Reference for the A4D pipeline migration from R to Python.
 
-**Status**: Phases 0–9 complete. Patient pipeline production-ready. Product pipeline merged into `src/a4d/` on 2026-04-23.
-**Branch**: `migration`
+**Final status**: all phases complete. Both arms (patient and product) are
+implemented, deployed to production on Cloud Run, and verified cell-by-cell
+against the frozen R baseline over 254 real trackers. Incremental processing
+shipped 2026-05-01 behind `--incremental`. R retired 2026-08-24.
+**Branch**: `migration` (285 commits ahead of `dev`, 364 files changed;
+981 tests, 86% coverage at freeze)
 
 ---
 

@@ -124,8 +124,8 @@ def test_extract_regimen_no_match():
 
     result = extract_regimen(df)
 
-    # Values that don't match are left exactly as the source wrote them --
-    # R's sub(ignore.case = TRUE) never rewrites a non-match (ticket 29).
+    # Values that don't match are left exactly as the source wrote them
+    # (ticket 29).
     assert result["insulin_regimen"].to_list() == ["Unknown regimen", "Other"]
 
 
@@ -187,7 +187,7 @@ def test_apply_transformation_str_to_lower():
         }
     )
 
-    # Test with R function name
+    # The `stringr::` prefix is an accepted alias; the config files carry it.
     result = apply_transformation(df, "status", "stringr::str_to_lower")
     assert result["status"].to_list() == ["active", "inactive"]
 
@@ -239,10 +239,10 @@ def test_correct_decimal_sign_multiple_missing_columns():
 
 
 def test_extract_regimen_order_matters():
-    """Test that transformation order matches R behavior.
+    """Transformations are applied in order, and the first match wins.
 
-    In R, the transformations are applied in order, and each one
-    replaces the entire value if it matches.
+    A value matching more than one pattern must resolve to the earlier one, so
+    the order in the config is part of the contract rather than incidental.
     """
     df = pl.DataFrame(
         {
@@ -369,22 +369,19 @@ def test_fix_sex_missing_column():
     assert result.equals(df)
 
 
-def test_fix_sex_matches_r_behavior():
-    """Test that fix_sex matches R's fix_sex() function exactly.
-
-    This test uses the exact values from R's function definition.
-    """
+def test_fix_sex_maps_every_known_synonym():
+    """Every spelling of sex observed in the trackers maps to M, F or Undefined."""
     df = pl.DataFrame(
         {
             "sex": [
-                # Female synonyms from R
+                # Female synonyms
                 "female",
                 "girl",
                 "woman",
                 "fem",
                 "feminine",
                 "f",
-                # Male synonyms from R
+                # Male synonyms
                 "male",
                 "boy",
                 "man",
@@ -534,8 +531,8 @@ def test_fix_bmi_missing_columns():
     assert result.equals(df)
 
 
-def test_fix_bmi_matches_r_behavior():
-    """Test that fix_bmi matches R's fix_bmi() function exactly."""
+def test_fix_bmi_derives_from_weight_and_height():
+    """BMI is recomputed from weight and height, replacing any recorded value."""
     df = pl.DataFrame(
         {
             "weight": [70.0, None, settings.error_val_numeric, 80.0, 65.0],
@@ -560,8 +557,8 @@ def test_fix_bmi_matches_r_behavior():
 def test_fix_bmi_height_cm_conversion():
     """Test that height in cm is converted to m before BMI calculation.
 
-    Matches R's transform_cm_to_m: if height > 50, divide by 100.
-    Real case: Lao Friends Hospital has height=135.5cm, weight=30.7kg.
+    Above 50 the value can only be centimetres; below 2.3 it can only be
+    metres. Real case: Lao Friends Hospital has height=135.5cm, weight=30.7kg.
     """
     df = pl.DataFrame(
         {
@@ -751,9 +748,9 @@ def test_split_bp_strips_whitespace_around_the_separator():
     """A clinician who writes "70 / 40" has recorded a blood pressure, and the
     fragments must reach numeric conversion without their padding (ticket 53).
 
-    R's ``as.numeric`` ignores surrounding whitespace, so R keeps these values;
-    Polars' cast does not, so ``" 40"`` failed conversion and the cleaned output
-    carried the 999999 error sentinel instead. 465 cells across 7 real trackers
+    Polars' numeric cast rejects surrounding whitespace, so ``" 40"`` failed
+    conversion and the cleaned output carried the 999999 error sentinel
+    instead. 465 cells across 7 real trackers
     were lost this way -- every affected source value has a space beside the
     slash and none has anything else wrong with it.
     """
@@ -871,9 +868,10 @@ def test_split_bp_multiple_invalid():
 
 
 def test_extract_regimen_preserves_case_of_unmatched_values():
-    """Ticket 29: R's sub(ignore.case=TRUE) leaves a non-matching value alone.
+    """Ticket 29: a value matching none of the patterns is left untouched.
 
-    Python emulated case-insensitivity by lowercasing the column first, which
+    An earlier version got case-insensitivity by lowercasing the column first,
+    which
     permanently mangled every value none of the four patterns matched --
     "NPH" -> "nph", "Other" -> "other" -- on 1,309 real cleaned rows.
     """

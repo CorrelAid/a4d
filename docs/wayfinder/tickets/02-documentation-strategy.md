@@ -33,19 +33,19 @@ test-data drive) as ground truth, not treat R's output as automatically
 correct. A report that only flags "Python != R" without being able to say
 which one is right against source doesn't meet this bar.
 
-Facts on record: `docs/migration/PYTHON_IMPROVEMENTS.md` on `product-pipeline`
+Facts on record: `docs/archive/PYTHON_IMPROVEMENTS.md` on `product-pipeline`
 cites `Ali_internship/residual_dig.ipynb` for the date-parsing analysis (section 5)
 — that file does not exist anywhere in the repo's tracked tree, and never has
 (`git log --all -- "*residual_dig*"` returns nothing). Two PDF reports also
 ship on that branch; both have now been read in full (via
 `git show origin/product-pipeline:<path>` + `pdftotext`):
 
-- `docs/migration/dashboarding_evaluation_report_verbose_.pdf` is **unrelated
+- `docs/archive/dashboarding_evaluation_report_verbose_.pdf` is **unrelated
   to this map** — it's a BI-tool comparison (Looker Studio vs. Evidence/
   Metabase/Superset/Redash) for A4D's research dashboarding, a separate
   internship deliverable with nothing to do with pipeline parity. Out of this
   ticket's (and this map's) scope; not this ticket's concern.
-- `docs/migration/Product pipeline parity presentation.pdf` **is** the missing
+- `docs/archive/Product pipeline parity presentation.pdf` **is** the missing
   `residual_dig.ipynb`'s output — the only surviving record of a real R-vs-
   Python divergence analysis across 189 trackers / 61,077 rows / 20 columns:
   per-column mismatch counts (`Product_entry_date`: 559, `Product_balance`:
@@ -113,15 +113,15 @@ successor to the old PDF format but regenerated from real data each run
 rather than hand-assembled once.
 
 Docs cleanup (done in this session, both small and fully decided):
-- `docs/migration/dashboarding_evaluation_report_verbose_.pdf` deleted —
+- `docs/archive/dashboarding_evaluation_report_verbose_.pdf` deleted —
   confirmed unrelated to this map (a separate BI-tool-comparison internship
   deliverable).
-- `docs/migration/Product pipeline parity presentation.pdf` **kept** — it
+- `docs/archive/Product pipeline parity presentation.pdf` **kept** — it
   holds the only surviving real numbers (per-column/per-cause mismatch
   counts) needed to validate the new script; the user was explicit it stays
   "to compare" and gets removed only once superseded, since it isn't part of
   the pipeline itself.
-- `docs/migration/PYTHON_IMPROVEMENTS.md`'s dead citation to
+- `docs/archive/PYTHON_IMPROVEMENTS.md`'s dead citation to
   `Ali_internship/residual_dig.ipynb` (confirmed never committed —
   `git log --all -- "*residual_dig*"` returns nothing) fixed to point at the
   parity-presentation PDF instead, with a note that the new script supersedes

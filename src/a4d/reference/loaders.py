@@ -1,7 +1,7 @@
 """Utilities for loading reference data files.
 
 This module provides common utilities for loading YAML and other reference
-data files shared between the R and Python pipelines.
+data files under reference_data/.
 """
 
 import os

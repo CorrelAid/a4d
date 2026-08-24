@@ -1,7 +1,10 @@
 """Patient data cleaning pipeline.
 
-This module orchestrates the complete cleaning pipeline for patient data,
-following the R pipeline's meta schema approach (script2_process_patient_data.R):
+This module orchestrates the complete cleaning pipeline for patient data. The
+ordering below is load-bearing, not cosmetic: the meta schema is applied before
+type conversion so that unit conversions and derivations can address columns a
+given tracker never had, and every derivation runs after the conversion that
+produces its inputs and before the validation that bounds its outputs.
 
 1. Load raw patient data
 2. Apply legacy format fixes
@@ -79,13 +82,15 @@ def clean_patient_data(
     df_raw = normalize_excel_formula_errors(df_raw, error_collector)
 
     # Step 0.5: Strip whitespace from the ends of every string cell (ticket
-    # 36). Runs before validation, not after, mirroring readxl's
-    # `trim_ws = TRUE` default on R's side: without it a stray trailing space
-    # makes an otherwise-valid value fail allowed-value validation and land
-    # on the "Undefined" sentinel. Product's cleaning already did this (step
-    # 2.16), which left the two arms disagreeing on `file_name` and
-    # `sheet_name` for any tracker whose filename or sheet tab carries a
-    # stray space -- identifiers that join the arms' tables together.
+    # 36). End-whitespace never carries meaning in this data, and it runs
+    # before validation rather than after because a stray trailing space makes
+    # an otherwise-valid value fail allowed-value validation and land on the
+    # "Undefined" sentinel: 2019 Kantha Bopha's KH_KB023 has a sex cell reading
+    # 'F ', and 72 rows of patient `sex` were being lost that way. Product's
+    # cleaning already did this (step 2.16), which left the two arms
+    # disagreeing on `file_name` and `sheet_name` for any tracker whose
+    # filename or sheet tab carries a stray space -- identifiers that join the
+    # arms' tables together.
     df_raw = strip_string_whitespace(df_raw)
 
     # Step 1: Legacy format fixes
@@ -97,8 +102,10 @@ def clean_patient_data(
     # Step 3: Data transformations (regimen extraction, lowercasing, etc.)
     df = _apply_transformations(df)
 
-    # Step 4: Apply meta schema EARLY (like R does) to ensure all columns exist before conversions
-    # This allows unit conversions to work on columns that don't exist in raw data
+    # Step 4: Apply the meta schema EARLY, so every column exists before the
+    # conversions below. Trackers differ in which columns they carry, and the
+    # unit conversions and derivations that follow address columns by name --
+    # without this they would silently skip whatever a given workbook omitted.
     df = apply_schema(df)
 
     # Step 5: Type conversions
@@ -109,9 +116,12 @@ def clean_patient_data(
     # _validate_dates, which would otherwise sentinel every one of them.
     df = _convert_buddhist_era_dates(df, error_collector)
 
-    # Step 5.5: Fix age from DOB (like R pipeline does)
-    # Must happen after type conversions so DOB is a proper date
-    # Must happen before range validation so validated age is correct
+    # Step 5.5: Derive age from DOB, overriding the sheet's own Age cell --
+    # a typed age goes stale between the month it was written and the month
+    # the sheet covers, while a date of birth does not (LA_MH060's D.O.B. of
+    # 2009-01-16 makes Jan23 an age of 14; the clinic's cell says 13).
+    # Must happen after type conversions so DOB is a proper date, and before
+    # range validation so the validated age is the derived one.
     df = _fix_age_from_dob(df, error_collector)
 
     # Step 5.5b: Fill t1d_diagnosis_age from dob and t1d_diagnosis_date, but
@@ -151,8 +161,6 @@ def clean_patient_data(
 def _extract_date_from_measurement(df: pl.DataFrame, col_name: str) -> pl.DataFrame:
     """Extract date from measurement values in legacy trackers.
 
-    Matches R's extract_date_from_measurement() (script2_helper_patient_data_fix.R:115).
-
     For pre-2019 trackers, values and dates are combined in format:
     - "14.5 (Jan-20)" → value="14.5 ", date="Jan-20"
     - ">14 (Mar-18)" → value=">14 ", date="Mar-18"
@@ -174,16 +182,16 @@ def _extract_date_from_measurement(df: pl.DataFrame, col_name: str) -> pl.DataFr
     if date_col_name in df.columns:
         return df
 
-    # R splits on a greedy `.*` prefix, then `[(]`, then a lazy date, then an
-    # OPTIONAL `[)]` -- so it recovers a cell whose parenthesis is never closed
-    # (`180(May-2017`, near-universal in the 2017/2018 trackers) and, because the
-    # prefix is greedy, reads the date after the LAST `(` in `196((Dec-2017)`.
+    # The closing parenthesis is OPTIONAL, and that is the whole point: 25 of
+    # the 30 cells in this population are written `180(May-2017` with no closing
+    # bracket at all, near-universal in the 2017/2018 trackers. Requiring it
+    # lost the date on every one of them. The prefix is greedy so that a doubled
+    # bracket (`196((Dec-2017)`) yields the date after the LAST `(`.
     df = df.with_columns(
         [
-            # The greedy prefix is R's, but the trailing "(" it leaves behind on
-            # a doubled parenthesis is not kept: R publishes "196(" for
-            # `196((Dec-2017)` and then fails its own numeric cast, losing the
-            # reading. Python strips it and keeps the 196.
+            # The greedy prefix leaves a trailing "(" behind on a doubled
+            # bracket, which would then fail the numeric cast and lose the
+            # reading entirely -- so strip it and keep the 196.
             pl.when(pl.col(col_name).str.contains(r"\(", literal=False))
             .then(
                 pl.col(col_name).str.extract(r"^(.*)\(", 1).str.strip_chars().str.strip_chars("(")
@@ -207,21 +215,20 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
     - Combined blood pressure values (sys/dias in one column)
     - Different column structures
 
-    Matches R's legacy handling in script2_process_patient_data.R:30-66.
-
     Args:
         df: Input DataFrame
 
     Returns:
         DataFrame with legacy fixes applied
     """
-    # Extract dates from measurement columns for pre-2019 trackers
-    # R checks if *_date column exists, if not, extracts from measurement column
+    # Extract dates from measurement columns for pre-2019 trackers. Skipped
+    # where the tracker already carries a dedicated *_date column (2019+).
     df = _extract_date_from_measurement(df, "hba1c_updated")
     df = _extract_date_from_measurement(df, "fbg_updated_mg")
     df = _extract_date_from_measurement(df, "fbg_updated_mmol")
 
-    # Split blood pressure for pre-2024 trackers (R line 72)
+    # Split blood pressure for pre-2024 trackers, which record sys/dias in
+    # one cell.
     if "blood_pressure_mmhg" in df.columns:
         from a4d.clean.transformers import split_bp_in_sys_and_dias
 
@@ -233,8 +240,13 @@ def _apply_legacy_fixes(df: pl.DataFrame) -> pl.DataFrame:
 def _fix_fbg_column(col: pl.Expr) -> pl.Expr:
     """Fix FBG column text values to numeric equivalents.
 
-    Matches R's fix_fbg() function (script2_helper_patient_data_fix.R:551-567).
     Converts qualitative text to numeric values and removes DKA markers.
+
+    Every pattern here is anchored to the whole cell, deliberately. Matching
+    them as substrings turns `Lost follow up` into a glucose of 140 (because
+    "fol-low" contains "low") and every `SMBG 50-HI` / `129-HI` into 200,
+    discarding the number the clinic actually wrote. A cell that is not
+    wholly one of these words is left for numeric parsing or sentinelled.
 
     Conversions (based on CDC guidelines):
     - "high", "bad", "hi", "hight" (typo) → "200"
@@ -311,7 +323,6 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("hba1c_updated").str.replace_all(r"[><]", "").alias("hba1c_updated")
         )
 
-    # Fix FBG text values (R: script2_helper_patient_data_fix.R:551-567)
     # Convert qualitative values to numeric: high→200, medium→170, low→140
     # Source: https://www.cdc.gov/diabetes/basics/getting-tested.html
     if "fbg_updated_mg" in df.columns:
@@ -333,8 +344,9 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
         if col in df.columns:
             df = df.with_columns(pl.col(col).str.replace("-", "N").alias(col))
 
-    # Derive insulin_type and insulin_subtype from individual columns (2024+)
-    # R's validation will convert insulin_type to Title Case and insulin_subtype to "Undefined"
+    # Derive insulin_type and insulin_subtype from individual columns (2024+).
+    # Values are emitted lowercase here; allowed-value validation canonicalises
+    # the case afterwards.
     if "human_insulin_pre_mixed" in df.columns:
         df = _derive_insulin_fields(df)
 
@@ -362,9 +374,8 @@ def _insulin_ticked(column: str) -> pl.Expr:
 def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     """Derive insulin_type and insulin_subtype from individual columns.
 
-    Based on R's logic from script2_process_patient_data.R:91-111 but with corrections:
-    - Uses lowercase values (R does this, validation converts to Title Case later)
-    - FIXES R's typo: Uses "rapid-acting" (correct) instead of R's "rapic-acting" (typo)
+    Emits lowercase values; allowed-value validation canonicalises the case
+    afterwards.
 
     For 2024+ trackers:
     - insulin_type: "human insulin" if any human column is Y, else "analog insulin"
@@ -372,8 +383,9 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
       Validation uses allow_csv_subset (see reference_data/validation_rules.yaml) to
       accept each token against allowed_values and rejoin in canonical case.
 
-    NOTE: Python is CORRECT here. Comparison with R will show differences because R has a typo
-    and because R's validator rejects its own multi-insulin CSV output.
+    A row that ticks no insulin column at all yields None rather than a
+    subtype, so a patient with nothing recorded is not reported as having an
+    unrecognised regimen.
 
     Args:
         df: Input DataFrame with individual insulin columns
@@ -381,9 +393,9 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with insulin_type and insulin_subtype derived
     """
-    # Determine insulin_type (lowercase to match R)
-    # Important: R's ifelse returns NA when all conditions are NA/None
-    # So we only derive insulin_type when at least one column is not None
+    # Derive insulin_type only when at least one insulin column carries a
+    # value: a row where every column is null recorded nothing, and must not
+    # be reported as having a type.
     df = df.with_columns(
         pl.when(
             # Only derive if at least one insulin column is not null
@@ -403,12 +415,13 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
             .then(pl.lit("human insulin"))
             .otherwise(pl.lit("analog insulin"))
         )
-        .otherwise(None)  # Return None if all columns are None (matches R's NA)
+        .otherwise(None)  # every insulin column null: nothing was recorded
         .alias("insulin_type")
     )
 
-    # Build insulin_subtype as comma-separated list (lowercase to match R)
-    # CORRECTED: Use "rapid-acting" (correct) instead of R's "rapic-acting" (typo)
+    # Build insulin_subtype as a comma-separated list, lowercase; validation
+    # canonicalises the case and checks each token separately (allow_csv_subset
+    # in reference_data/validation_rules.yaml).
     df = df.with_columns(
         pl.concat_list(
             [
@@ -422,7 +435,7 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
                 .then(pl.lit("intermediate-acting"))
                 .otherwise(pl.lit(None)),
                 pl.when(_insulin_ticked("analog_insulin_rapid_acting"))
-                .then(pl.lit("rapid-acting"))  # CORRECTED from R's typo
+                .then(pl.lit("rapid-acting"))
                 .otherwise(pl.lit(None)),
                 pl.when(_insulin_ticked("analog_insulin_long_acting"))
                 .then(pl.lit("long-acting"))
@@ -431,10 +444,13 @@ def _derive_insulin_fields(df: pl.DataFrame) -> pl.DataFrame:
         )
         .list.drop_nulls()
         .list.join(",")
-        # An unticked row deliberately keeps the empty string, which allowed-value
-        # validation publishes as "Undefined". That claims the clinic recorded a
-        # subtype it did not, but R does the same on 17,418 rows and the two
-        # pipelines agree there; changing it is its own question (ticket 55).
+        # An unticked row deliberately keeps the empty string, which
+        # allowed-value validation publishes as "Undefined". That overstates
+        # what the clinic recorded -- it ticked nothing, rather than ticking
+        # something unrecognised -- and it affects 17,418 rows. Nulling them
+        # instead was measured and reverted (ticket 55): it resolved nothing
+        # downstream, and whether the consumer distinguishes the two cases has
+        # never been established. Left as-is, deliberately, not by oversight.
         .alias("insulin_subtype")
     )
 
@@ -456,20 +472,17 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame with transformations applied
     """
-    # Status should keep original case to match R pipeline
-    # R validation is case-insensitive but preserves original values
-
     # Standardize insulin regimen
     if "insulin_regimen" in df.columns:
         df = extract_regimen(df)
 
-    # Map sex synonyms to M/F (matching R's fix_sex)
+    # Map sex synonyms to M/F
     if "sex" in df.columns:
         from a4d.clean.transformers import fix_sex
 
         df = fix_sex(df)
 
-    # Fix testing frequency ranges (R line 258)
+    # Fix testing frequency ranges
     if "testing_frequency" in df.columns:
         from a4d.clean.transformers import fix_testing_frequency
 
@@ -554,11 +567,14 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
 def _calculate_bmi(df: pl.DataFrame) -> pl.DataFrame:
     """Calculate BMI from weight and height.
 
-    Matches R's fix_bmi() function (script2_helper_patient_data_fix.R:401).
-    This REPLACES any existing BMI value with calculated BMI = weight / height^2.
+    REPLACES any existing BMI value with weight / height^2, because a typed
+    BMI goes stale as the patient's weight changes while the two measurements
+    it derives from are re-recorded each month.
 
-    Must be called after height and weight have been range-validated (R cuts
-    both before fix_bmi) and before the BMI bound is applied.
+    Must be called after height and weight have been range-validated and before
+    the BMI bound is applied. Deriving it first produced a BMI that passed its
+    own bound while resting on an impossible height: 60 / 2.43^2 = 10.16, from
+    a height cell that should have been rejected outright.
 
     Args:
         df: Input DataFrame
@@ -589,9 +605,11 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     Returns:
         DataFrame with range validation applied
     """
-    # Height: convert cm to m only above 50, matching R's transform_cm_to_m.
-    # A value between 2.3 and 50 is neither unit; dividing it by 100 would turn
-    # an unusable cell into a plausible-looking metre reading (ticket 55).
+    # Height: convert cm to m only above 50. A value between 2.3 and 50 is
+    # neither unit, and dividing it by 100 turns an unusable cell into a
+    # plausible-looking metre reading. The threshold was 2.3 and 120 source
+    # cells reading 2.43, 6.9 and 13.0 were being published as 0.069 metres
+    # (ticket 55); they are now rejected instead.
     if "height" in df.columns:
         df = df.with_columns(
             pl.when(pl.col("height") > 50)
@@ -605,8 +623,8 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     if "weight" in df.columns:
         df = cut_numeric_value(df, "weight", 0, 200, error_collector)
 
-    # BMI is derived here rather than earlier so it sees the validated height,
-    # as R does: an out-of-bounds height voids the BMI instead of producing one
+    # BMI is derived here rather than earlier so it sees the validated height:
+    # an out-of-bounds height voids the BMI instead of producing one
     # from an impossible measurement.
     df = _calculate_bmi(df)
 
@@ -629,9 +647,9 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     # FBG: the analytical limits of the machines in use, given by A4D's medical
     # advisor 2026-08-17 (ticket 42). The permissive end of each range he gave is
     # used, so only a reading no machine could have produced is rejected. This
-    # replaces an inherited 0-150 mmol/L bound (R's script2_process_patient_data.R)
-    # that was more than three times his ceiling, and covers the three columns
-    # that carried no bound at all.
+    # replaces an inherited 0-150 mmol/L bound that was more than three times
+    # his ceiling, and covers the three columns that carried no bound at all.
+    # 832 readings are rejected on these limits.
     for column in ("fbg_baseline_mg", "fbg_updated_mg"):
         if column in df.columns:
             df = cut_numeric_value(
@@ -684,8 +702,10 @@ def _apply_unit_conversions(df: pl.DataFrame) -> pl.DataFrame:
 def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
     """Fix age by calculating from DOB and tracker date.
 
-    Matches R pipeline's fix_age() function (script2_helper_patient_data_fix.R:329).
-    Always uses calculated age from DOB rather than trusting Excel value.
+    Always uses the age calculated from DOB rather than the sheet's own Age
+    cell. A typed age is correct only for the month someone typed it; the
+    date of birth stays correct. LA_MH060's recovered D.O.B. of 2009-01-16
+    makes Jan23 an age of 14, where the workbook's own cell still reads 13.
 
     Logic:
     1. Calculate age: tracker_year - birth_year
@@ -719,7 +739,7 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         logger.debug("Skipping age fix: missing required columns")
         return df
 
-    logger.info("Fixing age values from DOB (matching R pipeline logic)")
+    logger.info("Deriving age from DOB")
 
     error_date = pl.lit(settings.error_val_date).str.to_date()
 
@@ -835,15 +855,17 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
     """Fill t1d_diagnosis_age from dob and t1d_diagnosis_date, but only when
     the tracker's own recorded value is missing or an Excel error sentinel.
 
-    R's equivalent (script2_helper_patient_data_fix.R's fix_t1d_diagnosis_age)
-    is dead code -- never called from script2_process_patient_data.R (the
-    call site is commented out) -- so R always keeps the raw recorded age
-    untouched. A directly recorded diagnosis age is a real clinic-entered
-    value, not something to silently discard in favor of date arithmetic:
-    an earlier version of this function unconditionally overwrote it whenever
-    both dates parsed, which threw away a real recorded value whenever a date
-    didn't parse (falling to null) and silently overrode it by +/-1 whenever
-    it did parse but disagreed with the tracker's own figure.
+    A directly recorded diagnosis age is a real clinic-entered value, not
+    something to discard in favour of date arithmetic. An earlier version
+    overwrote it whenever both dates parsed, which threw the recorded value
+    away entirely when a date failed to parse (falling to null) and silently
+    shifted it by +/-1 when it parsed but disagreed with the tracker's figure.
+    Deriving only into the gap keeps both: MM_MD010's cell reads `11yr`, which
+    no arithmetic is needed to read, while a patient with a blank cell and two
+    good dates still gets an age.
+
+    "Missing" includes the 999999 sentinel, since a cell that failed numeric
+    conversion recorded no usable age either.
 
     Args:
         df: DataFrame with dob, t1d_diagnosis_date, t1d_diagnosis_age columns
@@ -902,8 +924,10 @@ def _convert_buddhist_era_dates(df: pl.DataFrame, error_collector: ErrorCollecto
     not an error it made. Without this step ``_validate_dates`` sees a year
     centuries ahead and clobbers the cell with the 9999-09-09 sentinel, so the
     reading is destroyed rather than merely published oddly: 381 cells across
-    95 distinct values in the 254-tracker corpus, invisible to the R comparison
-    because R sentinels them too (ticket 61).
+    95 distinct values in the 254-tracker corpus (ticket 61). 2022 Hat Yai's
+    2560-01-01 converts to the 2017-01-01 that the same patient's D.O.B. and
+    recruitment date independently give, which is the check that established
+    the shift is a recovery rather than a rewrite.
 
     A cell converts when its year is at or beyond ``BUDDHIST_ERA_THRESHOLD``
     and the shifted year is no later than the tracker's own year. There is no
@@ -958,13 +982,13 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
     Dates beyond the tracker year are considered invalid and replaced with
     the error date value (9999-09-09).
 
-    This is a deliberate divergence from R, not a match for it: R has no
-    tracker-year or future-date bound on any date column, so it carries an
-    impossible date into its output unchanged (ticket 51 -- 2022 Vietnam
-    National Children's Hospital records every diagnosis date as a 2023 one,
-    for patients recruited in 2017). Sentinelling marks the value unusable
-    rather than inventing a plausible one; the workbook is what needs
-    correcting, which is why each rejection is also logged per patient.
+    A date after the tracker's own year cannot be a record of something that
+    happened during it. The population is a real source defect rather than a
+    parsing artifact: 2022 Vietnam National Children's Hospital records every
+    diagnosis date as a 2023 one, for patients recruited in 2017 (ticket 51,
+    722 cells). Sentinelling marks the value unusable rather than inventing a
+    plausible one; the workbook is what needs correcting, which is why each
+    rejection is also logged per patient.
 
     Args:
         df: Input DataFrame with date columns

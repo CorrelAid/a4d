@@ -19,7 +19,7 @@ markdown docs](33-fix-red-ci-ruff-format-markdown.md), closed: CI was red on
 `migration` for four days and nobody noticed, because the checks actually
 run locally between commits (`pytest`, `ruff check`, `ty check src/`) were a
 *subset* of what CI runs. The missing one — `ruff format --check` — was the
-one failing. Excluding `docs/migration` removed that specific trigger, but
+one failing. Excluding `docs/archive` removed that specific trigger, but
 not the drift that let it go unseen: the same class of failure recurs the
 moment CI gains a step, or an existing step's arguments change.
 

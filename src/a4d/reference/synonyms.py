@@ -18,7 +18,8 @@ def sanitize_str(text: str) -> str:
     """Sanitize a string for column name matching.
 
     Converts to lowercase, removes all spaces and special characters,
-    keeping only alphanumeric characters. This matches the R implementation.
+    keeping only alphanumeric characters, so a header's punctuation, casing and
+    spacing cannot decide whether a column is recognised.
 
     Args:
         text: String to sanitize
@@ -69,7 +70,9 @@ class ColumnMapper:
 
     Note:
         Synonym matching is case-insensitive and ignores special characters.
-        This matches the R implementation which uses sanitize_str() for both
+        Both sides of the lookup are sanitized, because a synonym file written
+        by hand and a header typed into Excel will not agree on punctuation.
+        Historically this used sanitize_str() for both
         column names and synonym keys before matching.
     """
 
@@ -87,7 +90,8 @@ class ColumnMapper:
         self.synonyms: dict[str, list[str]] = load_yaml(yaml_path)
 
         # Build reverse lookup: sanitized_synonym -> standard_name
-        # This matches R's behavior: sanitize both column names and synonym keys
+        # Sanitize both the column name and the synonym keys, so neither side's
+        # punctuation or casing decides the match.
         self._lookup: dict[str, str] = self._build_lookup()
 
         logger.info(
@@ -98,7 +102,7 @@ class ColumnMapper:
     def _build_lookup(self) -> dict[str, str]:
         """Build reverse lookup dictionary from SANITIZED synonyms to standard names.
 
-        Sanitizes all synonym keys before adding to lookup, matching R's behavior.
+        Sanitizes all synonym keys before adding them to the lookup.
 
         Returns:
             Dict mapping each SANITIZED synonym to its standard column name
@@ -134,7 +138,7 @@ class ColumnMapper:
     def get_standard_name(self, column: str) -> str:
         """Get the standard name for a column.
 
-        Sanitizes the input column name before lookup to match R behavior.
+        Sanitizes the input column name before lookup.
 
         Args:
             column: Column name (may be a synonym, with special characters/spaces)
@@ -148,7 +152,7 @@ class ColumnMapper:
             >>> mapper.get_standard_name("Age* On Reporting")
             'age'  # "Age* On Reporting" → "ageonreporting" → "age"
         """
-        # Sanitize input column name before lookup (matches R behavior)
+        # Sanitize input column name before lookup
         sanitized_col = sanitize_str(column)
         return self._lookup.get(sanitized_col, column)
 
@@ -219,9 +223,9 @@ class ColumnMapper:
 
         # Several source columns can map to one canonical name: the 2023 template
         # splits complication screening into B.P./Kidney/Eye/Foot/Lipids sub-columns,
-        # each carrying an independent value. Merge them the way R's tidyr::unite()
-        # does -- and the way merge_duplicate_columns_data() already merges repeated
-        # raw headers -- rather than keeping the first, which silently discarded
+        # each carrying an independent value. Merge them -- as
+        # merge_duplicate_columns_data() already merges repeated raw headers --
+        # rather than keeping the first, which silently discarded
         # 2,489 recorded values across 27 trackers.
         sources_by_target: dict[str, list[str]] = {}
         for source_col, target_col in rename_map.items():

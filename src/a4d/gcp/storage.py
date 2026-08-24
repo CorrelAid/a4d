@@ -1,6 +1,6 @@
 """Google Cloud Storage operations for tracker file download and output upload.
 
-Replaces the R pipeline's `gsutil` CLI calls with the google-cloud-storage
+Uses the google-cloud-storage
 Python client library.
 """
 
