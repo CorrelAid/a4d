@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [62]
+blocked_by: [58]
 assignee: null
 claimed_at: null
 resolution: null

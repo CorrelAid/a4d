@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 7"]
+  subgraph FRONTIER["Frontier · 6"]
     direction TB
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -44,7 +44,6 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -52,7 +51,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 51"]
+  subgraph DECIDED["Decided · 52"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -105,6 +104,7 @@ flowchart TD
     T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
     T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
+    T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
   end
   subgraph DROPPED["Out of scope · 1"]
     direction TB
@@ -137,14 +137,14 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
-  T62 --> T12
+  T58 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T58,T62 frontier
+  class T16,T34,T35,T40,T41,T58 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T60,T61 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T60,T61,T62 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2417,6 +2417,67 @@ unmeasured) — all three are questions about R's own code, so `r-archive/` stay
 The frontier is seven; of them only ticket 62 is on the route to the
 destination.
 
+**[Finishing the audit](tickets/62-finish-the-pre-bar-classifier-audit.md) is
+closed, and with it the twelve-cause audit ticket 32 scoped. It is the first
+ticket in that chain to find no defect at all** — Python is the correct side in
+all three populations and no pipeline code changed. What it found instead is
+that every one of the three *explanations* was wrong, which is the failure mode
+the audit exists for: a cause can carry the right label over the wrong reason
+indefinitely, because the count never moves.
+
+**The largest correction is that a mechanism blamed on R's code was really a
+difference between two Excel readers.** `r_category_lookup_miss`'s docstring
+said R's join is case- and whitespace-sensitive. Bucketing all 866 rows by the
+exact bytes showed 652 of them never give the two sides the same string to
+compare: the reference workbook stores embedded line breaks as a bare `\n` (its
+Stock_Summary sheet XML holds 29 LF and **zero** CR bytes) while the trackers
+store `\r\n`, readxl returns each faithfully, and openpyxl folds CRLF to LF. The
+reference sheet already contains all 26 names verbatim — R should have matched
+them. Only the remaining 214 rows, over three names, are genuine case
+(`(singles)` vs `(Singles)`, `ACCU-CHEK` vs `Accu-Chek`).
+
+**The second correction runs the other way: a classifier claiming Python is the
+faithful side is backwards for two-thirds of its population.**
+`openpyxl_date_typed_stray_cell`'s 100 rows are three shapes, not one. Fourteen
+are a real date in a quantity column, where Python is right. Sixty-six are a
+quantity (5-200) or a plain zero sitting in a date-formatted cell — there R's
+serial *is* the number the clinician typed and Python's `1900-05-29` is the
+misleading rendering. It costs nothing only because the divergence dies at
+cleaning: both sides publish identical cleaned values for every affected group,
+verified against the real data, so the pipeline was deliberately left alone. The
+last 20 are the patient arm the docstring never mentioned, and they are the
+strongest Python-is-right case on the map — five source cells where Excel
+silently auto-converted a typed value (`10/60` becoming Oct-1960 in a blood
+pressure column, `1-2` becoming 1-Feb in "Testing Frequency (per day)", a
+diagnosis date in "Age at Diagnosis"), all five re-opened and confirmed
+date-formatted, and R publishes them as **diagnosis ages of 20,668 and 42,859
+years** where Python nulls them.
+
+**The third is the sharpest mechanism the map has found for an R gap.**
+`r_extraction_gap`'s `recruitment_date` bulk was described as R failing "for the
+large majority of patients". R populates 64% of its rows, and the loss is
+perfectly file-level: 91 trackers where it reads **zero**, 148 with no
+divergence, and **zero** files where it reads some and misses others. A trailing
+space in the header cell forces Excel to write `<t xml:space="preserve">`, and
+`openxlsx` — which is what R reads headers with — folds the attribute into the
+header text, so `make.names` emits `xmlspacepreservedateofrecruitmentmmmyy` and
+no synonym matches. The correlation is exact: 91/91 affected files carry that
+column in R's own raw parquet, 0/148 of the rest do. The same defect eats an
+insurance-status column nobody had noticed.
+
+**Ticket 12 is *not* unblocked, and this time the check was run before saying
+so.** Re-deriving the open tickets that still need the R *source* — the map's
+Notes make that list derived, not inherited — leaves exactly one: [monthly rows
+with a misspelled ID](tickets/58-patient-list-join-uses-unfixed-id.md), whose
+question 3 is literally "Check R". Tickets 6, 9, 16, 34, 35, 40 and 41 were each
+checked and need none. So `blocked_by` moves `[62]` -> `[58]` and the count of
+tickets standing between this map and retiring R stays at one. **The frontier is
+six**: ticket 58 is now the only one on the route to the destination, and the
+other five are standing decisions, the source-defect report and a separate
+feature (ticket 16). One fog patch was added — whether Python's category join
+should normalise line endings explicitly, rather than relying on openpyxl to do
+it — and no ticket was spawned.
+
 ## Decisions so far
 
 - [Audit the eight pre-bar causes the first classifier pass did not
@@ -3407,6 +3468,29 @@ destination.
   corrupt Excel serials as dates in the year 5567, and `a4d run` was publishing
   an errors table holding the patient arm only (63,295 -> 97,326 records). Eight
   pre-bar causes split to [ticket 60](tickets/60-audit-remaining-pre-bar-classifiers.md).
+- [Finish the pre-bar classifier audit — the two causes and the one bulk
+  population it did not reach](tickets/62-finish-the-pre-bar-classifier-audit.md)
+  -- decided; **the twelve-cause audit ticket 32 scoped is now complete**.
+  Python is the correct side in all three populations and **no pipeline change
+  was needed** — the first ticket in the chain to find no defect. All three
+  *explanations* were wrong, so three docstrings are rewritten against measured
+  mechanisms. `r_category_lookup_miss` (866) is two causes, and the larger is
+  not about R's join at all: **652 rows are CRLF-vs-LF** (the reference workbook
+  stores `\n` — zero CR bytes in its sheet XML — where the trackers store
+  `\r\n`; readxl is faithful to both, openpyxl folds them), leaving 214 that are
+  genuine case. `openpyxl_date_typed_stray_cell` (100) states one verdict for
+  three shapes and is **backwards for 66 of them** — R's serial is the quantity
+  the clinician typed and Python's 1900 date is the misleading rendering,
+  harmless only because both sides publish identical cleaned output; the 20
+  patient rows it never documented are the opposite, with R publishing diagnosis
+  ages of **20,668 and 42,859 years**. `r_extraction_gap`'s
+  `recruitment_date` bulk (28,009) does not "fail for the large majority of
+  patients" — R populates 64% — it fails for **91 whole trackers and no partial
+  file**, because a trailing space in the header forces
+  `<t xml:space="preserve">` and `openxlsx` folds the attribute into the column
+  name (`xmlspacepreservedateofrecruitmentmmmyy`, present in 91/91 affected
+  files and 0/148 others). Verified by a second full comparison showing zero
+  per-cause movement in all four stages.
 
 ## Assumptions in force
 
@@ -3498,6 +3582,18 @@ folded into Decisions so far above.)
   measurement round 10 did before backing out a similar widening. One cell is
   not enough to judge it on. Surfaced by [ticket
   39](tickets/39-recover-dates-embedded-in-free-text.md).
+
+- Whether the **product category join should normalise line endings**
+  explicitly. [Ticket 62](tickets/62-finish-the-pre-bar-classifier-audit.md)
+  found Python resolves 26 product names carrying an embedded line break purely
+  because openpyxl folds CRLF to LF on read — its own join normalises case and
+  nothing else. A reference entry typed with CRLF against a tracker spelled with
+  LF would miss on Python exactly as it misses on R today, and the comparison
+  would be silent, since both sides would be null. Nothing in the current
+  254-tracker set triggers it, so nobody has measured how exposed the join
+  actually is or whether an explicit normalisation would change any current
+  output. Not sharp enough to ticket until that is measured; it moves a
+  production join.
 
 - Whether the **unaccented** spellings of a province should be recovered too.
   Resolved for accents by [ticket 51](tickets/51-triage-patient-cleaned-residual-4.md):
@@ -3774,6 +3870,10 @@ flowchart TB
     direction LR
     U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
   end
+  subgraph S2026_08_24c["Session 2026-08-24c"]
+    direction LR
+    U62["<b>62</b><br/>Finish the pre-bar<br/>classifier audit — the<br/>two causes and the one<br/>bulk population it did<br/>not reach"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3789,7 +3889,6 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    U62["<b>62</b><br/>Finish the pre-bar<br/>classifier audit — the<br/>two causes and the one<br/>bulk population it did<br/>not reach"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3836,7 +3935,8 @@ flowchart TB
   S2026_08_22 ~~~ S2026_08_22b
   S2026_08_22b ~~~ S2026_08_24
   S2026_08_24 ~~~ S2026_08_24b
-  S2026_08_24b ~~~ Sunworked
+  S2026_08_24b ~~~ S2026_08_24c
+  S2026_08_24c ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -3865,7 +3965,7 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U62 --->|blocked| U12
+  U58 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3918,11 +4018,11 @@ flowchart TB
   U60 -.->|spawned| U62
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58,U62 tfrontier
+  class U16,U34,U35,U40,U41,U58 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U60,U61 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U60,U61,U62 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
