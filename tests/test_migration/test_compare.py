@@ -60,6 +60,7 @@ from a4d.migration.compare import (
     _is_python_glucose_unit_corrected,
     _is_python_recovers_glucose_r_rejected,
     _is_python_rejects_out_of_range_hba1c,
+    _is_r_age_not_derived_without_dob,
     _is_r_static_join_misses_respelled_id,
     add_row_ordinal,
     align_duplicate_rows,
@@ -83,6 +84,7 @@ from a4d.migration.compare import (
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
+    static_join_missed_ids,
     string_numeric_normalize_targets,
     summarize_directory,
     whitespace_normalize_targets,
@@ -780,7 +782,17 @@ class TestCompareCells:
 
         result = compare_cells(r_df, py_df, key_cols=["id"])
 
-        assert result == [CellMismatch(key={"id": 1}, column="note", r_value=None, py_value="x")]
+        # r_column_empty_in_file (ticket 63) is True by construction here: the
+        # fixture's only R row is null, so R populates the column nowhere.
+        assert result == [
+            CellMismatch(
+                key={"id": 1},
+                column="note",
+                r_value=None,
+                py_value="x",
+                r_column_empty_in_file=True,
+            )
+        ]
 
     def test_ignores_float_drift_within_tolerance(self):
         r_df = pl.DataFrame({"id": [1], "balance": [0.1]})
@@ -3352,3 +3364,205 @@ class TestRStaticJoinMissesRespelledId:
                 py_value="Vientiane Capital",
             )
         )
+
+
+class TestStaticJoinMissedIdsOnTheCleanedStage:
+    """Ticket 63: the same cause, told apart by a fact the cleaned stage cannot hold."""
+
+    @staticmethod
+    def _mismatch(*, flagged: bool, r_value=None, py_value="Vientiane Capital"):
+        return CellMismatch(
+            key={"__key_patient_id": "LA_QA056", "__key_sheet_name": "Jun24"},
+            column="province",
+            r_value=r_value,
+            py_value=py_value,
+            static_join_missed_id=flagged,
+        )
+
+    def test_fires_on_a_normalized_id_carrying_the_flag(self):
+        """By the cleaned stage both sides spell it LA_QA056; only the flag remembers."""
+        assert _is_r_static_join_misses_respelled_id(self._mismatch(flagged=True))
+
+    def test_declines_a_normalized_id_without_the_flag(self):
+        """This is the raw-stage predicate's behaviour, and it must not change."""
+        assert not _is_r_static_join_misses_respelled_id(self._mismatch(flagged=False))
+
+    def test_declines_a_flagged_row_where_r_has_a_value_of_its_own(self):
+        """The flag is a property of the patient, not of the cell -- R-null still gates it."""
+        assert not _is_r_static_join_misses_respelled_id(
+            self._mismatch(flagged=True, r_value="Khammouane")
+        )
+
+    def test_declines_a_flagged_row_where_python_has_nothing_to_offer(self):
+        assert not _is_r_static_join_misses_respelled_id(
+            self._mismatch(flagged=True, py_value=None)
+        )
+
+    def test_declines_a_column_r_lost_across_the_whole_file(self):
+        """2024 Preah Kossamak: R reads zero recruitment_date in 863 rows.
+
+        That is r_extraction_gap's xml:space header defect (ticket 62), which
+        nulls the column for every patient at once -- the respelled ID is
+        incidental, and claiming the cell would carry the wrong reason.
+        """
+        mismatch = CellMismatch(
+            key={"__key_patient_id": "KH_QF001", "__key_sheet_name": "Jun24"},
+            column="recruitment_date",
+            r_value=None,
+            py_value=datetime.date(2021, 6, 22),
+            static_join_missed_id=True,
+            r_column_empty_in_file=True,
+        )
+
+        assert not _is_r_static_join_misses_respelled_id(mismatch)
+
+    def test_still_fires_where_r_reads_the_column_for_other_patients(self):
+        """2024 Mahosot: R reads 672 recruitment_dates of 1,068 rows, so its
+        nulls really are per-patient."""
+        assert _is_r_static_join_misses_respelled_id(
+            self._mismatch(flagged=True, py_value="Vientiane Capital")
+        )
+
+
+class TestStaticJoinMissedIds:
+    """Ticket 63: which identities in a raw frame were spelled two ways."""
+
+    def test_returns_the_normalized_spelling_of_a_respelled_id(self):
+        """The set is matched against the cleaned key, which is already normalized."""
+        raw = pl.DataFrame({"patient_id": ["LA-QA056", "LA_QA001"]})
+
+        assert static_join_missed_ids(raw) == {"LA_QA056"}
+
+    def test_includes_a_transfer_clinic_suffix(self):
+        raw = pl.DataFrame({"patient_id": ["MY_QH003_SB"]})
+
+        assert static_join_missed_ids(raw) == {"MY_QH003"}
+
+    def test_is_empty_when_every_id_is_well_formed(self):
+        raw = pl.DataFrame({"patient_id": ["KH_QA001", "KH_QA002"]})
+
+        assert static_join_missed_ids(raw) == set()
+
+    def test_tolerates_a_frame_without_a_patient_id_column(self):
+        """Raw output is not schema-normalized -- a 2017 tracker may lack the column."""
+        assert static_join_missed_ids(pl.DataFrame({"sheet_name": ["Jan24"]})) == set()
+
+    def test_ignores_a_null_id(self):
+        assert static_join_missed_ids(pl.DataFrame({"patient_id": [None]})) == set()
+
+
+class TestCompareCellsStaticJoinMissedIds:
+    """Ticket 63: the per-file identity set reaches the mismatch it explains."""
+
+    @staticmethod
+    def _frames():
+        r_df = pl.DataFrame(
+            {"patient_id": ["LA_QA056", "LA_QA001"], "province": [None, None]},
+        )
+        py_df = pl.DataFrame(
+            {"patient_id": ["LA_QA056", "LA_QA001"], "province": ["Vientiane Capital", "Bolikham"]},
+        )
+        return r_df, py_df
+
+    def test_flags_only_the_rows_whose_identity_missed_the_join(self):
+        r_df, py_df = self._frames()
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"], static_join_missed_ids={"LA_QA056"})
+
+        flagged = {m.key["patient_id"]: m.static_join_missed_id for m in mismatches}
+        assert flagged == {"LA_QA056": True, "LA_QA001": False}
+
+    def test_flags_nothing_when_the_set_is_not_supplied(self):
+        """The raw stage passes none, and its own per-cell discriminator still works."""
+        r_df, py_df = self._frames()
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert not any(m.static_join_missed_id for m in mismatches)
+
+
+class TestRAgeNotDerivedWithoutDob:
+    """Ticket 63: age is derived, so a recovered D.O.B. moves it on Python's side only."""
+
+    @staticmethod
+    def _mismatch(*, dob_recovered: bool, r_value="13", py_value="14"):
+        return CellMismatch(
+            key={"__key_patient_id": "LA_QA060", "__key_sheet_name": "Jan23"},
+            column="age",
+            r_value=r_value,
+            py_value=py_value,
+            row_dob_recovered=dob_recovered,
+        )
+
+    def test_fires_where_r_kept_the_typed_age_and_python_recomputed(self):
+        """LA_QA060 turned 14 on 2009-01-16, so Jan23 is 14; R's month sheet says 13."""
+        assert _is_r_age_not_derived_without_dob(self._mismatch(dob_recovered=True))
+
+    def test_fires_where_r_has_no_age_at_all(self):
+        """60 of the 113 have an empty month-sheet Age cell and no D.O.B. to fall back on."""
+        assert _is_r_age_not_derived_without_dob(
+            self._mismatch(dob_recovered=True, r_value=None, py_value="15")
+        )
+
+    def test_declines_where_r_had_the_dob_too(self):
+        """Both sides derived from the same birth date, so a difference is something else."""
+        assert not _is_r_age_not_derived_without_dob(self._mismatch(dob_recovered=False))
+
+    def test_declines_where_python_has_nothing_to_offer(self):
+        assert not _is_r_age_not_derived_without_dob(
+            self._mismatch(dob_recovered=True, py_value=None)
+        )
+
+
+class TestCompareCellsRowDobRecovered:
+    """Ticket 63: the per-row fact the age cascade needs, tighter than the file-level set."""
+
+    def test_flags_a_row_where_only_python_has_the_birth_date(self):
+        r_df = pl.DataFrame({"patient_id": ["A"], "dob": [None], "age": ["13"]})
+        py_df = pl.DataFrame({"patient_id": ["A"], "dob": ["2009-01-16"], "age": ["14"]})
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert all(m.row_dob_recovered for m in mismatches)
+
+    def test_does_not_flag_a_row_where_both_sides_have_it(self):
+        r_df = pl.DataFrame({"patient_id": ["A"], "dob": ["2009-01-16"], "age": ["13"]})
+        py_df = pl.DataFrame({"patient_id": ["A"], "dob": ["2009-01-16"], "age": ["14"]})
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert not any(m.row_dob_recovered for m in mismatches)
+
+    def test_does_not_flag_a_frame_without_a_dob_column(self):
+        """The raw stage's frames vary by tracker year, so the column may be absent."""
+        r_df = pl.DataFrame({"patient_id": ["A"], "age": ["13"]})
+        py_df = pl.DataFrame({"patient_id": ["A"], "age": ["14"]})
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert not any(m.row_dob_recovered for m in mismatches)
+
+
+class TestCompareCellsRColumnEmptyInFile:
+    """Ticket 63: a column R lost file-wide is a different mechanism to a per-row miss."""
+
+    def test_flags_a_column_r_populates_nowhere(self):
+        r_df = pl.DataFrame({"patient_id": ["A", "B"], "recruitment_date": [None, None]})
+        py_df = pl.DataFrame(
+            {"patient_id": ["A", "B"], "recruitment_date": ["2021-06-22", "2020-01-05"]}
+        )
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert all(m.r_column_empty_in_file for m in mismatches)
+
+    def test_does_not_flag_a_column_r_populates_for_someone(self):
+        """One surviving value proves R can read the column, so a null is per-row."""
+        r_df = pl.DataFrame({"patient_id": ["A", "B"], "recruitment_date": [None, "2020-01-05"]})
+        py_df = pl.DataFrame(
+            {"patient_id": ["A", "B"], "recruitment_date": ["2021-06-22", "2020-01-05"]}
+        )
+
+        mismatches = compare_cells(r_df, py_df, ["patient_id"])
+
+        assert [m.r_column_empty_in_file for m in mismatches] == [False]

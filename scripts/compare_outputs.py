@@ -47,6 +47,7 @@ from a4d.migration.compare import (
     DERIVED_RUNNING_TOTAL_CLASSIFIERS,
     EXCEL_FORMULA_ERROR_CLASSIFIERS,
     PATIENT_ABSURD_SERIAL_CLASSIFIERS,
+    PATIENT_AGE_CASCADE_CLASSIFIERS,
     PATIENT_AGE_FROM_BARE_YEAR_CLASSIFIERS,
     PATIENT_BARE_YEAR_CLASSIFIERS,
     PATIENT_BEYOND_TRACKER_YEAR_CLASSIFIERS,
@@ -103,6 +104,7 @@ from a4d.migration.compare import (
     normalize_whitespace_column,
     numeric_normalize_targets,
     snapshot_from_summary,
+    static_join_missed_ids,
     string_numeric_normalize_targets,
     summarize_directory,
     whitespace_normalize_targets,
@@ -727,6 +729,16 @@ CLASSIFIERS_BY_COLUMN |= {
     for col in PATIENT_STATIC_JOIN_COLUMNS
 }
 
+# ticket 63: age is the one column ticket 58 measured as over-claimed and left
+# out of the list above, because the month sheets carry an Age cell of their
+# own -- so R's value is not necessarily the join's fault. Its own cause goes
+# on separately, and *appended* rather than prepended: age already has
+# python_age_from_bare_year, whose mechanism (a bare year read as a date) is
+# the tighter test and must keep winning where both apply.
+CLASSIFIERS_BY_COLUMN["age"] = (
+    CLASSIFIERS_BY_COLUMN.get("age", {}) | PATIENT_AGE_CASCADE_CLASSIFIERS
+)
+
 
 class RowAlignment(Enum):
     """How an arm's R and Python rows are paired for cell-by-cell comparison."""
@@ -772,6 +784,11 @@ class Stage:
     # cleaning, so a swapped column is a fact about cleaned output. The raw
     # stage holds the workbook's own headers, where nothing has moved yet.
     load_glucose_unit_swaps: bool = False
+    # Cleaned-stage-only (ticket 63): the raw stage tells a join-missed row
+    # apart by its own ID spelling, which cleaning normalizes away. Naming
+    # the raw subdir here rather than deriving it from `subdir` keeps the
+    # dependency between two stages explicit instead of implied by a suffix.
+    static_join_missed_ids_from: str | None = None
     # The column holding the tracker's own calendar year, if this stage has one
     # (ticket 32). It lets a classifier judge whether Python's own value is
     # plausible for the tracker, not just how the two sides differ.
@@ -826,6 +843,7 @@ STAGES = [
         whitespace_normalize_cols=PATIENT_WHITESPACE_NORMALIZE_COLS,
         numeric_normalize_cols=PATIENT_CLEANED_NUMERIC_NORMALIZE_COLS,
         load_glucose_unit_swaps=True,
+        static_join_missed_ids_from="patient_data_raw",
     ),
     Stage(
         label="Product (raw)",
@@ -892,11 +910,54 @@ def _unit_swaps_by_frame(py_root: Path, py_frames: dict[str, pl.DataFrame]) -> d
     return by_frame
 
 
+def _static_join_missed_ids_by_frame(
+    py_root: Path, stage: Stage, py_frames: dict[str, pl.DataFrame]
+) -> dict[str, set[str]]:
+    """Per cleaned frame, the identities whose raw spelling missed the static join.
+
+    Read from this run's own *raw* output, which is the last place the two
+    spellings coexist (ticket 63). Re-keyed from raw parquet name to cleaned
+    parquet name through each frame's ``file_name`` column, for the reason
+    ``_unit_swaps_by_frame`` gives: the two directories suffix their files
+    differently, and string surgery on the name would break silently.
+    """
+    assert stage.static_join_missed_ids_from is not None
+    raw_dir = py_root / stage.static_join_missed_ids_from
+    if not raw_dir.exists():
+        console.print(
+            f"[yellow]No {stage.static_join_missed_ids_from} under {py_root} -- respelled-ID "
+            "context unavailable, so the static-join cause cannot fire on this stage.[/yellow]"
+        )
+        return {}
+    by_tracker: dict[str, set[str]] = {}
+    for path in sorted(raw_dir.glob("*.parquet")):
+        schema = pl.scan_parquet(path).collect_schema()
+        if "patient_id" not in schema.names() or "file_name" not in schema.names():
+            continue
+        raw_df = pl.read_parquet(path, columns=["patient_id", "file_name"])
+        missed = static_join_missed_ids(raw_df)
+        if missed and len(raw_df):
+            by_tracker[raw_df["file_name"][0]] = missed
+    by_frame = {}
+    for name, df in py_frames.items():
+        if "file_name" not in df.columns or not len(df):
+            continue
+        missed = by_tracker.get(df["file_name"][0])
+        if missed:
+            by_frame[name] = missed
+    return by_frame
+
+
 def _compare_arm(py_root: Path, r_dir: Path, py_dir: Path, stage: Stage) -> DirectoryComparison:
     r_frames = _load_parquet_dir(r_dir)
     py_frames = _load_parquet_dir(py_dir)
     unit_swapped_columns = (
         _unit_swaps_by_frame(py_root, py_frames) if stage.load_glucose_unit_swaps else {}
+    )
+    static_join_missed_ids_by_frame = (
+        _static_join_missed_ids_by_frame(py_root, stage, py_frames)
+        if stage.static_join_missed_ids_from
+        else {}
     )
     for column in stage.date_normalize_cols or []:
         for frames in (r_frames, py_frames):
@@ -973,6 +1034,7 @@ def _compare_arm(py_root: Path, r_dir: Path, py_dir: Path, stage: Stage) -> Dire
         order_group_cols=order_group_cols,
         unit_swapped_columns=unit_swapped_columns,
         tracker_year_col=stage.tracker_year_col,
+        static_join_missed_ids_by_frame=static_join_missed_ids_by_frame,
     )
 
 
