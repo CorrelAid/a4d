@@ -922,12 +922,41 @@ PATIENT_FUTURE_DATE_CLASSIFIERS: dict[str, Classifier] = {
 
 
 def _is_r_category_lookup_miss(m: CellMismatch) -> bool:
-    """R's add_product_categories (read_product_data.R) left-joins the raw
-    product string against the category mapping with no normalization; a
-    case or whitespace difference in the tracker's product name misses the
-    join and leaves product_category null, while Python's reference/products.py
-    lowercases and strips before matching. Verified via source read (ticket
-    18), not just the data pattern -- a genuine R limitation, not a Python bug.
+    """R's category join missed a product Python resolved.
+
+    ``add_product_categories`` (read_product_data.R:481) is a bare
+    ``dplyr::left_join`` on the raw ``product`` string;
+    ``load_product_reference_data`` lowercases only the *column names* of the
+    Stock_Summary sheet, never the values. Python's ``_add_product_categories``
+    (clean/product.py) lowercases both sides before joining.
+
+    Ticket 62 scanned the whole population (866 rows, 12 files, 29 distinct
+    product names) and found **two** mechanisms, not the one this docstring
+    used to name. Python is the correct side in both; R loses a category the
+    reference data can supply.
+
+    - **CRLF vs LF, 652 rows over 26 names.** Not a property of R's join at
+      all -- the two sides never see the same string. The reference workbook
+      stores embedded line breaks as a bare ``\\n`` (executed: its
+      Stock_Summary sheet XML holds 29 LF bytes and **zero** CR bytes), while
+      the trackers store ``\\r\\n`` (2021 Surat Thani's sharedStrings holds 80
+      CRLF pairs). readxl returns each faithfully, so R compares
+      ``'Accu-Chek Performa Test Strips \\r\\n(50s/ bottle)'`` against a
+      reference entry spelled with ``\\n`` and misses; openpyxl normalises
+      CRLF to LF on read, so Python's strings match byte-for-byte. This is
+      the same reader difference ``normalize_whitespace_column`` was added
+      for in ticket 22, surfacing here as a lookup failure.
+    - **Case, 214 rows over 3 names.** The documented mechanism, and the only
+      one it covers: ``'NovoFine Needles 4mm x 32G (singles)'`` against the
+      reference's ``'(Singles)'`` (98), ``'ACCU-CHEK Performa Glucometer Set'``
+      against ``'Accu-Chek Performa Glucometer Set'`` (91), and the same
+      ``(singles)`` slip on NIPRO (25).
+
+    Caveat worth carrying: Python matches the 26 CRLF names by luck, not by
+    design -- its join normalises case only, and it works solely because
+    openpyxl happens to fold the line endings. A reference entry typed with
+    CRLF against a tracker spelled with LF would miss on Python too. Nothing
+    in the current data triggers that, so it is recorded rather than fixed.
     """
     return m.r_value is None and m.py_value is not None
 
@@ -1107,8 +1136,40 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
       it. This is ``r_non_latin_header_miss``'s mechanism (ticket 49) being
       absorbed here on registry order -- worth knowing, not a defect.
 
-    ``recruitment_date`` (28,009) and ``edu_occ_updated`` (2,770), which carry
-    the bulk, were not re-measured by ticket 60.
+    Ticket 62 measured the two populations ticket 60 left, which are 98% of
+    the cause. Python is correct in both; the mechanism is sharper than the
+    entry above states.
+
+    - ``recruitment_date`` (28,009 rows, 94 files). The claim above -- R's
+      extraction "fails to populate it for the large majority of patients" --
+      is **false**: R populates 53,331 of its 82,771 raw rows (64%). The
+      divergence is perfectly file-level and all-or-nothing. Measured over the
+      239 comparable files: 91 where R reads **zero** recruitment dates and
+      Python reads them, 148 with no divergence at all, and **zero** files
+      where R reads some and misses others. The cause is a header cell whose
+      text ends in a space, which forces Excel to write
+      ``<t xml:space="preserve">`` (executed: 2023 CDA ``Patient List!L8`` is
+      literally ``<c r="L8" ... t="inlineStr"><is><t xml:space="preserve">Date
+      of Recruitment </t></is></c>``). R reads its headers with
+      ``openxlsx::read.xlsx`` (script1_helper_read_patient_data.R:15), whose
+      inline-string parsing folds that attribute into the header text, so
+      ``make.names`` emits the column ``xmlspacepreservedateofrecruitmentmmmyy``
+      and no synonym matches it. The correlation is exact: all 91 affected
+      files carry that column in R's own raw parquet, and none of the other
+      148 do. openpyxl parses the attribute correctly and reads
+      ``'Date of Recruitment '``. The same defect eats at least one other
+      column R never maps
+      (``xmlspacepreserveinsurancestatusnanssfeqeqpending``).
+    - ``edu_occ_updated`` (2,770 rows, 16 files). Also whole-file rather than
+      per-patient (13 files where R reads zero), but unlike recruitment_date
+      it is not one mechanism: R's raw output carries three distinct junk
+      names for this column across the corpus --
+      ``xlevelofeducationoroccupationdate`` (the leading-space fixup
+      documented above), ``levelofeducationoroccupationอาชพหรอชนเรยน`` and
+      ``...dateupdatedddmmmyyyy`` (ticket 60's Thai-header mechanism). Fifteen
+      files carry a junk name *and* still resolve the column, so the junk name
+      alone is not sufficient to predict the loss here the way it is for
+      recruitment_date.
 
     A genuine R limitation in every case, not a Python defect.
     """
@@ -1555,18 +1616,58 @@ def _excel_serial_to_datetime(serial: float) -> datetime.date | datetime.time | 
 
 
 def _is_openpyxl_date_typed_stray_cell(m: CellMismatch) -> bool:
-    """A numeric-typed column (raw ``product_units_received``/``product_received_from``)
-    holds a lone Excel date/time-formatted cell.
+    """A non-date column holds a cell carrying an Excel date/time number format.
 
-    R's readxl infers a whole column's type from its majority values, so a
-    stray date/time-formatted cell in an otherwise-numeric column still gets
-    coerced to that column's numeric type -- the raw Excel serial. Python's
-    openpyxl reads each cell individually and honors its own format instead,
-    returning a ``datetime``/``time`` object. Verified against the real
-    source Excel (ticket 24): the underlying cell genuinely carries a
-    date/time number format (e.g. Penang General Hospital 2019 Apr19!E36,
-    "Units Received" column, formatted ``d/m/yy``) -- Python's value is the
-    faithful one, R's is a column-wide coercion artifact.
+    The two readers disagree about that cell and nothing else. R's readxl
+    infers a whole column's type from its majority values and hands back the
+    raw Excel serial; Python's openpyxl reads each cell individually and
+    honours its own number format, returning a ``datetime``/``time``. Every
+    cell behind this cause was opened in the source workbook and genuinely
+    carries such a format, so the *detection* is sound across the whole
+    population.
+
+    Ticket 62 measured that population (100 rows, raw stage only, five
+    columns across both arms) and found the single verdict this docstring
+    used to state -- "Python's value is the faithful one, R's is a coercion
+    artifact" -- is right for only a third of it. Three shapes, each with its
+    own answer. Note "stray" in the cause name over-reads for two of them;
+    the name is kept because ``openpyxl``/``date_typed`` hold for all 100 and
+    renaming would orphan the ticket history.
+
+    - **A real date typed into a quantity column** (14 rows): the serial sits
+      in the range a 2000-2050 date occupies (43,566-45,652). Verified at
+      Penang General 2019 ``Apr19!E36`` ("Units Received", ``d/m/yy``) by
+      ticket 24. Python is the correct side, and visibly so downstream --
+      ``_is_stray_date_zeroed`` covers the cleaned face, where R carries
+      43,708 into the stock ledger and Python zeroes it.
+    - **A quantity, or a zero, in a date-formatted cell** (66 rows: 48 with
+      an underlying 0 read back as ``00:00:00``, 18 with a genuine count of
+      5-200 read back as a 1900 date). Here R's serial *is* the number the
+      clinician typed and Python's date is the misleading rendering -- the
+      old verdict was backwards. It costs nothing because the divergence does
+      not survive cleaning: verified against the real 254-tracker pair that
+      both sides publish identical cleaned values for the affected
+      (product, sheet) groups, e.g. 2023 Yangon General ``Apr23`` column G,
+      whose ``d-mmm-yy`` format sits on cells holding 150, 200, 30, 5 and 0.
+      A raw-stage representation artifact, not a data difference, so the
+      pipeline is deliberately not changed for it (ticket 32's precedent for
+      ``parse_date_flexible``'s epoch: do not move production output to fix a
+      raw-stage comparison row).
+    - **The patient arm** (20 rows, 5 source cells, 5 trackers), which this
+      docstring never mentioned even though ticket 50 wired it -- see the
+      ``blood_pressure_mmhg``/``testing_frequency`` note in
+      ``scripts/compare_outputs.py``. Each is a value Excel silently
+      auto-converted on entry: ``10/60`` becoming Oct-1960 in a
+      "Blood Pressure (mm HG)" column (2020 Mahosot ``Nov20!R152``/
+      ``Dec20!R153``, 2022 Mahosot ``Jun22!Z323``), ``1-2`` becoming 1-Feb in
+      "Testing Frequency (per day)" (2021 Khon Kaen ``Mar21!P60``, whose own
+      column holds ``' 1 - 2'`` four rows above), and a diagnosis *date* in
+      "Age at Diagnosis" (2023 Chiang Mai ``Patient List!H14``, 2023 Yangon
+      General ``Patient List!H76``). Python is unambiguously correct: it
+      nulls them, while R publishes diagnosis ages of **20,668** and
+      **42,859** years. All five are source defects and already reach the
+      errors table as ``type_conversion`` with the original value intact, so
+      ticket 40 needs nothing added for them.
     """
     try:
         r_serial = float(m.r_value)
