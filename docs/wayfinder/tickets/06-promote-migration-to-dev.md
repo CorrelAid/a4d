@@ -2,12 +2,12 @@
 id: 6
 title: Promote migration into dev via PR #2
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: [8, 3, 4, 5, 10, 11, 12, 13, 14, 20, 21, 22, 23, 64]
 assignee: session-2026-08-24h
 claimed_at: 2026-08-24
-resolution: null
-evidence: null
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: null
 ---
@@ -126,3 +126,53 @@ evidence trail and which the wayfinder tickets cite by SHA. The R-recovery
 recipe survives either way -- an annotated tag pins its commit regardless of
 merge strategy -- **provided the two tags above are never deleted**. That is
 the one thing that would make `r-archive/` genuinely unrecoverable.
+
+## Resolution (session-2026-08-24h)
+
+**Decision.** `migration` is merged into `dev`. PR #2 is **MERGED**
+(2026-08-24T20:55:49Z, by pmayd), and its recorded merge commit is
+`9977228` -- the head commit itself, not a new merge node, because the merge
+was done as a **local fast-forward** rather than through any of GitHub's three
+buttons.
+
+**Because.** GitHub offers no fast-forward option: "Create a merge commit"
+always creates a merge node even when the branch is strictly ahead, "Rebase and
+merge" rewrites every SHA, and "Squash and merge" collapses 288 commits into
+one. A local `git merge --ff-only` was the only way to get a linear `dev`
+*without* rewriting history, and the user preferred linear.
+
+Verified after the fact rather than assumed:
+- `origin/dev` and `origin/migration` are both `9977228`; `dev` has **zero**
+  commits `migration` lacks, and no merge node was created.
+- PR state is `MERGED`, not `CLOSED` -- GitHub matched the preserved head SHA,
+  which is exactly what a fast-forward makes possible and what a local squash
+  or rebase would have broken.
+- Both recovery tags are **still ancestors of `dev`**: `r-archive-removed`
+  (`87530b1`) and `migration-archive-frozen` (`0dcc02d`).
+- `git show r-archive-removed^:r-archive/R/script2_process_patient_data.R`
+  executed against the merged `dev` and returned the file, so the recovery
+  recipe in `CLAUDE.md` is true of the mainline, not just of a tag-pinned
+  orphan.
+
+**Rejected.**
+- *GitHub "Squash and merge"* -- would collapse 288 commit messages that are
+  the migration's own evidence trail, and which wayfinder tickets cite by SHA.
+- *GitHub "Rebase and merge"* -- rewrites all 288 SHAs, which would have
+  detached both recovery tags from `dev`'s history and left the `CLAUDE.md`
+  recipe depending solely on the tags never being deleted.
+- *GitHub "Create a merge commit"* -- safe for tags and SHAs, and a perfectly
+  good outcome, but adds a merge node that is not needed on a single-developer
+  repo where the branch is strictly ahead.
+
+**Evidence.** Executed. All checks above run against `origin` after fetching.
+CI was green on `9977228` before the merge (both `test` jobs SUCCESS,
+`mergeStateStatus: CLEAN`).
+
+**Found on the way, and not what was predicted.** The two Dependabot alerts on
+`dev` did **not** clear on the merge. They are not real exposure: both name
+`scripts/python/poetry.lock`, a file that **does not exist on `dev`** -- it was
+removed by `24125ae` ("Promote Python pipeline to root; archive R code"), long
+before this map began. They are stale alerts against a deleted manifest, not a
+gap in [the dependency audit](13-dependency-audit.md), which covered `uv.lock`.
+Either the next Dependabot scan dismisses them, or they need dismissing by hand
+as "no longer in use". No code change is warranted.

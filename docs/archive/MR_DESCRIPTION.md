@@ -8,17 +8,18 @@ and an R/Python comparison harness used to verify the migration cell by cell.
 2026-08-24 (`r-archive/` deleted; reachable at
 `git show r-archive-removed^:r-archive/R/<file>`).
 
-> This document is live until PR #2 merges, then frozen with the rest of
-> [`docs/archive/`](README.md) at tag `migration-archive-frozen`.
+> **MERGED 2026-08-24, and frozen.** This document is now part of
+> [`docs/archive/`](README.md) and is no longer maintained. It describes the
+> state at the merge; anything here should be assumed stale unless the code
+> agrees.
 
-**This MR is ready to merge.** Every ticket that gated it is closed: the
-cell-by-cell R/Python triage over 254 trackers, the production verification
+PR #2 merged as a **fast-forward**: `dev` and `migration` are both `9977228`,
+with no merge node and no rewritten SHAs. Every ticket that gated it closed
+first -- the cell-by-cell triage over 254 trackers, the production verification
 run, the dependency audit, the performance profile, R's retirement, and the
-documentation overhaul. CI is green on the head commit. What remains open is
-listed at the end and none of it blocks the merge.
-
-> Keep this document current: update it at the end of every working session,
-> alongside [docs/wayfinder/map.md](../wayfinder/map.md).
+documentation overhaul. What is listed at the end stayed open and never blocked
+it; it carries on under
+[docs/wayfinder/map.md](../wayfinder/map.md).
 
 ---
 
@@ -511,10 +512,11 @@ the pipeline *should* publish, not a difference nobody understands.
 
 ---
 
-# Still open
+# Open at the time of the merge
 
-**None of this blocks the merge.** It is the work the wayfinder map carries
-forward past this PR.
+**None of this blocked the merge.** It is the work the wayfinder map carries
+forward. This list is frozen as of 2026-08-24 and is not updated -- the map is
+the live record.
 
 **Frontier (takeable now)**
 

@@ -38,7 +38,7 @@ validated production run + promotion to `dev`.
 flowchart TD
   subgraph FRONTIER["Frontier · 7"]
     direction TB
-    T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
+    T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
@@ -46,16 +46,13 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T65["<b>65</b> · grilling<br/>Two values published into<br/>the logs table still name<br/>R scripts"]
   end
-  subgraph BLOCKED["Blocked · 1"]
-    direction TB
-    T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-  end
-  subgraph DECIDED["Decided · 56"]
+  subgraph DECIDED["Decided · 57"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
     T4["<b>4</b> · task<br/>Diagnose and fix why CI is<br/>red at migration HEAD"]
     T5["<b>5</b> · task<br/>Define and execute the<br/>real GCP production<br/>verification run"]
+    T6["<b>6</b> · task<br/>Promote migration into dev<br/>via PR #2"]
     T7["<b>7</b> · research<br/>Is the product pipeline<br/>(and patient's own claimed<br/>completeness) actually<br/>complete and sound,<br/>audited against R's<br/>product logic and<br/>patient's structure?"]
     T8["<b>8</b> · grilling<br/>Does the pytest suite<br/>reach unit/integration/e2e<br/>/regression parity between<br/>patient and product,<br/>excluding any<br/>R-comparison/USB-drive-<br/>dependent tests?"]
     T10["<b>10</b> · task<br/>Profile the combined<br/>pipeline's performance<br/>against the R baseline<br/>before promoting to dev"]
@@ -143,11 +140,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T6,T16,T34,T35,T40,T41,T65 frontier
-  classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T9 blocked
+  class T9,T16,T34,T35,T40,T41,T65 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2684,7 +2679,69 @@ itself, and the only frontier ticket on the route. The other six are standing
 decisions, the source-defect report, a separate feature (ticket 16) and the logs
 residue.
 
+**[Promoting `migration` into `dev`](tickets/06-promote-migration-to-dev.md) is
+closed: PR #2 is merged, and with it eight of the destination's nine clauses are
+met.** The merge was done as a local fast-forward rather than through the web
+UI, because GitHub has no fast-forward option and each of its three buttons
+costs something this map had reason to keep — a merge node, 288 rewritten SHAs,
+or 288 collapsed commit messages. `dev` and `migration` are both `9977228`.
+
+**The fast-forward is also what made the PR close cleanly**, which is the part
+worth carrying forward: GitHub marks a PR merged by matching the *head SHA*, so
+a local squash or rebase would have left it stuck open and closable only by hand
+as "Closed". Preserving the SHA is what let it read **MERGED**.
+
+**Two claims were checked against merged `dev` rather than inferred.** Both
+recovery tags remain ancestors of `dev`, and the `git show
+r-archive-removed^:...` recipe in `CLAUDE.md` was executed and returned the
+file. So R's recoverability now rests on the mainline's own history, not on the
+tags surviving — which downgrades "never delete the tags" from a load-bearing
+constraint to ordinary hygiene.
+
+**The one prediction that failed was mine.** The previous session said the two
+Dependabot alerts on `dev` should clear when the merge landed. They did not, and
+the reason is different from the one assumed: both name
+`scripts/python/poetry.lock`, which **does not exist on `dev`** — removed by
+`24125ae`, long before this map began. They are stale alerts against a deleted
+manifest, not unaudited dependencies, so no code change is warranted; they need
+a rescan or a manual dismissal.
+
+**The map has substantially arrived, and what remains is a scope decision rather
+than a route.** Of the destination's nine clauses, eight are met outright. The
+ninth — that "the CLI/TUI's admin/developer UX and error-log observability [be]
+judged good enough to operate the pipeline day to day" — was half-answered by
+[ticket 11](tickets/11-cli-ux-observability.md), which decided and implemented
+the CLI/UX side and split the observability side into [ticket
+16](tickets/16-log-analyzer-drill-down.md). Ticket 16's own body has never
+settled whether it gates rollout or is a nice-to-have, and the rollout has now
+happened. **The frontier is seven** — ticket 6 leaving it, [golden-master
+tests](tickets/09-snapshot-regression-tests.md) joining now that its only
+blocker is closed — and none of the seven is on the route to the destination as
+written, except ticket 16 under the reading above.
+
 ## Decisions so far
+
+- [Promote migration into dev via PR #2](tickets/06-promote-migration-to-dev.md)
+  -- **done. PR #2 is MERGED** (2026-08-24T20:55:49Z), and this is the
+  destination's terminal act. Merged as a **local fast-forward**, not through
+  any GitHub button: GitHub offers no fast-forward option -- "Create a merge
+  commit" adds a merge node even when the branch is strictly ahead, "Rebase and
+  merge" rewrites every SHA, "Squash and merge" collapses 288 commits into one.
+  `dev` and `migration` are both `9977228` with zero divergence and no merge
+  node. Three things verified rather than assumed afterwards: the PR reads
+  **MERGED** rather than CLOSED (GitHub matched the preserved head SHA, which a
+  local squash or rebase would have broken); both recovery tags are **still
+  ancestors of `dev`** (`r-archive-removed` `87530b1`,
+  `migration-archive-frozen` `0dcc02d`); and
+  `git show r-archive-removed^:r-archive/R/script2_process_patient_data.R`
+  returns the file when run against merged `dev`, so `CLAUDE.md`'s recovery
+  recipe describes the mainline rather than a tag-pinned orphan. **A prediction
+  from the previous session was wrong**: the two Dependabot alerts did not clear
+  on the merge. They are not real exposure -- both name
+  `scripts/python/poetry.lock`, a file that does not exist on `dev` and was
+  removed by `24125ae` long before this map began -- so they are stale alerts
+  against a deleted manifest, not a gap in [the dependency
+  audit](tickets/13-dependency-audit.md), which covered `uv.lock`.
 
 - [Rewrite every docstring and doc that explains the code by what R
   did](tickets/64-documentation-overhaul-drop-r-framing.md) -- decided and
@@ -4176,13 +4233,16 @@ flowchart TB
     direction LR
     U64["<b>64</b><br/>Rewrite every docstring<br/>and doc that explains<br/>the code by what R did"]
   end
+  subgraph S2026_08_24h["Session 2026-08-24h"]
+    direction LR
+    U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
-    U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -4241,7 +4301,8 @@ flowchart TB
   S2026_08_24d ~~~ S2026_08_24e
   S2026_08_24e ~~~ S2026_08_24f
   S2026_08_24f ~~~ S2026_08_24g
-  S2026_08_24g ~~~ Sunworked
+  S2026_08_24g ~~~ S2026_08_24h
+  S2026_08_24h ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4326,11 +4387,9 @@ flowchart TB
   U64 -.->|spawned| U65
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U6,U16,U34,U35,U40,U41,U65 tfrontier
-  classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U9 tblocked
+  class U9,U16,U34,U35,U40,U41,U65 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```
