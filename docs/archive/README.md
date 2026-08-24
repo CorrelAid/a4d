@@ -8,11 +8,11 @@ terms of the R pipeline, because comparing against R is what the work
 consisted of. The R pipeline itself was deleted from this repository on
 2026-08-24.
 
-Frozen at the tag **`migration-archive-frozen`**. Resolve it with
-`git rev-parse migration-archive-frozen`; that commit is the last state in
-which these documents were checked against the code. They are not maintained
-after it, and a fact stated here should be assumed stale unless the code
-agrees.
+Frozen at the tag **`migration-archive-frozen`**, commit **`0dcc02d`** — the
+last state in which these documents were checked against the code. The tag is
+the durable reference; the SHA is recorded so a reader who has only this file
+can still find it. These documents are not maintained past that commit, and a
+fact stated here should be assumed stale unless the code agrees.
 
 ## Where to look instead
 
