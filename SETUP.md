@@ -18,8 +18,7 @@ brew install google-cloud-sdk
 ### Install
 
 Run everything from the repository root — the Python pipeline lives at the root
-(`src/`, `tests/`, `pyproject.toml`); the legacy R code is archived under
-`r-archive/`.
+(`src/`, `tests/`, `pyproject.toml`).
 
 ```bash
 uv sync

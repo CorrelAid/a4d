@@ -22,11 +22,22 @@ uv run pytest
 
 **Migration Guide**: [docs/migration/MIGRATION_GUIDE.md](docs/migration/MIGRATION_GUIDE.md)
 
-## R Archive
+## The retired R implementation
 
-**Location**: `r-archive/`
+The legacy R pipeline used to live at `r-archive/`. It was deleted once the
+migration was verified Python-only; nothing in this repo reads it any more.
 
-Legacy R implementation, preserved for reference. Do not modify.
+Recover it from git when you need to check a claim about R's old behaviour:
+
+```bash
+git show r-archive-removed^:r-archive/R/script2_process_patient_data.R
+git checkout r-archive-removed^ -- r-archive   # whole tree, into the worktree
+```
+
+The `r-archive-removed` tag marks the commit that deleted it, so `^` is the
+last commit that still contains it. Docstrings citing R files by name are
+being removed as part of the documentation overhaul; until that lands, this is
+how those citations are checked.
 
 ## Shared Resources
 
@@ -35,5 +46,7 @@ Legacy R implementation, preserved for reference. Do not modify.
 - `reference_data/provinces/` - Allowed provinces
 
 **Do not modify these** without testing the Python pipeline.
-- Always check your implementation against the original R pipeline and verify the logic is the same
-- Limit comments to explain why a design was made or give important context for the migration; do not use comments for obvious code
+- Limit comments to explain why a design was made or give important context;
+  do not use comments for obvious code, and do not justify a design by what the
+  retired R pipeline did — say what the code does now and why, with real
+  examples from the tracker data

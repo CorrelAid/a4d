@@ -80,7 +80,7 @@ output/
 - Year detected from sheet names (`Jan24` → 2024) or filename
 - Error sentinel values: numeric `999999`, string `"Undefined"`, date `"9999-09-09"`
 - `ErrorCollector` accumulates row-level data quality errors; never raises
-- `reference_data/` is shared with the archived R pipeline — changes may affect R logic
+- `reference_data/` holds the pipeline's shared configuration (synonyms, validation rules, provinces); changing it changes cleaning behaviour for every tracker
 
 ## Migration Status
 

@@ -1,8 +1,0 @@
-^renv$
-^renv\.lock$
-^a4d\.Rproj$
-^\.Rproj\.user$
-^LICENSE\.md$
-^\.github$
-^rsconnect$
-^data-raw$
