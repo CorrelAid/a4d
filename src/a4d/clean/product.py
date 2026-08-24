@@ -1,8 +1,14 @@
 """Product data cleaning pipeline.
 
 Mirrors ``clean/patient.py`` architecture: a single orchestrator
-(``clean_product_data``) dispatches to step-scoped private helpers. Covers
-R Script 2 steps 2.1-2.22.
+(``clean_product_data``) dispatches to step-scoped private helpers.
+
+The ``2.x`` step numbers below are this pipeline's own ordering vocabulary and
+are referenced by the tests. They are not decorative: several steps are only
+correct in position -- dates are parsed (2.6) before rows are sorted (2.7),
+because the sort is chronological; the balance is accumulated (2.15) only after
+that sort; and units are recoded to zero both before and after schema seeding
+(2.9/2.12) because a column the schema adds arrives null.
 """
 
 from pathlib import Path
@@ -78,7 +84,7 @@ def clean_product_data(
     df_raw: pl.DataFrame,
     error_collector: ErrorCollector,
 ) -> pl.DataFrame:
-    """Clean raw product data through the full R Script 2 sequence.
+    """Clean raw product data through the full 2.x step sequence.
 
     Executes steps 2.1-2.22 in order and returns a DataFrame conforming to
     the product meta schema defined in ``clean/schema_product.py``.
@@ -100,8 +106,8 @@ def clean_product_data(
         return pl.DataFrame(schema=get_product_data_schema())
 
     # Null out (and log) the source trackers' own formula-error strings,
-    # which extraction preserves verbatim (ticket 27). Runs before the R
-    # step sequence so no step sees a "#DIV/0!" where it expects a value.
+    # which extraction preserves verbatim (ticket 27). Runs before the step
+    # sequence so no step sees a "#DIV/0!" where it expects a value.
     df_raw = normalize_excel_formula_errors(df_raw, error_collector, patient_id_col="product")
 
     df = _normalize_empty_strings_to_null(df_raw)  # 2.0 (see helper docstring)
@@ -110,7 +116,7 @@ def clean_product_data(
     df = _remove_uninformative_rows(df)  # 2.4
     df = _add_row_index(df)  # 2.5
     df = _format_dates(df, error_collector)  # 2.6
-    _check_entry_dates_match_sheet(df, error_collector)  # 2.6a (R-parity log)
+    _check_entry_dates_match_sheet(df, error_collector)  # 2.6a (log only)
     df = _validate_entry_dates(df, error_collector)  # 2.6b
     df = _fill_product_names_and_sort(df)  # 2.7
     df = _extract_balance_from_received(df)  # 2.8
@@ -122,8 +128,9 @@ def clean_product_data(
     df = _compute_balance_status(df)  # 2.14
     df = _compute_running_balance(df, error_collector)  # 2.15
 
-    # 2.16 — type cast numeric/date columns via ErrorCollector; strip strings
-    # so trailing whitespace from openpyxl matches R's readxl trim-on-read.
+    # 2.16 — type cast numeric/date columns via ErrorCollector; strip strings,
+    # because end-whitespace never carries meaning here and an untrimmed value
+    # fails allowed-value validation and lands on a sentinel.
     # No string->Int intermediate needed (cf. patient pipeline's Int32-via-Float64
     # path): product unit columns are Float64 by schema, and the only Int columns
     # (product_table_year/month) arrive from extraction as numeric, not strings.
@@ -152,8 +159,9 @@ def clean_product_data(
 
     # Final schema conformance: guarantees 20 columns in schema order.
     df = apply_schema(df)
-    # R-parity: UNIT_COLS treat absence as 0 (helper_product_data.R:292-297),
-    # so re-run the recode after schema seeding fills any newly-added column.
+    # UNIT_COLS treat absence as 0 -- a stock movement that records no
+    # quantity moved nothing -- so re-run the recode after schema seeding,
+    # which fills any newly-added column with null.
     return _recode_na_units_to_zero(df)
 
 
@@ -181,11 +189,11 @@ def clean_product_file(
 def _normalize_empty_strings_to_null(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.0 — coerce "" / whitespace-only string cells to null.
 
-    R's readxl returns NA for blank Excel cells; openpyxl returns an empty
-    string. Without this normalisation, rows whose only content is an empty
-    string survive `_remove_uninformative_rows` and `_remove_empty_data_rows`
-    (observed on 2024 CDA Dec24, which has one such row in
-    product_units_received).
+    openpyxl returns an empty string for a blank Excel cell rather than None,
+    so without this normalisation a row whose only content is that empty string
+    survives `_remove_uninformative_rows` and `_remove_empty_data_rows` and
+    reaches the output as a phantom stock movement (observed on 2024 CDA Dec24,
+    which has one such row in product_units_received).
     """
     exprs = [
         pl.when(pl.col(c).str.strip_chars() == "").then(None).otherwise(pl.col(c)).alias(c)
@@ -231,10 +239,10 @@ def _split_multi_product_cells(df: pl.DataFrame) -> pl.DataFrame:
     no_slash = ~product.str.contains("/")
 
     paren_text = product.str.extract(r"\(([^()]+)\)", 1)
-    # Deliberate deviation from R (helper_product_data.R:579,594): R uses
-    # "[1-9]+" which drops the leading digit of counts containing 0
-    # (e.g. "(10 box)" -> "1"). No real tracker row currently triggers
-    # box/unit extraction, but "\d+" is the correct regex.
+    # "\d+" rather than "[1-9]+": the latter drops the leading digit of any
+    # count containing a zero, turning "(10 box)" into 1. No tracker row in the
+    # current corpus triggers box/unit extraction, so this is a correctness
+    # guard rather than an observed fix.
     number_str = paren_text.str.extract(r"(\d+)", 1)
 
     df = df.with_columns(
@@ -267,10 +275,10 @@ def _switch_misplaced_columns(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.3 — swap ``product_units_received`` with ``product_received_from``
     for each sheet that contains "Remaining Stock" in units_received.
 
-    Observed in 2018 PNG Nov/Dec trackers. R applies this rename inside its
-    per-sheet loop (read_product_data.R:577); Python's clean pipeline
-    operates on the whole-file DataFrame, so we scope the swap with .over()
-    to avoid corrupting clean sheets in the same file.
+    Observed in the 2018 PNG Nov/Dec trackers. The swap is scoped with
+    .over(product_sheet_name) because this pipeline operates on the whole-file
+    DataFrame: the defect is per-sheet, and an unscoped swap would corrupt the
+    correctly-laid-out sheets in the same workbook.
     """
     if (
         "product_units_received" not in df.columns
@@ -312,7 +320,11 @@ def _remove_uninformative_rows(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _add_row_index(df: pl.DataFrame) -> pl.DataFrame:
-    """Step 2.5 — add a 1-based ``index`` column matching R's ``seq(1, nrow)``."""
+    """Step 2.5 — add a 1-based ``index`` column recording input row order.
+
+    Kept because several later steps sort the frame, and this is the only
+    surviving record of the order the workbook actually listed rows in.
+    """
     return df.with_row_index("index", offset=1)
 
 
@@ -334,9 +346,8 @@ def _null_entry_date_residues(df: pl.DataFrame) -> pl.DataFrame:
     Without this scrub the residue surfaces in cleaned output as either
     ``9999-09-09`` (parse-failure sentinel for "Amount Left") or
     ``1900-01-29`` (Excel-leap-year-bug artefact for tiny serials). Both
-    are junk; nulling at source makes the output match R semantics
-    (which silently NA-coerces) for the marker case, and produces cleaner
-    data than R for the tiny-serial case.
+    are junk: neither is a date the clinic recorded, and both would otherwise
+    be published as though it had.
     """
     if "product_entry_date" not in df.columns:
         return df
@@ -391,17 +402,18 @@ def _format_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataF
 
 
 def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorCollector) -> None:
-    """R-parity warning for entry dates that disagree with the sheet header.
+    """Warn on entry dates that disagree with the sheet they were found on.
 
-    Mirrors R's ``check_entry_dates`` (read_product_data.R): one log entry
-    per row where the parsed ``product_entry_date`` doesn't match
-    ``(product_table_year, product_table_month)``. Sentinels, nulls, and
-    Buddhist-era dates are skipped.
+    One log entry per row where the parsed ``product_entry_date`` doesn't match
+    ``(product_table_year, product_table_month)``. A movement filed on the
+    March sheet but dated in July is either a typo or a misfiled row, and
+    either way the workbook is what needs correcting -- so this reports rather
+    than repairs. Sentinels, nulls, and Buddhist-era dates are skipped, since
+    each is already accounted for elsewhere.
 
-    R filters to numeric Excel-serial cells before checking; Python checks
-    every parsed date because ``parse_date_flexible`` accepts both serials
-    and text. This is a deliberate parity-or-better expansion — the integration
-    diff harness tolerates the row-count drift.
+    Every parsed date is checked, not just numeric Excel serials, because
+    ``parse_date_flexible`` accepts both serials and text and a mis-dated text
+    cell is no less wrong than a mis-dated serial.
 
     Side-effecting only: pushes log entries; never mutates ``df``.
     """
@@ -464,9 +476,10 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     * **Below-min** (year-floor, e.g. ``1967-02-05`` in a 2024 tracker, or raw
       cell ``29`` → 1900-01-29 from Excel-serial mis-coercion): logged ONLY;
       the parsed date is preserved. Year-floor cells are unambiguously bad data
-      (1900-2014 in 2020+ trackers). R does not validate — leaving the parsed
-      date in place aligns the downstream sort/cumsum trajectory with R while
-      the audit log retains the data-quality flag.
+      (1900-2014 in 2020+ trackers), but sentinelling them would drop the row
+      out of chronological order and so distort the running balance that step
+      2.15 accumulates. Preserving the date keeps the ledger trajectory intact
+      while the audit log retains the data-quality flag.
 
     Above/below cases are logged with distinct messages so triage in
     ``table_error_messages.parquet`` can distinguish them.
@@ -482,8 +495,8 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
       543 years and logged under ``buddhist_era_converted`` (ticket 61). A BE
       date is the calendar a Thai clinic uses, not an error it made, so the
       pipeline publishes one calendar downstream rather than a stock movement
-      dated 543 years in the future. R does not convert, so this is a
-      deliberate divergence. A BE leap day that has no Gregorian counterpart
+      dated 543 years in the future -- 22 product rows. A BE leap day that has
+      no Gregorian counterpart
       (2568-02-29 -> 2025-02-29) yields null from the shift and falls through
       to the implausible-era branch rather than being invented.
 
@@ -619,27 +632,25 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
 def _fill_product_names_and_sort(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.7 — forward-fill ``product`` then sort inside each product group.
 
-    R runs this inside a per-sheet for-loop, so forward_fill and the
-    first/last tier windows are scoped to (product, product_sheet_name).
-    Without that scoping a null product at the top of sheet N would pick
-    up the last product of sheet N-1, and a single product appearing in
-    multiple sheets would collapse to one start/end pair instead of one
+    Forward-fill and the first/last tier windows are scoped to
+    (product, product_sheet_name). Without that scoping a null product at the
+    top of sheet N picks up the last product of sheet N-1, and a single product
+    appearing in several sheets collapses to one start/end pair instead of one
     per sheet.
 
-    Within each (sheet, product) group the rank expression mirrors R's
-    (read_product_data.R:610-615):
+    Within each (sheet, product) group the rank expression is:
         rank = 1                       if first row in group
              = n + 2                   if last row in group
              = row_number              if middle row with null date (preserves input order)
              = dense_rank(date) + 1    if middle row with valid date
-    Stable sort on (product_table_month, product, _rank) reproduces R's
-    per-sheet for-loop + rbind output: sheet-major, product-minor.
+    Stable sort on (product_table_month, product, _rank) gives sheet-major,
+    product-minor order, which is how the ledger reads in the workbook.
 
     The parse-failure sentinel (``settings.error_val_date`` = 9999-09-09)
-    counts as null for rank purposes — R drops unparseable dates to NA, so
-    the input-order branch must catch sentinels too. Without this, sentinels
-    sort to the dense_d+1 end-of-changes position and corrupt the
-    cumulative-balance order vs. R.
+    counts as null for rank purposes: a row whose date could not be read has
+    no place in a chronological ordering, so it holds its input position.
+    Without this it sorts to the dense_rank+1 end-of-changes slot and the
+    running balance accumulates in the wrong order.
     """
     if "product" not in df.columns:
         return df
@@ -703,23 +714,20 @@ def _extract_balance_from_received(df: pl.DataFrame) -> pl.DataFrame:
     ``product_units_received``, the value sitting in ``product_units_released``
     is relocated to ``product_received_from`` and released is cleared.
 
-    R applies this rewrite inside its per-sheet loop (helper_product_data.R:329);
-    Python's clean pipeline operates on the whole-file DataFrame, so we scope
-    the trigger with .over("product_sheet_name") to avoid blanking
-    ``product_received_from`` on clean sheets that share a file with a sheet
-    using the "Balance" convention.
+    The trigger is scoped with .over("product_sheet_name") because this
+    pipeline operates on the whole-file DataFrame and the convention is
+    per-sheet: an unscoped trigger blanks ``product_received_from`` on the
+    clean sheets sharing the workbook.
 
-    Diverges from R (helper_product_data.R:329-335): R's case_when has no
-    default arm, so unmatched rows on a triggered sheet have their
-    ``product_received_from`` nulled. The trigger regex ``(?i)Balance``
-    substring-matches "START BALANCE" / "END BALANCE" — present on every
-    standard sheet — so R's no-default behaviour silently wipes legitimate
-    supplier names (e.g. ``DKSH`` on Mahosot 2020 stock-receipt rows).
-    Python preserves the value via the ``.otherwise`` arm so audit-trail
-    data survives. Mutation of ``product_units_released`` is correspondingly
-    scoped to actual Balance rows (not all triggered rows) so that
-    preserving ``received_from`` on a non-Balance row does not collateral
-    a non-null ``released`` on the same row.
+    Rows on a triggered sheet that are *not* Balance rows keep their
+    ``product_received_from`` via the ``.otherwise`` arm. This matters because
+    the trigger regex ``(?i)Balance`` substring-matches "START BALANCE" and
+    "END BALANCE", which appear on every standard sheet -- so a rule without a
+    default arm silently wipes legitimate supplier names (``DKSH`` on the
+    Mahosot 2020 stock-receipt rows). Mutation of ``product_units_released`` is
+    correspondingly scoped to actual Balance rows, so preserving
+    ``received_from`` on a non-Balance row does not leave a stray
+    ``released`` value beside it.
     """
     required = (
         "product_units_received",
@@ -751,13 +759,12 @@ def _extract_balance_from_received(df: pl.DataFrame) -> pl.DataFrame:
 
     # Two positive arms relocate the balance value into received_from on
     # actual Balance-marker rows; the catch-all preserves received_from on
-    # all other rows. R's case_when has no default and would null those
-    # rows — see docstring. The "Total" arm before the catch-all nulls
+    # all other rows -- see docstring for why the catch-all is required.
+    # The "Total" arm before the catch-all nulls
     # typist subtotal labels (e.g. "Accu-Chek Performa | Total | 35"
-    # subtotal rows in Penang DC / VNCH / Mandalay 2019 trackers); R nulled
-    # these implicitly via its no-default, and "Total" is never a real
-    # supplier — it's the label the typist put on the end-of-product-block
-    # subtotal row.
+    # subtotal rows in Penang DC / VNCH / Mandalay 2019 trackers). "Total" is
+    # never a real supplier -- it is the label the typist put on the
+    # end-of-product-block subtotal row.
     df = df.with_columns(
         pl.when(
             pl.col("_sheet_triggered")
@@ -820,9 +827,9 @@ def _clean_received_from(df: pl.DataFrame) -> pl.DataFrame:
         # used .otherwise(pl.lit(None)) which only happened to be a no-op
         # because nothing populates product_balance before this step; if a
         # future step seeds it, that work would be silently wiped.
-        # .over("product_sheet_name") matches R's per-sheet loop semantics
-        # (helper_product_data.R:354-377) — defensive even though the current
-        # row-wise when/then/otherwise has no cross-row dependency.
+        # .over("product_sheet_name") scopes this per sheet, matching how the
+        # convention is applied in the workbooks -- defensive here, since the
+        # row-wise when/then/otherwise has no cross-row dependency today.
         if "product_balance" not in df.columns:
             df = df.with_columns(pl.lit(None, dtype=pl.Float64).alias("product_balance"))
         start_mask = pl.col("product_units_received").cast(pl.Utf8).str.contains("(?i)START")
@@ -853,9 +860,9 @@ def _clean_units_received(
     Rows where ``product_units_received`` contains "START", "END" or
     "BALANCE" are set to 0. Remaining values are cast to numeric; failures
     yield null (then 0 via the second pass of step 2.12) and emit one
-    ``type_conversion`` entry per row to ``error_collector`` — R-parity with
-    ``script3_create_table_product_data.R::preparing_product_fields``'s
-    ``invalid_value`` warnings.
+    ``type_conversion`` entry per row to ``error_collector``, so a quantity
+    that could not be read is recoverable from the log rather than silently
+    becoming a zero movement.
     """
     if "product_units_received" not in df.columns:
         return df
@@ -903,9 +910,11 @@ def _compute_balance_status(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.14 — label each row ``start`` / ``change`` / ``end`` per (product, sheet).
 
     First row in each (product, product_sheet_name) group is ``start``, last
-    is ``end``, all others are ``change``. R processes this per-sheet, so a
-    product that appears in 12 sheets has 12 start rows and 12 end rows —
-    not a single start/end across the whole tracker.
+    is ``end``, all others are ``change``. The grouping is per-sheet, so a
+    product appearing in 12 sheets has 12 start rows and 12 end rows rather
+    than a single pair spanning the tracker -- each month's sheet opens and
+    closes its own ledger, and the closing balance of one is what the next
+    opens with.
     """
     if "index" not in df.columns:
         raise KeyError(
@@ -934,11 +943,10 @@ def _compute_running_balance(
     (they are summary rows, not real transactions). The year is read from
     the ``product_table_year`` column (set by extraction).
 
-    Implementation uses a vectorized cumsum per product instead of R's
-    iterative loop. Equivalent when step 2.12 has filled unit-column nulls
-    with 0 and step 2.7's sort is stable — corrupt upstream state could
-    diverge (R's loop propagates NA forward; cumsum treats it as 0 after
-    2.12's fill).
+    Implemented as a vectorized cumsum per product. This is only correct
+    because step 2.12 has already filled unit-column nulls with 0 and step
+    2.7's sort is stable: cumsum treats a null as 0, so an unfilled null would
+    silently contribute nothing instead of breaking the ledger visibly.
 
     Preconditions: ``_fill_product_names_and_sort`` (step 2.7) and
     ``_compute_balance_status`` (step 2.14) must have run. The first
@@ -947,8 +955,7 @@ def _compute_running_balance(
     ``product_balance.first().over(group)``.
 
     Recomputing overwrites whatever balance the tracker recorded on
-    ``change``/``end`` rows -- R does the same (``compute_balance``,
-    helper_product_data.R). Because step 2.7 sorts chronologically while the
+    ``change``/``end`` rows. Because step 2.7 sorts chronologically while the
     source's own balance column accumulates in data-entry order, the
     *intermediate* balances legitimately differ from the tracker's (31% of
     recorded rows on the real 248-tracker set) and are not worth reporting.
@@ -1151,8 +1158,10 @@ def _report_unknown_products(
 
     known = set(load_known_products())
 
-    # R logs unknowns per-sheet; replicate by keying errors on
-    # (file_name, product_sheet_name, product) triples.
+    # Key errors on (file_name, product_sheet_name, product) triples, so an
+    # unknown product is reported once per sheet it appears on rather than
+    # once per row -- the correction is to the reference list or the sheet's
+    # spelling, and both are per-sheet facts.
     cols = [c for c in ("file_name", "product_sheet_name", "product") if c in df.columns]
     unknowns = (
         df.filter(pl.col("product").is_not_null())

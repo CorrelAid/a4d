@@ -1,4 +1,19 @@
-"""R-vs-Python output comparison for the migration (ticket 15).
+"""R-vs-Python output comparison. HISTORICAL -- retired, kept as a record.
+
+**This module and its docstrings are a snapshot of a finished piece of work,
+not current guidance.** The R pipeline it compares against was retired on
+2026-08-24; no new R output will ever be produced, so this tool will not be
+run again. It is kept because its cause registry is the written evidence
+behind the migration's conclusions -- every classifier below records a
+divergence that was traced to a mechanism in real source workbooks, and
+deleting them would delete the only durable record of why the Python pipeline
+behaves as it does in the places where it deliberately differs.
+
+Read it accordingly: the R behaviour described here was true of the R pipeline
+as it stood at retirement, and the R source is reachable at
+``git show r-archive-removed^:r-archive/R/<file>``. Every other module in this
+package documents itself in its own terms -- if you are looking for why the
+*Python* pipeline does something, look there, not here.
 
 Diffs two existing output directories (a Python run, the frozen R baseline)
 across seven layers: shape (row count), ID divergence (identities present on
@@ -6,9 +21,9 @@ only one side), columns/dtypes, categorical divergence (label values present
 on only one side, per column), aggregate totals, row-key overlap (rows whose
 full row-alignment key found no partner on the other side, or fanned out via
 a repeated key), and cell-by-cell -- the last two grouped together since both
-depend on the same row-alignment key. This is migration-only tooling with a
-defined end-of-life (R's retirement) -- deliberately not wired into
-``a4d.cli``.
+depend on the same row-alignment key. This was migration-only tooling with a
+defined end-of-life (R's retirement, now reached) -- deliberately never wired
+into ``a4d.cli``.
 """
 
 import datetime
@@ -819,7 +834,7 @@ def classify(mismatch: CellMismatch, registry: dict[str, Classifier]) -> str:
 
 
 # Seeded from the four causes already identified in the parity-presentation PDF
-# for Product_entry_date (docs/migration/Product pipeline parity presentation.pdf).
+# for Product_entry_date (docs/archive/Product pipeline parity presentation.pdf).
 # These are heuristics on the parsed (r_value, py_value) pair alone -- refining
 # them, or adding new named causes, against real flagged rows is ticket 15's job.
 CE_TYPO_YEAR_THRESHOLD = 2100

@@ -82,9 +82,10 @@ output/
 - `ErrorCollector` accumulates row-level data quality errors; never raises
 - `reference_data/` holds the pipeline's shared configuration (synonyms, validation rules, provinces); changing it changes cleaning behaviour for every tracker
 
-## Migration Status
+## Pipeline Status
 
-- **Patient pipeline**: complete, validated against 174 trackers, deployed to production
-- **Product pipeline**: complete, merged into `src/a4d/` (2026-04-23).
+- **Patient pipeline**: complete, deployed to production
+- **Product pipeline**: complete, deployed to production
 - **Tracker metadata table**: generated on every `create tables` / `run` run (MD5 + output-presence flags) and uploaded to BigQuery `tracker_metadata`.
-- **Incremental processing**: shipped 2026-05-01 behind the `--incremental` CLI flag (opt-in) on `run patient`, `run product`, and the bare `run`. Skips trackers whose MD5 + completion state match the previous run's manifest (BigQuery → local parquet → empty fallback). Default behaviour unchanged. See `a4d.state` module + [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md) state-management section.
+- **Incremental processing**: shipped 2026-05-01 behind the `--incremental` CLI flag (opt-in) on `run patient`, `run product`, and the bare `run`. Skips trackers whose MD5 + completion state match the previous run's manifest (BigQuery → local parquet → empty fallback). Default behaviour unchanged. See the `a4d.state` module.
+- **The R pipeline it replaced**: retired 2026-08-24. Recover its source with `git show r-archive-removed^:r-archive/R/<file>`; the migration's working papers are archived in [archive/](archive/README.md) and are not current guidance.

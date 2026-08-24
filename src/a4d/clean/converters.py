@@ -1,8 +1,8 @@
 """Type conversion utilities with error tracking.
 
 This module provides vectorized type conversion functions that track failures
-in an ErrorCollector. This replaces R's rowwise() conversion approach with
-much faster vectorized operations.
+in an ErrorCollector, without ever raising: a bad cell is a data-quality
+finding to report, not a reason to abandon a tracker.
 
 The pattern is:
 1. Try vectorized conversion (fast, handles 95%+ of data)
@@ -103,7 +103,8 @@ def safe_convert_column(
     """Convert column to target type with vectorized error tracking.
 
     This function attempts vectorized type conversion and tracks any failures
-    in the ErrorCollector. Much faster than R's rowwise() approach.
+    in the ErrorCollector. Vectorized: the slow per-row path runs only over
+    the cells that actually failed.
 
     Args:
         df: Input DataFrame
@@ -146,7 +147,8 @@ def safe_convert_column(
 
     # Normalize empty/whitespace/missing-value strings to null BEFORE conversion
     # This ensures missing data stays null rather than becoming error values
-    # Matches R behavior where these values → NA (not conversion error)
+    # A cell reading 'Nil' or '-' recorded an absence, not an unusable value,
+    # so it must not pick up the 999999 'recorded but invalid' sentinel.
     if df[column].dtype in (pl.Utf8, pl.String):
         # Shared with the date path (MISSING_VALUE_MARKERS, clean/date_parser.py)
         # so the two cannot drift apart again -- they had, and a date cell

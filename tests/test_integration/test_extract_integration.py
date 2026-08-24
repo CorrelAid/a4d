@@ -205,7 +205,7 @@ class TestExtractProduct2023Sibu:
 
 
 class TestExtractProductWideFormatColumns:
-    """2020 Mandalay tracker triggers handle_wide_format_columns (R step 1.4a)."""
+    """2020 Mandalay tracker triggers handle_wide_format_columns (step 1.4a)."""
 
     def test_extract_succeeds_and_expands_recipients(self, tracker_2020_mandalay):
         skip_if_missing(tracker_2020_mandalay)
@@ -221,7 +221,7 @@ class TestExtractProductWideFormatColumns:
 
 
 class TestExtractProductWideFormatCells:
-    """2018 Mandalay tracker triggers handle_wide_format_cells (R step 1.4b)."""
+    """2018 Mandalay tracker triggers handle_wide_format_cells (step 1.4b)."""
 
     def test_extract_succeeds_and_splits_comma_cells(self, tracker_2018_mandalay):
         skip_if_missing(tracker_2018_mandalay)

@@ -18,7 +18,7 @@ def _get_job_config(mock_client):
 
 
 class TestTableConfigs:
-    """Test that table configurations match the R pipeline."""
+    """Every published table has clustering fields declared."""
 
     def test_patient_data_monthly_clustering(self):
         assert TABLE_CONFIGS["patient_data_monthly"] == [

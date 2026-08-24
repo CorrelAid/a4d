@@ -236,8 +236,8 @@ def test_harmonize_patient_data_columns_multiple_synonyms():
 
     The 2023 template's complication screening block splits one canonical column
     across B.P./Kidney/Eye/Foot/Lipids sub-columns, each independently populated,
-    so keeping only the first discards real values. R's tidyr::unite() merges the
-    same group; Python matches it, minus R's literal "NA" padding.
+    so keeping only the first discards real values -- 2,489 of them across 27
+    trackers. Absent sub-columns contribute nothing rather than a literal "NA".
     """
     raw_df = pl.DataFrame(
         {
@@ -338,7 +338,7 @@ def test_merge_duplicate_columns_data_no_duplicates():
 
 
 def test_merge_duplicate_columns_data_with_duplicates():
-    """Test merging duplicate columns like R's tidyr::unite()."""
+    """Duplicate headers have their values comma-joined, not reduced to the first."""
     headers = ["ID", "DM Complications", "DM Complications", "DM Complications", "Age"]
     data = [["1", "A", "B", "C", "25"], ["2", "X", "Y", "Z", "30"]]
 

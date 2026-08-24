@@ -299,7 +299,6 @@ def test_validate_all_columns_only_validates_existing():
 def test_validate_allowed_values_case_insensitive():
     """Test that validation is case-insensitive and normalizes to canonical values.
 
-    Validation matches R behavior:
     - "y" matches "Y" (case-insensitive)
     - Returns canonical value "Y" (not the input "y")
     """
@@ -422,8 +421,9 @@ def test_fix_patient_id_hyphen_normalization():
 def test_fix_patient_id_overlong_without_candidate_is_sentinelled():
     """An over-length ID is never truncated into an identity nobody wrote.
 
-    R's fix_id truncates to 8 characters, which manufactures an ID that
-    appears in no source workbook (ticket 47: KH_QEH026 -> KH_QEH02).
+    Truncating to 8 characters manufactures an ID that appears in no source
+    workbook (ticket 47: KH_QEH026 -> KH_QEH02, which then collected four
+    different patients' records).
     """
     df = pl.DataFrame(
         {
@@ -665,13 +665,12 @@ def test_fix_patient_id_lowercase_letters():
     assert len(collector) == 3
 
 
-def test_fix_patient_id_follows_r_except_that_it_never_truncates():
-    """Ticket 47: R's shape is kept; its identity-manufacturing branch is not.
+def test_fix_patient_id_never_truncates_an_overlong_id():
+    """Ticket 47: every malformed ID is recovered or sentinelled, never cut.
 
-    R's fix_id truncates anything over 8 characters to its first 8. Here every
-    malformed ID is either recovered against a well-formed ID in the same
-    tracker or sentinelled -- so the output only ever contains an ID some
-    tracker actually spells.
+    A malformed ID is recovered against a well-formed ID in the same tracker
+    (edit distance 1, unique candidate only) or sentinelled -- so the output
+    only ever contains an ID some tracker actually spells.
     """
     df = pl.DataFrame(
         {
@@ -693,7 +692,7 @@ def test_fix_patient_id_follows_r_except_that_it_never_truncates():
         "KD_QB004",  # Valid
         "KD_QB004",  # Normalized
         "Undefined",  # No unambiguous candidate
-        "Undefined",  # Not truncated to KD_QB004, as R would
+        "Undefined",  # Not truncated to KD_QB004
         None,  # Null
         "Undefined",  # Empty
     ]

@@ -4,8 +4,12 @@ Replaces the R implementation of the A4D medical tracker pipeline with a Python
 one covering both arms (patient + product), plus deployment, state management,
 and an R/Python comparison harness used to verify the migration cell by cell.
 
-240 commits, 335 files, +37,949 / -701. CI green on `migration` HEAD
-(run `31841680157`). 664 tests.
+285 commits, 364 files changed. **981 tests, 86% coverage.** R retired
+2026-08-24 (`r-archive/` deleted; reachable at
+`git show r-archive-removed^:r-archive/R/<file>`).
+
+> This document is live until PR #2 merges, then frozen with the rest of
+> [`docs/archive/`](README.md) at tag `migration-archive-frozen`.
 
 **This MR is not ready to merge yet** — see "Still open" at the end. It is
 posted so the state is reviewable while the remaining verification work runs.
@@ -32,7 +36,7 @@ flowchart TD
     N["Merged headers propagated<br/>screening columns recovered"]
   end
 
-  subgraph TRIAGE["R/Python triage - 54 of 63 tickets closed"]
+  subgraph TRIAGE["R/Python triage - 57 of 65 tickets closed"]
     J["Product cleaned: COMPLETE<br/>20 unclassified, kept as signals"]
     K["Product raw: COMPLETE<br/>0 unclassified"]
     L["Patient cleaned: COMPLETE<br/>16 unclassified, all owned by open questions"]
@@ -40,17 +44,20 @@ flowchart TD
     M2["Patient raw column divergence: DONE<br/>18,235 rows all accounted for"]
   end
 
-  subgraph OPEN["Still open"]
-    U["12 - retire R from the workspace"]
+  subgraph OPEN["Still open - none block the merge"]
     Q["34 - local checks match CI"]
     R["35 - Polars 2.0 deprecations"]
     T["16 - per-file log drill-down"]
     X["40 - source-defect findings Excel"]
     Y["41 - 2026 new Patient List fields"]
+    Z["65 - logs table values naming R scripts"]
   end
 
-  subgraph BLOCKED["Blocked on the above"]
+  subgraph READY["Unblocked"]
     V["6 - promote migration to dev"]
+  end
+
+  subgraph BLOCKED["Blocked"]
     W["9 - golden-master snapshot tests"]
   end
 
@@ -58,15 +65,16 @@ flowchart TD
   B --> C
   C --> D --> F
   C --> I --> TRIAGE
-  L --> U
-  U --> V --> W
+  L --> V --> W
 
   classDef done fill:#1a7f37,stroke:#116329,color:#fff
   classDef open fill:#1f6feb,stroke:#0b3d91,color:#fff
   classDef blocked fill:#6e7781,stroke:#424a53,color:#fff
+  classDef ready fill:#8250df,stroke:#5a32a3,color:#fff
   class A,B,C,D,E,F,G,H,I,J,K,L,M,M2,N done
-  class U,Q,R,T,X,Y open
-  class V,W blocked
+  class Q,R,T,X,Y,Z open
+  class V ready
+  class W blocked
 ```
 
 ---
@@ -105,7 +113,7 @@ sheet names (`Jan24` -> 2024) or the filename.
 | `extract/product.py` | Excel -> raw product parquet (month sheets, stock section) |
 | `extract/wide_format.py` | Mandalay wide-format handling (column expansion 2020-21, cell splitting 2017-19) |
 | `clean/patient.py` | Type conversion, validation, transformations -> cleaned parquet |
-| `clean/product.py` | Product cleaning (R steps 2.0-2.21), running balance, chronological sort |
+| `clean/product.py` | Product cleaning (steps 2.0-2.21), running balance, chronological sort |
 | `clean/schema.py` / `schema_product.py` | 83-column patient and 20-column product meta schemas |
 | `clean/converters.py` | Safe type conversion with `ErrorCollector` |
 | `clean/validators.py` | Allowed-value validation, canonical labels + alias map |
@@ -116,7 +124,7 @@ sheet names (`Jan24` -> 2024) or the filename.
 | `gcp/*.py` | GCS download/upload, BigQuery load, Drive download, production-run verification |
 | `reference/*.py` | Column synonyms, product categories, province validation (YAML in `reference_data/`) |
 | `validate/*.py` | Source-vs-output reconciliation |
-| `migration/compare.py` | R/Python comparison engine (Part 2) — dies with R's retirement |
+| `migration/compare.py` | R/Python comparison engine (Part 2) — retired, kept as the evidence record |
 | `state/*.py` | Incremental processing: manifest, MD5 filter, source resolution |
 | `config.py` | Pydantic settings from `.env` / `A4D_*` env vars |
 | `cli.py` | Typer CLI |
@@ -124,7 +132,7 @@ sheet names (`Jan24` -> 2024) or the filename.
 Row-level data-quality problems never raise: `ErrorCollector` accumulates them
 and they land in `table_errors` / `table_logs` with an `error_code`. Sentinels
 for unusable values are numeric `999999`, string `"Undefined"`, date
-`"9999-09-09"` — matching R's constants.
+`"9999-09-09"`, each distinct from null, which means nothing was recorded.
 
 ## Configuration
 
@@ -508,6 +516,17 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Closed since this section was last written**
 
+- **64 — the documentation overhaul, now closed.** Every module outside
+  `src/a4d/migration/` explains itself in its own terms: `src/` 174 R references
+  -> **0**, `tests/` 46 -> **0**, markdown 65 -> **0**. The comparison package
+  keeps its 179 + 42 and is marked *historical* in its own module docstring —
+  R divergence is its subject, and it will never run again. `docs/migration/`
+  moved to `docs/archive/` with an index, each document corrected to the true
+  current state before being frozen; `docs/VALIDATION_SUMMARY.md` deleted as a
+  superseded 174-tracker verdict. New CI guard
+  `tests/test_docs_have_no_r_framing.py` stops regressions. Suite **1,080
+  passed**, 86% coverage.
+
 - **12 — retire R from the workspace, now closed. `r-archive/` is deleted**: 156
   tracked files, 1.9M, gone from the working tree and recoverable through the
   annotated tag `r-archive-removed` (`r-archive-removed^` is the last commit
@@ -654,12 +673,18 @@ Nothing here blocks review of the code — it blocks the merge.
 
 **Blocked**
 
-- **6 — promote `migration` into `dev`** (this PR). Every one of its thirteen
-  original blockers is now closed — 12 was the last. It is re-blocked on **64**
-  alone: promotion is what turns this branch's documentation into the project's,
-  so shipping 35 docstrings that cite a deleted directory is exactly what this
-  gate exists to catch. Reversible if the data owner would rather fix docs on
-  `dev`.
+- **6 — promote `migration` into `dev`** (this PR). **Fully unblocked**: every
+  ticket that gated it is closed, including 64. Nothing on this map now stands
+  between here and the merge.
+
+**Frontier, not blocking the merge**
+
+- **65 — two values published into the BigQuery `logs` table still name R
+  scripts**: `function_name="read_product_data_step1"` (the only one of twenty
+  that is not the emitting Python function) and `script="script1"`/`"script3"`
+  in a column whose default is the stage name `"clean"`. These are *data*, not
+  comments, so ticket 64 recorded them rather than changing published output.
+  Deliberately not wired as a merge blocker — inconsistency, not falsehood.
 - **9 — golden-master/snapshot regression tests.** Deliberately deferred until
   after promotion.
 

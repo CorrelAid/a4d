@@ -171,9 +171,9 @@ def test_validate_entry_dates_missing_columns_is_noop():
 def test_validate_entry_dates_logs_year_floor_but_preserves_date():
     """Year-floor violations (parsed.year < tracker_year - YEAR_FLOOR_DELTA) are
     logged via error_collector but the parsed date is preserved in
-    product_entry_date. R does not validate; preserving the date here aligns
-    the downstream sort/cumsum trajectory with R while keeping the audit
-    trail."""
+    product_entry_date. Sentinelling it instead would drop the row out of
+    chronological order and distort the running balance accumulated in step
+    2.15, so the date is preserved and the audit trail carries the flag."""
     df = _entry_date_df(
         products=["P1", "P2", "P3"],
         entry_dates=[date(2024, 6, 1), date(1967, 2, 5), None],
@@ -441,9 +441,8 @@ def test_extract_balance_from_received_nulls_total_subtotal_label():
     nulled, while legitimate supplier names on the same triggered sheet
     survive. Regression for the 47 corpus-wide subtotal rows in 2019
     Penang DC / VNCH / Mandalay etc. that the supplier-preservation fix
-    inadvertently kept; R nulled them implicitly via its no-default
-    case_when. "Total" is the label the typist puts on the end-of-product-
-    block subtotal row, never a supplier."""
+    inadvertently kept. "Total" is the label the typist puts on the
+    end-of-product-block subtotal row, never a supplier."""
     # Sheet must be "triggered": need at least one Balance marker AND at
     # least one row with null received_from. Last row supplies the null.
     df = pl.DataFrame(
@@ -619,8 +618,8 @@ def test_format_dates_preserves_year_typo_sentinels():
 
 
 def test_split_multi_product_cells_extracts_box_count_to_units_received():
-    """Pins the \\d+ deviation from R's [1-9]+: a count starting with the
-    digit '1' followed by '0' must be extracted whole as '10', not '1'."""
+    """Pins the \\d+ count regex: a count starting with the digit '1'
+    followed by '0' must be extracted whole as '10', not '1'."""
     df = pl.DataFrame(
         {
             "product": ["Accu-Check Strips (10 box)"],
@@ -673,13 +672,13 @@ def test_split_multi_product_cells_extracts_unit_count_to_released_when_released
 
 
 def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero():
-    """Pin Python's correct handling of a date typo'd into the
-    units_received column. R's read_excel reads the underlying Excel
-    serial (e.g. 43644.0 for 2019-06-28), polluting balance trajectories
-    by tens of thousands. Python's openpyxl path stringifies, the
-    Float64 cast in step 2.11 fails, step 2.12 recodes the null to 0.0.
-    Step 2.11 also emits one ``type_conversion`` ErrorCollector entry —
-    R-parity with ``preparing_product_fields``'s ``invalid_value`` warning.
+    """Pin the handling of a date typo'd into the units_received column.
+
+    Reading the cell's underlying Excel serial (43644.0 for 2019-06-28) would
+    pollute the balance trajectory by tens of thousands. Instead the value
+    stringifies, the Float64 cast in step 2.11 fails, and step 2.12 recodes the
+    null to 0.0. Step 2.11 also emits one ``type_conversion`` ErrorCollector
+    entry, so the discarded cell is recoverable from the log.
     Regression for the 22 real-divergence rows in
     2019_Sultanah Bahiyah_DC / 2019_Penang_DC / 2020 Mandalay
     surfaced by Ali_internship/product_balance_diff_v1.ipynb."""
@@ -750,8 +749,8 @@ def test_running_balance_eliminates_float_residue():
     """Pin .round(10) on the cumsum result. Without it, Python's vectorized
     cumsum yields 2.220446e-16 instead of 0 on rows where the running delta
     sum hits a non-binary-clean target (e.g. 1.8 - 0.4 - 1.4 = 2.22e-16
-    because 0.4+1.4 in float64 is 1.7999999999999998). R's row-by-row
-    recurrence avoids this. Regression for the 600 FP-noise rows surfaced
+    because 0.4+1.4 in float64 is 1.7999999999999998). Regression for the 600
+    FP-noise rows surfaced
     by Ali_internship/product_balance_diff_v3.ipynb (V3 corpus example:
     2021_Lao Friends, Feb21, Mixtard 30 Penfill 3ml (5s))."""
     df = pl.DataFrame(
@@ -788,10 +787,9 @@ def test_fill_product_names_and_sort_treats_sentinel_as_null_for_rank():
     be treated as null when computing the per-(sheet, product) rank, so it
     falls into the 'preserve input order' branch rather than sorting to the
     dense_d+1 end-of-changes position. Real-world driver: the 11 Tier-2 rows
-    in product_balance documented in product_balance_investigation.md, where
-    R returns null for unparseable dates and Python returns 9999-09-09 — the
+    in product_balance documented in product_balance_investigation.md: the
     sentinel was sorting after every valid date, distorting the cumulative
-    balance order vs. R."""
+    balance order."""
     df = pl.DataFrame(
         {
             "product_sheet_name": ["Jun24"] * 5,
@@ -919,13 +917,14 @@ def test_check_entry_dates_no_log_on_match():
 
 def test_fat_finger_future_falls_into_input_order_rank_after_validation():
     """Pin the deliberate _validate_entry_dates × _fill_product_names_and_sort
-    interaction. R keeps `2099-03-15` as a valid future date and ranks it by
-    value; Python clobbers it to the 9999-09-09 sentinel inside
-    _validate_entry_dates and then treats the sentinel as null when ranking.
+    interaction. `2099-03-15` is clobbered to the 9999-09-09 sentinel inside
+    _validate_entry_dates, and the sentinel is then treated as null when
+    ranking -- so a fat-fingered year holds its input position instead of
+    sorting to the end of the ledger and distorting the running balance.
 
-    This is a documented divergence from R. The test exists so any future
-    revert of either _validate_entry_dates' future-year guard or the
-    sentinel-rank fix in _fill_product_names_and_sort breaks loudly."""
+    The test exists so any future revert of either _validate_entry_dates'
+    future-year guard or the sentinel-rank fix in
+    _fill_product_names_and_sort breaks loudly."""
     collector = ErrorCollector()
     df = pl.DataFrame(
         {

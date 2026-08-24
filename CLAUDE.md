@@ -20,7 +20,7 @@ uv sync
 uv run pytest
 ```
 
-**Migration Guide**: [docs/migration/MIGRATION_GUIDE.md](docs/migration/MIGRATION_GUIDE.md)
+**Migration Guide**: [docs/archive/MIGRATION_GUIDE.md](docs/archive/MIGRATION_GUIDE.md)
 
 ## The retired R implementation
 

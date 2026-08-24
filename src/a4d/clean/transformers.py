@@ -55,11 +55,11 @@ def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.Dat
     if column not in df.columns:
         return df
 
-    # R's sub(..., ignore.case = TRUE) matches without case, and leaves a
-    # value none of the four patterns match exactly as the source wrote it.
-    # Lowercasing the column to emulate that (ticket 29) instead rewrote every
-    # unmatched value -- "NPH" -> "nph", "Other" -> "other" -- so the
-    # case-insensitive flag belongs in the patterns, not on the data.
+    # The case-insensitive flag belongs in the patterns, not on the data. An
+    # earlier version lowercased the whole column instead (ticket 29), which
+    # rewrote every value none of the four patterns matched -- "NPH" -> "nph",
+    # "Other" -> "other" -- corrupting the values it was supposed to leave
+    # alone.
     df = df.with_columns(
         pl.col(column)
         .str.replace(r"(?i)^.*basal.*$", "Basal-bolus (MDI)")
@@ -75,7 +75,6 @@ def extract_regimen(df: pl.DataFrame, column: str = "insulin_regimen") -> pl.Dat
 def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
     """Map sex synonyms to canonical values (M/F) or error value.
 
-    Matches R's fix_sex() function behavior:
     - Female synonyms: female, girl, woman, fem, feminine, f → "F"
     - Male synonyms: male, boy, man, masculine, m → "M"
     - Anything else → "Undefined" (error value)
@@ -96,7 +95,6 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
     if column not in df.columns:
         return df
 
-    # Define synonyms matching R's fix_sex function
     synonyms_female = ["female", "girl", "woman", "fem", "feminine", "f"]
     synonyms_male = ["male", "boy", "man", "masculine", "m"]
 
@@ -123,15 +121,16 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
 def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
     """Calculate BMI from weight and height.
 
-    Matches R's fix_bmi() function behavior:
     - If weight or height is null → BMI becomes null
     - If weight or height is error value → BMI becomes error value
     - Otherwise: BMI = weight / height^2
 
-    Height is converted from cm to m if > 50 (R's transform_cm_to_m threshold).
-    This ensures correct BMI regardless of whether height is in cm or m.
+    Height is converted from cm to m if > 50, so the calculation is correct
+    whichever unit the clinic recorded in.
 
-    This calculation REPLACES any existing BMI value, matching R's behavior.
+    This calculation REPLACES any existing BMI value: a typed BMI goes stale as
+    the patient's weight changes, while the two measurements it derives from
+    are re-recorded each month.
 
     Args:
         df: Input DataFrame (must have weight and height columns)
@@ -147,13 +146,14 @@ def fix_bmi(df: pl.DataFrame) -> pl.DataFrame:
     if "weight" not in df.columns or "height" not in df.columns:
         return df
 
-    # Convert height from cm to m if > 50 (R's transform_cm_to_m threshold)
+    # Convert height from cm to m if > 50
     height_m = (
         pl.when(pl.col("height") > 50).then(pl.col("height") / 100.0).otherwise(pl.col("height"))
     )
 
-    # Calculate BMI: weight / height^2
-    # Match R's case_when logic exactly
+    # Calculate BMI: weight / height^2. Null and the error sentinel are kept
+    # distinct -- an absent measurement yields null, an unusable one yields the
+    # sentinel -- so a derived BMI never claims more than its inputs did.
     df = df.with_columns(
         pl.when(pl.col("weight").is_null() | pl.col("height").is_null())
         .then(None)
@@ -221,7 +221,9 @@ def apply_transformation(
         >>> df = apply_transformation(df, "status", "stringr::str_to_lower")
         >>> df = apply_transformation(df, "insulin_regimen", "extract_regimen")
     """
-    # Map R function names to Python implementations
+    # Transformation names as they appear in reference_data/data_cleaning.yaml.
+    # The `stringr::` prefix is retained as an accepted alias because the
+    # config files still carry it.
     function_mapping = {
         "extract_regimen": lambda df, col: extract_regimen(df, col),
         "stringr::str_to_lower": lambda df, col: str_to_lower(df, col),
@@ -264,8 +266,9 @@ def correct_decimal_sign_multiple(
 def replace_range_with_mean(x: str) -> float:
     """Calculate mean of a range string.
 
-    Matches R's replace_range_with_mean() function behavior.
-    Splits string on "-", converts parts to numeric, returns mean.
+    Splits string on "-", converts parts to numeric, returns the mean: a
+    clinic writing "0-2" recorded a range, and the midpoint is the only
+    defensible single number to publish for it.
 
     Args:
         x: Range string (e.g., "0-2", "2-3")
@@ -287,7 +290,6 @@ def replace_range_with_mean(x: str) -> float:
 def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
     """Fix testing_frequency column by replacing ranges with mean values.
 
-    Matches R's fix_testing_frequency() function behavior:
     - Replaces ranges like "0-2" with mean "1"
     - Preserves null and empty values as null
     - Logs warning when ranges are detected
@@ -353,7 +355,6 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
     """Split blood_pressure_mmhg into systolic and diastolic columns.
 
-    Matches R's split_bp_in_sys_and_dias() function behavior:
     - Splits "120/80" format into two columns
     - Invalid formats (without "/") are replaced with error value
     - Logs warning for invalid values
@@ -394,10 +395,10 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
             f"Values were replaced with {error_val_int}."
         )
 
-    # Split the column, trimming each fragment. R's separate_wider_delim leaves
-    # the padding on too, but R's as.numeric ignores surrounding whitespace
-    # where Polars' cast fails on it -- so "70 / 40" reached the cleaned output
-    # as the 999999 error sentinel on Python's side alone (ticket 53).
+    # Split the column, trimming each fragment. Polars' numeric cast fails on
+    # surrounding whitespace, so without the trim every blood pressure written
+    # "70 / 40" reached the cleaned output as the 999999 error sentinel --
+    # 465 cells across 7 trackers (ticket 53).
     df = df.with_columns(
         pl.col("blood_pressure_mmhg")
         .str.split("/")

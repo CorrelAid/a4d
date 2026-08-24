@@ -26,7 +26,8 @@ from a4d.reference.loaders import get_reference_data_path, load_yaml
 def sanitize_str(text: str) -> str:
     """Sanitize string for case-insensitive matching.
 
-    Matches R's sanitize_str function:
+    Punctuation, casing and spacing must not decide whether a clinic's typed
+    value matches an allowed one:
     1. Convert to lowercase
     2. Remove spaces
     3. Remove special characters (keep only alphanumeric)
@@ -89,7 +90,6 @@ def validate_allowed_values(
 ) -> pl.DataFrame:
     """Validate column against allowed values with case-insensitive matching.
 
-    Matches R's validation behavior:
     1. Sanitize both input values and allowed values for matching
     2. If matched, replace with canonical value from allowed_values
     3. If not matched, replace with error value (if replace_invalid=True)
@@ -129,7 +129,8 @@ def validate_allowed_values(
     if column not in df.columns:
         return df
 
-    # Create mapping: {sanitized → canonical} like R does
+    # Map {sanitized -> canonical}, so one label is published per status
+    # however the clinic spelled it.
     # E.g., {"active": "Active", "activeremote": "Active Remote"}
     canonical_mapping: dict[str, str] = {}
     for val in allowed_values:
@@ -301,9 +302,12 @@ def validate_province(
 ) -> pl.DataFrame:
     """Validate province column against allowed provinces from YAML.
 
-    Uses the shared allowed_provinces.yaml file to validate province values.
-    Matches R's behavior: sanitizes values for comparison and sets invalid
-    provinces to "Undefined".
+    Uses the shared allowed_provinces.yaml file to validate province values,
+    sanitizing both sides for comparison and setting an unrecognised province
+    to "Undefined". Sanitizing folds accents, which recovers spellings a
+    stricter comparison loses (`Thái Nguyễn` -> `Thái Nguyên`); this is safe
+    because the 209-entry province list has no two entries that sanitize
+    alike, and validate_allowed_values raises if any two ever do.
 
     Args:
         df: Input DataFrame
@@ -449,20 +453,20 @@ def fix_patient_id(
 ) -> pl.DataFrame:
     """Validate and fix patient ID format.
 
-    Follows R's fix_id() (script2_helper_patient_data_fix.R) except where it
-    manufactures an identity:
     - Valid format: XX_YY### (e.g., "KD_QB004")
       - 2 uppercase letters, underscore, 2 uppercase letters, 3 digits
     - Normalizes hyphens to underscores: "KD-QB004" → "KD_QB004"
     - Recovers a one-character typo against the tracker's own well-formed IDs
     - Replaces with the error value otherwise
 
-    **Divergence from R (ticket 47).** R truncates anything longer than 8
-    characters to its first 8, which published `KH_QEH02` -- an identifier
-    present in no source workbook -- and filed four different patients'
-    September records under it, detaching them from their own Oct-Dec history.
-    Truncation is therefore dropped: an unrecoverable ID is sentinelled, the
-    way a too-short one already was, so the pipeline never invents an identity.
+    **An over-long ID is never truncated (ticket 47).** Cutting anything
+    longer than 8 characters to its first 8 published `KH_QEH02` -- an
+    identifier present in no source workbook -- and filed four different
+    patients' September records under it, detaching them from their own Oct-Dec
+    history (2023_NPH, whose Sep23 sheet types a stray `H` into four IDs its
+    own Patient List spells correctly). An unrecoverable ID is sentinelled
+    instead, the way a too-short one already was, so the pipeline never
+    publishes an identity no tracker contains.
 
     Every malformed ID is reported to the error collector whether it was
     recovered or sentinelled, since either way the source workbook needs

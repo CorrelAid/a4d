@@ -2,11 +2,14 @@
 
 Python implementation of the A4D medical tracker data processing pipeline.
 
-## Migration Status
+## Status
 
-🚧 **Active Development** - Migrating from R to Python
+Production. Both arms (patient and product) run as one orchestrated pipeline on
+Cloud Run against the A4D GCS bucket, landing in BigQuery.
 
-See the [Migration Guide](docs/migration/MIGRATION_GUIDE.md) for details.
+This replaced an earlier R implementation, which was retired on 2026-08-24. The
+record of that migration is archived in [docs/archive/](docs/archive/); nothing
+in it is current guidance.
 
 ## Features
 
@@ -244,18 +247,19 @@ just info
 - **pytest** - Testing framework
 - **just** - Command runner for development
 
-## Migration from R
+## History
 
-This project is a complete rewrite of the R pipeline with:
+This pipeline replaced an R implementation, retired 2026-08-24. What the
+rewrite gained:
 
-- 2-5x performance improvement
-- Patient + product trackers in a single orchestrated run
+- Patient and product trackers in a single orchestrated run
 - Incremental processing (only changed files)
-- Better error tracking and logging
-- Simpler deployment (single Docker container)
-- Modern Python best practices
+- Row-level error tracking, published as its own BigQuery table
+- Single Docker container, deployed to Cloud Run
 
-See [docs/migration/](docs/migration/) for the migration guide and per-feature notes.
+The migration was verified cell-by-cell against the old pipeline's frozen
+output over 254 trackers before it was retired. Those working papers are in
+[docs/archive/](docs/archive/), frozen and not maintained.
 
 ## License
 

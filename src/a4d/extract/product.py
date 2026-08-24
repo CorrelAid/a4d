@@ -1,7 +1,8 @@
 """Product data extraction from Excel tracker files.
 
 Mirrors `src/a4d/extract/patient.py` structure but targets the product
-section of each month sheet. Covers R Script 1 steps 1.1-1.10.
+section of each month sheet. The ``1.x`` step numbers below are this
+module's own ordering vocabulary and are referenced by the tests.
 """
 
 import warnings
@@ -28,7 +29,7 @@ class ProductSectionNotFoundError(ValueError):
 
 
 def find_product_section(ws) -> tuple[int, int]:
-    """Locate the start and end rows of the product data region (R step 1.1).
+    """Locate the start and end rows of the product data region (step 1.1).
 
     The start row is the header row containing the product/date/received
     keywords. The end row is the row immediately before the patient
@@ -105,7 +106,7 @@ def find_product_section(ws) -> tuple[int, int]:
 
 
 def extract_product_data(ws, start_row: int, end_row: int) -> pl.DataFrame:
-    """Read the product region and promote its first row to headers (R step 1.2).
+    """Read the product region and promote its first row to headers (step 1.2).
 
     Returns a DataFrame with all columns typed as ``pl.String``. Type
     coercion is deferred to the cleaning phase (Sprint 3).
@@ -177,7 +178,7 @@ def add_product_metadata(
     file_name: str,
     clinic_id: str,
 ) -> pl.DataFrame:
-    """Append sheet/tracker metadata columns (R step 1.8)."""
+    """Append sheet/tracker metadata columns (step 1.8)."""
     return df.with_columns(
         [
             pl.lit(f"{tracker_month:02d}", dtype=pl.String).alias("product_table_month"),
@@ -190,12 +191,13 @@ def add_product_metadata(
 
 
 def remove_header_rows(df: pl.DataFrame) -> pl.DataFrame:
-    """Drop residual header rows and fully empty rows (R step 1.6)."""
+    """Drop residual header rows and fully empty rows (step 1.6)."""
     if df.height == 0:
         return df
 
-    # A formula-emptied Excel cell can surface as "" rather than None, which
-    # is.null() alone won't catch; R's is.na()-based check drops such rows too.
+    # A formula-emptied Excel cell surfaces as "" rather than None, so a
+    # null-only test leaves the row in place and it reaches the output as a
+    # phantom stock movement.
     blank_exprs = [
         pl.col(name).is_null() | (pl.col(name).str.strip_chars() == "")
         if dtype == pl.String
@@ -217,13 +219,13 @@ def remove_header_rows(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def replace_extra_totals(df: pl.DataFrame) -> pl.DataFrame:
-    """Null ``product_units_released`` after a ``Total`` column (R step 1.9)."""
+    """Null ``product_units_released`` after a ``Total`` column (step 1.9)."""
     if df.height == 0:
         return df
 
     if "product_released_to" in df.columns:
-        # R uses trimws(which="left") here, but readxl already strips trailing
-        # whitespace on read; openpyxl preserves it. Strip both to match R output.
+        # openpyxl preserves whitespace on read, so strip both ends before the
+        # "Total" comparison -- otherwise a padded label fails to match.
         df = df.with_columns(
             pl.col("product_released_to").str.strip_chars().alias("product_released_to")
         )
@@ -263,12 +265,13 @@ def _count_orphan_released_units(
     file_name: str,
     error_collector: ErrorCollector | None,
 ) -> None:
-    """R-parity warning for orphan ``product_units_released`` values.
+    """Warn on orphan ``product_units_released`` values.
 
     Counts harmonized rows where ``product_released_to`` is null/whitespace
     yet ``product_units_released`` carries a value, and emits one
-    ErrorCollector entry per sheet. Mirrors R ``count_na_rows`` in
-    ``read_product_data.R`` (called before ``replace_extra_total_values_with_NA``).
+    ErrorCollector entry per sheet. A quantity released to nobody is either a
+    subtotal row or a missing recipient, and both need the workbook correcting
+    rather than a guess here.
 
     Whitespace-only ``product_released_to`` cells count as orphan: openpyxl
     returns ``""`` for blank cells while ``_normalize_empty_strings_to_null``
@@ -317,7 +320,7 @@ def _harmonize(
     error_collector: ErrorCollector | None,
     file_name: str,
 ) -> pl.DataFrame:
-    """Rename columns via the mapper then drop any column not in the synonym schema (R step 1.5)."""
+    """Rename columns via the mapper, then drop any column not in the synonym schema (step 1.5)."""
     unknown = [
         col for col in df.columns if not mapper.is_known_column(col) and col not in mapper.synonyms
     ]

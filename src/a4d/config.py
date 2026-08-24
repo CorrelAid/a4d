@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     # Processing settings
     max_workers: int = 4
 
-    # Error values (matching R pipeline constants)
+    # Sentinels for 'recorded but unusable'. Distinct from null, which means
+    # nothing was recorded at all -- consumers need to tell the two apart.
     error_val_numeric: float = 999999.0
     error_val_character: str = "Undefined"
     error_val_date: str = "9999-09-09"
