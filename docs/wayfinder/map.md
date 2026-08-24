@@ -43,7 +43,7 @@ flowchart TD
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
+    T63["<b>63</b> · task<br/>The cleaned stage has<br/>3,593 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -51,7 +51,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 52"]
+  subgraph DECIDED["Decided · 53"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -101,6 +101,7 @@ flowchart TD
     T55["<b>55</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 8)"]
     T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
     T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
+    T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
     T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
     T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
@@ -137,14 +138,14 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
-  T58 --> T12
+  T63 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T58 frontier
+  class T16,T34,T35,T40,T41,T63 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T60,T61,T62 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2478,7 +2479,71 @@ feature (ticket 16). One fog patch was added — whether Python's category join
 should normalise line endings explicitly, rather than relying on openpyxl to do
 it — and no ticket was spawned.
 
+**[Monthly rows with a misspelled ID](tickets/58-patient-list-join-uses-unfixed-id.md)
+is closed, and it is the largest data recovery this map has made.** Both
+whole-tracker joins in extraction — the `Patient List` demographics and the
+`Annual` sheet — keyed on the raw `patient_id`, while the identity fix that
+makes a respelled ID usable runs much later, in cleaning. Where a month sheet
+spells a patient differently from the Patient List in the same workbook, the
+join could not match and the row kept its measurements while losing every
+static column. Both joins now key on a *derived* normalized ID; the raw
+`patient_id` column is untouched, so the comparison's row-alignment key is
+unaffected and row-key divergence did not move on either stage.
+
+**The blast radius was a hundred times the known case, and it is one clinic.**
+The ticket knew of 4 NPH rows. Measured across all 254 real trackers: **695
+rows in 6 files**, of which **672 are the 2023 and 2024 Mahosot trackers** —
+their month sheets write `LA-MH056` and up with a hyphen against a Patient List
+spelled `LA_MH056`, 38 patients in 2024 and 27 in 2023. **680 rows recovered,
+carrying 6,863 Patient List cells** across 12–13 columns, plus 8 rows / 40
+cells from the Annual join. The remaining 15 rows are source defects: NPH's
+stray `H`, and `2024_Mandalay General`'s `MM_YG013_MG`, which that workbook's
+Patient List does not contain under any spelling.
+
+**R has the identical gap, so the comparison was structurally blind to all of
+it.** R's own frozen cleaned `2024_Mahosot` carries the same null block
+starting at `LA_MH056`. Both sides null means no cell mismatch — this is the
+third population on this map (after [ticket
+59](tickets/59-triage-unmatched-row-keys.md)'s unmatched rows and [ticket
+42](tickets/42-fbg-unit-headers-and-implausible-values.md)'s unit swap) that
+the tool can never show, found only by measuring the workbooks directly.
+
+**Two things the session got right by measuring rather than reasoning.** The
+fan-out risk — two static entries folding to one key would silently duplicate a
+patient's months — is zero across all 192 Patient-List-bearing trackers, which
+is what made the choice cheap. And the new cause was first wired to every
+patient column on the argument that its own gate would bound it; the run showed
+it over-claiming on the three columns the month sheets *also* carry
+(`t1d_diagnosis_age` 1,069 against a join-miss population of 679, `bmi` 144,
+`age` 1), so it was backed out to an explicit list.
+
+**The divergence the fix creates is only half named, deliberately.** New cause
+`r_static_join_misses_respelled_id` fires on 5,959 raw-stage cells across 16
+columns and takes raw `unclassified` to **zero**. It cannot work on the cleaned
+stage: its discriminator is the unnormalized spelling, and cleaning removes
+exactly that on both sides. Cleaned `unclassified` is therefore **16 → 3,593**,
+and that is [ticket 63](tickets/63-name-the-cleaned-stage-static-join-divergence.md).
+
+**Ticket 12's `blocked_by` swaps `58` for `[63]`, so the count stands at one —
+but the previous session's reason was wrong and is corrected rather than
+dropped.** Ticket 58's "check R" was answered from R's frozen *output*, which
+the map's Notes put outside this ticket's scope; it never needed `r-archive/`.
+Ticket 63 does: its question 2 asks what mechanism leaves R null on `bmi`,
+`age` and `t1d_diagnosis_age` for these patients, which is a question about R's
+code. **The frontier is six**, and ticket 63 is the only one on the route.
+
 ## Decisions so far
+
+- [Monthly rows with a misspelled ID silently lose their Patient List
+  demographics](tickets/58-patient-list-join-uses-unfixed-id.md) -- decided and
+  implemented. Both extraction-side joins (`Patient List` and `Annual`) now key
+  on a derived normalized ID; the raw `patient_id` column is unchanged.
+  **680 rows / 6,863 Patient List cells recovered across 6 trackers**, 672 of
+  them the 2023/2024 Mahosot hyphen spelling. R has the same gap and the
+  comparison could never show it. New cause
+  `r_static_join_misses_respelled_id` (raw stage only, 5,959 cells, raw
+  `unclassified` -> 0); the cleaned-stage half is [ticket
+  63](tickets/63-name-the-cleaned-stage-static-join-divergence.md).
 
 - [Audit the eight pre-bar causes the first classifier pass did not
   reach](tickets/60-audit-remaining-pre-bar-classifiers.md) -- decided and
@@ -3874,6 +3939,10 @@ flowchart TB
     direction LR
     U62["<b>62</b><br/>Finish the pre-bar<br/>classifier audit — the<br/>two causes and the one<br/>bulk population it did<br/>not reach"]
   end
+  subgraph S2026_08_24d["Session 2026-08-24d"]
+    direction LR
+    U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3888,7 +3957,7 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
+    U63["<b>63</b><br/>The cleaned stage has<br/>3,593 cells with no<br/>cause, because the ID<br/>spelling that explains<br/>them is gone by then"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3936,7 +4005,8 @@ flowchart TB
   S2026_08_22b ~~~ S2026_08_24
   S2026_08_24 ~~~ S2026_08_24b
   S2026_08_24b ~~~ S2026_08_24c
-  S2026_08_24c ~~~ Sunworked
+  S2026_08_24c ~~~ S2026_08_24d
+  S2026_08_24d ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -3965,7 +4035,7 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U58 --->|blocked| U12
+  U63 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -4016,13 +4086,14 @@ flowchart TB
   U32 -.->|spawned| U60
   U32 -.->|spawned| U61
   U60 -.->|spawned| U62
+  U58 -.->|spawned| U63
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58 tfrontier
+  class U16,U34,U35,U40,U41,U63 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U60,U61,U62 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

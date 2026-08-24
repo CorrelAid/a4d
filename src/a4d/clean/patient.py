@@ -40,6 +40,7 @@ from a4d.clean.transformers import extract_regimen, strip_string_whitespace
 from a4d.clean.validators import validate_all_columns
 from a4d.config import settings
 from a4d.errors import ErrorCollector
+from a4d.extract.common import normalize_patient_id_expr
 
 
 def clean_patient_data(
@@ -282,18 +283,10 @@ def _apply_preprocessing(df: pl.DataFrame) -> pl.DataFrame:
     # Pattern: "MY_SM003_SB" → "MY_SM003" (keep first two underscore-separated parts)
     # Also normalizes hyphens first: "LA-MH093_LF" → "LA_MH093_LF" → "LA_MH093"
     # This ensures consistent patient linking across years when patients transfer clinics
+    # Shared with the extraction-side Patient List join key (ticket 58), so the
+    # two cannot drift into disagreeing about what one patient's identity is.
     if "patient_id" in df.columns:
-        df = df.with_columns(
-            # First normalize hyphens to underscores
-            pl.col("patient_id").str.replace_all("-", "_").alias("_patient_id_normalized")
-        )
-        df = df.with_columns(
-            pl.when(pl.col("_patient_id_normalized").str.contains("_"))
-            .then(pl.col("_patient_id_normalized").str.extract(r"^([A-Z]+_[^_]+)", 1))
-            .otherwise(pl.col("_patient_id_normalized"))
-            .alias("patient_id")
-        )
-        df = df.drop("_patient_id_normalized")
+        df = df.with_columns(normalize_patient_id_expr(pl.col("patient_id")).alias("patient_id"))
 
     # Track HbA1c exceeds markers (> or <)
     if "hba1c_baseline" in df.columns:

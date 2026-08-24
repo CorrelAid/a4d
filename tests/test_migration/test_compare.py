@@ -60,6 +60,7 @@ from a4d.migration.compare import (
     _is_python_glucose_unit_corrected,
     _is_python_recovers_glucose_r_rejected,
     _is_python_rejects_out_of_range_hba1c,
+    _is_r_static_join_misses_respelled_id,
     add_row_ordinal,
     align_duplicate_rows,
     build_mismatch_rows,
@@ -3302,3 +3303,52 @@ class TestAbsurdExcelSerialOnPatientDates:
         registry = _compare_outputs_module().CLASSIFIERS_BY_COLUMN["fbg_updated_date"]
 
         assert classify(mismatch, registry) == "r_parse_order_cannot_read_cell"
+
+
+class TestRStaticJoinMissesRespelledId:
+    """Ticket 58: R attaches the static sheets on the raw ID, so a respelled one misses."""
+
+    @staticmethod
+    def _mismatch(patient_id: str, r_value=None, py_value="Vientiane Capital"):
+        return CellMismatch(
+            key={"__key_patient_id": patient_id, "__key_sheet_name": "Jun24"},
+            column="province",
+            r_value=r_value,
+            py_value=py_value,
+        )
+
+    def test_fires_on_a_hyphen_spelled_id_where_r_is_null(self):
+        """2023/2024 Mahosot write LA-MH056 against a Patient List entry of LA_MH056."""
+        assert _is_r_static_join_misses_respelled_id(self._mismatch("LA-MH056"))
+
+    def test_fires_on_a_transfer_clinic_suffix(self):
+        assert _is_r_static_join_misses_respelled_id(self._mismatch("MY_SM003_SB"))
+
+    def test_declines_a_well_formed_id(self):
+        """recruitment_date's 28,009 xml:space rows are all well-formed IDs (ticket 62)."""
+        assert not _is_r_static_join_misses_respelled_id(self._mismatch("KH_CD001"))
+
+    def test_declines_when_r_has_a_value_of_its_own(self):
+        assert not _is_r_static_join_misses_respelled_id(
+            self._mismatch("LA-MH056", r_value="Khammouane")
+        )
+
+    def test_declines_when_python_has_nothing_to_offer(self):
+        assert not _is_r_static_join_misses_respelled_id(self._mismatch("LA-MH056", py_value=None))
+
+    def test_declines_when_the_key_carries_no_patient_id(self):
+        """The cleaned stage normalizes patient_id on both sides, so it cannot discriminate."""
+        assert not _is_r_static_join_misses_respelled_id(
+            CellMismatch(key={"id": 1}, column="province", r_value=None, py_value="x")
+        )
+
+    def test_fires_on_the_prefixed_key_add_row_ordinal_actually_produces(self):
+        """A bare 'patient_id' lookup silently finds nothing -- the _sheet_year trap."""
+        assert _is_r_static_join_misses_respelled_id(
+            CellMismatch(
+                key={"__key_patient_id": "LA-MH056", "__key_sheet_name": "Jun24"},
+                column="province",
+                r_value=None,
+                py_value="Vientiane Capital",
+            )
+        )

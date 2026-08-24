@@ -21,6 +21,7 @@ from a4d.extract.common import (
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
+    normalize_patient_id_expr,
 )
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
@@ -881,6 +882,54 @@ def harmonize_patient_data_columns(
     return renamed_df
 
 
+def join_static_sheet(
+    df_monthly: pl.DataFrame,
+    static_sheet: pl.DataFrame,
+    suffix: str,
+    sheet_name: str,
+) -> pl.DataFrame:
+    """Attach a per-patient sheet's columns onto that patient's month rows.
+
+    Used for both whole-tracker joins: the ``Patient List`` demographics and
+    the ``Annual`` sheet.
+
+    Keyed on the *normalized* ID rather than the raw one (ticket 58). A month
+    sheet routinely spells an ID differently from the Patient List in the same
+    workbook -- 2023/2024 Mahosot write ``LA-MH056`` against a Patient List
+    entry of ``LA_MH056`` -- and on the raw key those rows kept their
+    measurements and silently lost every static column. Measured across the
+    real 254-tracker corpus, the raw key misses 695 Patient List rows in 6
+    files (680 recoverable, 6,863 cells) and 132 Annual rows (19 recoverable,
+    40 cells); the rest name a patient the sheet does not list at all, which is
+    a source defect rather than a key mismatch.
+
+    The key is derived for the join only: ``patient_id`` in the returned frame
+    is still the spelling the month sheet used, which is what the raw layer
+    promises and what the R/Python comparison aligns rows on.
+    """
+    key = "__static_join_key"
+    static = static_sheet.with_columns(
+        normalize_patient_id_expr(pl.col("patient_id")).alias(key)
+    ).drop("patient_id")
+
+    # Normalization introduces no new key collisions anywhere in the corpus,
+    # but if a sheet ever does carry two entries folding to one key, a fan-out
+    # would silently duplicate that patient's month rows -- so collapse to the
+    # first entry rather than let the join multiply rows.
+    deduped = static.unique(subset=[key], keep="first", maintain_order=True)
+    if deduped.height != static.height:
+        logger.bind(error_code="invalid_tracker").warning(
+            f"'{sheet_name}' has {static.height - deduped.height} entries whose IDs "
+            "differ only by hyphen or transfer-clinic suffix; keeping the first of each"
+        )
+
+    return (
+        df_monthly.with_columns(normalize_patient_id_expr(pl.col("patient_id")).alias(key))
+        .join(deduped, on=key, how="left", suffix=suffix)
+        .drop(key)
+    )
+
+
 def read_all_patient_sheets(
     tracker_file: Path,
     mapper: ColumnMapper | None = None,
@@ -1153,8 +1202,8 @@ def read_all_patient_sheets(
                         else patient_list
                     )
 
-                    df_combined = df_monthly.join(
-                        patient_list_join, on="patient_id", how="left", suffix=".static"
+                    df_combined = join_static_sheet(
+                        df_monthly, patient_list_join, ".static", "Patient List"
                     )
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
@@ -1201,8 +1250,8 @@ def read_all_patient_sheets(
                         annual_data.drop(cols_to_drop) if cols_to_drop else annual_data
                     )
 
-                    df_combined = df_combined.join(
-                        annual_data_join, on="patient_id", how="left", suffix=".annual"
+                    df_combined = join_static_sheet(
+                        df_combined, annual_data_join, ".annual", "Annual"
                     )
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:

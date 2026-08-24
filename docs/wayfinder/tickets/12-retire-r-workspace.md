@@ -3,7 +3,7 @@ id: 12
 title: Retire R from the workspace once the pipeline is fully verified Python-only
 labels: [wayfinder:task]
 status: open
-blocked_by: [58]
+blocked_by: [63]
 assignee: null
 claimed_at: null
 resolution: null
@@ -329,3 +329,19 @@ tickets still open, only [the eight pre-bar
 causes](60-audit-remaining-pre-bar-classifiers.md) needs the R source, and it
 needs it by definition. **One ticket now stands between this map and retiring
 R.**
+
+**2026-08-24d ([the Patient List join](58-patient-list-join-uses-unfixed-id.md)
+closed).** `blocked_by` swaps `58` for **`[63]`**. Ticket 58's own "check R"
+turned out **not** to need `r-archive/`'s source at all -- the answer came from
+R's frozen *output* (its cleaned `2024_Mahosot` carries the same null block
+starting at `LA_MH056`), which the map's Notes already rule out of this
+ticket's scope. So the previous session's judgement that 58 was a blocker was
+wrong, and it is recorded here rather than quietly dropped.
+
+Re-derived across all nine open tickets: [the cleaned-stage static-join
+divergence](63-name-the-cleaned-stage-static-join-divergence.md) is the only
+one that needs the R source. Its question 2 asks what mechanism leaves R null
+on `bmi`, `age` and `t1d_diagnosis_age` for these patients when the month
+sheets carry those columns -- a question about R's own code, not about its
+output. Tickets 6, 9, 16, 34, 35, 40 and 41 were each checked again and need
+none. **One ticket still stands between this map and retiring R.**
