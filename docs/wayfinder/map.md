@@ -44,7 +44,7 @@ flowchart TD
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T58["<b>58</b> · task<br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
+    T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
   end
   subgraph BLOCKED["Blocked · 3"]
     direction TB
@@ -52,7 +52,7 @@ flowchart TD
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T12["<b>12</b> · task<br/>Retire R from the<br/>workspace once the<br/>pipeline is fully verified<br/>Python-only"]
   end
-  subgraph DECIDED["Decided · 50"]
+  subgraph DECIDED["Decided · 51"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -103,6 +103,7 @@ flowchart TD
     T56["<b>56</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 9)"]
     T57["<b>57</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 10)"]
     T59["<b>59</b> · task<br/>Rows that pair with<br/>nothing on the other side,<br/>which no ticket has ever<br/>triaged"]
+    T60["<b>60</b> · task<br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
     T61["<b>61</b> · grilling<br/>Decide whether a Thai<br/>clinic's Buddhist-era<br/>entry date is published as<br/>2567 or converted to 2024"]
   end
   subgraph DROPPED["Out of scope · 1"]
@@ -136,14 +137,14 @@ flowchart TD
   T22 --> T6
   T23 --> T6
   T45 --> T46
-  T60 --> T12
+  T62 --> T12
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T16,T34,T35,T40,T41,T58,T60 frontier
+  class T16,T34,T35,T40,T41,T58,T62 frontier
   classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class T6,T9,T12 blocked
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T61 decided
+  class T2,T3,T4,T5,T7,T8,T10,T11,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T59,T60,T61 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1 dropped
 ```
@@ -2368,7 +2369,86 @@ source-defect report, a separate feature (ticket 16) and ticket 58. No ticket
 was spawned: the residual unmatched population (129 cleaned / 115 raw) is
 entirely accounted for by decisions now made.
 
+**[The eight pre-bar causes](tickets/60-audit-remaining-pre-bar-classifiers.md)
+is closed, and for the second session running the thing that decided it was
+measuring a classifier's own claim rather than the difference it names.**
+`buddhist_era_typo` asserted a Buddhist-era typo on twelve cells; opening the
+two source workbooks showed years of 3035 and 5025, which are neither
+Gregorian-plausible nor 543 off their tracker's. Ticket 61 is what made the old
+`year >= 2400` test wrong rather than merely loose: once genuine BE dates are
+converted in cleaning, anything still above the threshold is by construction
+not one.
+
+**The session's second finding came from its own fix**, which is worth carrying
+forward as a habit: bounding one classifier dropped five rows onto
+`r_parse_order_cannot_read_cell`, a *post-bar* cause and so out of ticket 32's
+scope — but the label was false (R never failed to parse; it carried the Excel
+serial `1141523` through as a string, and the comparison's own date
+normalization is what produced the sentinel). Ticket 60 owned it because its
+own change put them there. The fix was to wire ticket 32's existing
+`python_absurd_excel_serial` to the patient date columns, where its
+Buddhist-era band had never been able to apply at all — no patient stage sets
+`tracker_year_col`, so it now reads the year off the sheet name like the other
+patient date causes.
+
+The measurement that makes those two safe to believe: every per-cause count in
+all four stages, before and against after. **Exactly four entries moved**, and
+`unclassified` held at 37 — so nothing was quietly pushed into the unexplained
+bucket, and all twelve rows went from a false label to a true one.
+
+**Two more causes had their docstrings corrected without a single count
+moving**, which is the shape ticket 32 predicted: the label was right and the
+explanation under it was incomplete. `r_extraction_gap` spans thirteen columns
+against the six mechanisms it documented, and one of the three newly traced
+mechanisms **corrects an explanation already sitting in the registry** — the
+comment above the 2026 ISDFI cells blames R for reading nothing from the Annual
+sheet, when R reads 102 of that file's 120 `edu_occ` rows and the actual cause
+is three rows whose column-A row number is blank. That is the same residue as
+ticket 59's cleared row number, on a different sheet type.
+`r_validator_rejects_multivalue` turned out to name two R defects, the
+documented CSV rejection plus NA propagation through `ifelse`/`paste`.
+
+**Ticket 12's `blocked_by` moves from `[60]` to `[62]`, so R still does not
+retire, and the count of tickets standing between this map and retiring it is
+unchanged at one.** [Finishing the audit](tickets/62-finish-the-pre-bar-classifier-audit.md)
+inherits the two causes ticket 60 did not reach plus `r_extraction_gap`'s 98%
+bulk (`recruitment_date` 28,009 and `edu_occ_updated` 2,770, both left
+unmeasured) — all three are questions about R's own code, so `r-archive/` stays.
+The frontier is seven; of them only ticket 62 is on the route to the
+destination.
+
 ## Decisions so far
+
+- [Audit the eight pre-bar causes the first classifier pass did not
+  reach](tickets/60-audit-remaining-pre-bar-classifiers.md) -- decided and
+  implemented. Six of eight audited, Python correct in all six.
+  **`buddhist_era_typo` was naming twelve cells that are not Buddhist-era
+  dates**: its whole test was `year >= 2400`, which since [ticket
+  61](tickets/61-decide-buddhist-era-date-conversion.md) converts genuine BE
+  dates is exactly backwards. Both populations are ordinary year typos verified
+  in the workbook (`3035-03-01`, 2025 CDA `Mar25!O219`; `5025-05-19`, 2025 Surat
+  Thani `May25!O70`). Bounding it exposed a *second* false label -- five rows
+  fell to `r_parse_order_cannot_read_cell`, which asserts R's parse orders
+  failed when R had simply carried the Excel serial `1141523` through as a
+  string -- so ticket 32's `python_absurd_excel_serial` is now wired to every
+  patient date column, with its Buddhist-era band reading the sheet name
+  because no patient stage sets `tracker_year_col`. Measured before and after
+  across all four stages: **exactly four per-cause entries moved**, and
+  `unclassified` held at 37, so all twelve went from a false label to a true
+  one. Two docstrings corrected without moving a count: `r_extraction_gap`
+  spans **thirteen** columns against the six mechanisms it documented (three
+  more traced to source -- a blank `Q85` header costing 194 2021 Kantha Bopha
+  `insulin_regimen` rows, a blank row number on the 2026 `Annual` sheet costing
+  7, and Thai text in a Nakornping header costing 42 -- and the second of those
+  **corrects an explanation already in the registry**, which blamed R for
+  reading nothing from a sheet it reads 102 of 120 rows from), and
+  `r_validator_rejects_multivalue` covers **two** R defects, the documented CSV
+  rejection plus NA propagation through `ifelse`/`paste` that rejects 575
+  single-tick rows. `row_order_divergence`'s verdict written, not re-evidenced;
+  `excel_formula_error` confirmed 100% one-directional and raw-only.
+  `r_category_lookup_miss`, `openpyxl_date_typed_stray_cell` and
+  `r_extraction_gap`'s 98% bulk not reached -- split to [ticket
+  62](tickets/62-finish-the-pre-bar-classifier-audit.md).
 
 - [Rows that pair with nothing on the other side, which no ticket has ever
   triaged](tickets/59-triage-unmatched-row-keys.md) -- decided and implemented.
@@ -3690,6 +3770,10 @@ flowchart TB
     direction LR
     U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
   end
+  subgraph S2026_08_24b["Session 2026-08-24b"]
+    direction LR
+    U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -3705,7 +3789,7 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
+    U62["<b>62</b><br/>Finish the pre-bar<br/>classifier audit — the<br/>two causes and the one<br/>bulk population it did<br/>not reach"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -3751,7 +3835,8 @@ flowchart TB
   S2026_08_21 ~~~ S2026_08_22
   S2026_08_22 ~~~ S2026_08_22b
   S2026_08_22b ~~~ S2026_08_24
-  S2026_08_24 ~~~ Sunworked
+  S2026_08_24 ~~~ S2026_08_24b
+  S2026_08_24b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -3780,7 +3865,7 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U60 --->|blocked| U12
+  U62 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -3830,13 +3915,14 @@ flowchart TB
   U47 -.->|spawned| U59
   U32 -.->|spawned| U60
   U32 -.->|spawned| U61
+  U60 -.->|spawned| U62
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58,U60 tfrontier
+  class U16,U34,U35,U40,U41,U58,U62 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U61 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U60,U61 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped
 ```

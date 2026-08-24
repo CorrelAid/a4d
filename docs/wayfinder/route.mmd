@@ -181,6 +181,10 @@ flowchart TB
     direction LR
     U59["<b>59</b><br/>Rows that pair with<br/>nothing on the other<br/>side, which no ticket<br/>has ever triaged"]
   end
+  subgraph S2026_08_24b["Session 2026-08-24b"]
+    direction LR
+    U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -196,7 +200,7 @@ flowchart TB
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U58["<b>58</b><br/>Monthly rows with a<br/>misspelled ID silently<br/>lose their Patient List<br/>demographics"]
-    U60["<b>60</b><br/>Audit the eight pre-bar<br/>causes the first<br/>classifier pass did not<br/>reach"]
+    U62["<b>62</b><br/>Finish the pre-bar<br/>classifier audit — the<br/>two causes and the one<br/>bulk population it did<br/>not reach"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -242,7 +246,8 @@ flowchart TB
   S2026_08_21 ~~~ S2026_08_22
   S2026_08_22 ~~~ S2026_08_22b
   S2026_08_22b ~~~ S2026_08_24
-  S2026_08_24 ~~~ Sunworked
+  S2026_08_24 ~~~ S2026_08_24b
+  S2026_08_24b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -271,7 +276,7 @@ flowchart TB
   U3 --->|blocked| U10
   U13 --->|blocked| U10
   U3 --->|blocked| U11
-  U60 --->|blocked| U12
+  U62 --->|blocked| U12
   U3 --->|blocked| U13
   U10 -.->|spawned| U14
   U2 -.->|spawned| U15
@@ -321,12 +326,13 @@ flowchart TB
   U47 -.->|spawned| U59
   U32 -.->|spawned| U60
   U32 -.->|spawned| U61
+  U60 -.->|spawned| U62
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U16,U34,U35,U40,U41,U58,U60 tfrontier
+  class U16,U34,U35,U40,U41,U58,U62 tfrontier
   classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
   class U6,U9,U12 tblocked
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U61 tdecided
+  class U2,U3,U4,U5,U7,U8,U10,U11,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U59,U60,U61 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1 tdropped

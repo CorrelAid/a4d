@@ -823,11 +823,25 @@ def _is_python_absurd_excel_serial(m: CellMismatch) -> bool:
         return False
     if m.py_value.year < CE_TYPO_YEAR_THRESHOLD:
         return False
-    if m.tracker_year is not None:
-        buddhist_year = m.tracker_year + BUDDHIST_ERA_OFFSET
+    # Patient stages carry no tracker_year column, so the band would never
+    # apply there and the cause would out-claim genuine Buddhist-era dates
+    # (ticket 60). _sheet_year reads the same year off the row's sheet name.
+    tracker_year = m.tracker_year if m.tracker_year is not None else _sheet_year(m)
+    if tracker_year is not None:
+        buddhist_year = tracker_year + BUDDHIST_ERA_OFFSET
         if buddhist_year - YEAR_FLOOR_DELTA <= m.py_value.year <= buddhist_year:
             return False
     return True
+
+
+# Wired ahead of every patient date column's own causes (ticket 60). Safe to
+# run first because the band check above excludes a genuine Buddhist-era year,
+# and a junk serial is not evidence about R's parse orders -- it was
+# `r_parse_order_cannot_read_cell` that claimed the five 2025 Surat Thani cells
+# whose R side is the serial 1141523.
+PATIENT_ABSURD_SERIAL_CLASSIFIERS: dict[str, Classifier] = {
+    "python_absurd_excel_serial": _is_python_absurd_excel_serial,
+}
 
 
 def _is_excel_1900_leap_serial(m: CellMismatch) -> bool:
@@ -935,6 +949,24 @@ def _is_row_order_divergence(m: CellMismatch) -> bool:
     per-row order -- not a genuine content divergence, and not something to
     "fix" toward R's order, since Python's is the one verified against the
     real source Excel dates.
+
+    **Verdict (ticket 60): Python's chronological sort is the correct side.**
+    The mechanism was established by ticket 21 and the evidence by ticket 25 --
+    per-column multiset equality across all 2,283 ``(clinic_id,
+    product_sheet_name)`` groups for ``product_units_released``, and row-identity
+    preservation across all 11,649 product groups -- but the verdict itself was
+    never written down, only implied. Stating it plainly: both sides implement
+    the same documented rank algorithm, the difference is entirely in which
+    rows have a parsable ``product_entry_date`` to sort by, and Python parses
+    the ones R does not. Nothing is added or lost on either side; only the
+    order differs.
+
+    Caveat on the flag, not on the verdict: ``row_order_candidate`` is a loose
+    value-membership test -- it asks whether R's value appears anywhere in
+    Python's own group -- so it false-fires on repeated small numeric values,
+    where a coincidental match means nothing. It is evidence of ordering, not
+    proof of it, and ``product_balance``'s cumulative running total cannot be
+    detected this way at all (already explained, and homed on ticket 36).
     """
     return m.row_order_candidate
 
@@ -1041,6 +1073,42 @@ def _is_r_extraction_gap(m: CellMismatch) -> bool:
       flag (D) has no header in *either* header row, so R drops it; Python
       recovers the name from the sibling month sheets that do label it (ticket
       30's ``recover_blank_headers``). Verified: Oct25!D90 = "Y" for MY_LW014.
+
+    Ticket 60 scanned the whole population rather than the columns already
+    named, and found it spans thirteen columns, not the seven above. Three
+    further mechanisms, each traced to the source workbook, each with Python
+    the correct side:
+
+    - ``insulin_regimen`` on 2021 Kantha Bopha (194 rows): the ``Mar21`` and
+      ``Apr21`` sheets carry the patient header at row 85 with ``Q85``/``Q86``
+      simply *empty*, where every other month sheet has ``Q13 = "Insulin
+      Regime"``. R publishes 0 non-null for those two sheets and 97 for each of
+      the others; the column still holds data (``Mar21!Q87 = "Self-mixed BD"``
+      for KH_KB001), and Python recovers the name from the sibling sheets via
+      ``recover_blank_headers``. The same blank-header mechanism as
+      ``clinic_visit`` above, a second instance rather than a new kind.
+    - **A blank row number on the 2026 ``Annual`` sheet** (7 rows): 2026 ISDFI
+      rows 32-34 (PH_IS022-024) and 2026 Khon Kaen row 27 (TH_KN016) are
+      exactly the ``Annual`` rows whose column A is empty while every other row
+      is numbered. R drops them from the Annual join and publishes null across
+      ``edu_occ``, ``blood_pressure_sys_mmhg``, ``blood_pressure_dias_mmhg``,
+      ``other_issues`` and ``status``; the cells hold real values
+      (``Annual!E32 = "college graduate"``, ``H32``/``I32`` = 80/50). Note this
+      corrects the reason recorded against those same ISDFI cells further up
+      the registry, which attributes them to R reading nothing from the Annual
+      sheet: R reads that sheet for this file perfectly well (102 of 120
+      ``edu_occ``), so the sheet is not the mechanism, the missing row number
+      is.
+    - ``edu_occ`` on 2026 Nakornping (42 rows, R 0 non-null for the whole
+      file): its ``Annual!E9`` reads ``"Level of Education\\nOr Occupation/
+      อาชีพหรือชั้นเรียน"`` where ISDFI's and Khon Kaen's read ``"Level of
+      Education\\nOr Occupation"``. R's Unicode-aware sanitizer keeps the Thai
+      in the column name and no synonym matches; Python's ASCII folding drops
+      it. This is ``r_non_latin_header_miss``'s mechanism (ticket 49) being
+      absorbed here on registry order -- worth knowing, not a defect.
+
+    ``recruitment_date`` (28,009) and ``edu_occ_updated`` (2,770), which carry
+    the bulk, were not re-measured by ticket 60.
 
     A genuine R limitation in every case, not a Python defect.
     """
@@ -1311,6 +1379,27 @@ def _is_r_validator_rejects_multivalue(m: CellMismatch) -> bool:
     _derive_insulin_fields docstring, ticket 28): Python's derivation is a
     deliberate, documented correction of an R typo and validator bug, not a
     parity gap to close.
+
+    Ticket 60 measured the population and found the name covers **two** R
+    defects, not one. 570 of the 15,647 rows have a Python value with no comma
+    in it at all -- 510 of them a bare ``Pre-mixed`` -- which the multi-value
+    story cannot explain, since R accepts ``Pre-mixed`` elsewhere (5,426 rows
+    of its own output). The second mechanism is **NA propagation through R's
+    builder**: ``script2_process_patient_data.R`` composes the field as
+    ``ifelse(human_insulin_pre_mixed == "Y", "pre-mixed", "")`` pasted with one
+    ``ifelse`` per sibling column, and ``NA == "Y"`` is ``NA``, which ``paste``
+    stringifies as the literal ``"NA"``. The subsequent ``.x[.x != ""]`` filter
+    removes empties but not ``"NA"``, so a single tick beside unfilled siblings
+    still yields ``"pre-mixed,NA,NA,NA,NA"`` and is rejected. Measured across
+    the corpus: where R publishes ``Pre-mixed``, the sibling columns are
+    non-null in 4,134 of 4,135 rows; where R publishes ``Undefined`` on a
+    pre-mixed tick, 575 have at least one null sibling. R's output contains no
+    comma-joined value at all, and no ``Rapid-acting`` whatsoever -- the latter
+    being the ``"rapic-acting"`` typo on line 105 of the same builder.
+
+    Python is the correct side in both: it reads the same raw ticks (verified
+    identical on both sides for 2024 NPT, MM_NC009, Apr24) and validates each
+    token independently.
     """
     return m.r_value == "Undefined" and m.py_value is not None
 
@@ -1590,6 +1679,24 @@ EXCEL_ERROR_STRINGS = frozenset(
 
 
 def _is_excel_formula_error(m: CellMismatch) -> bool:
+    """One side carries an Excel formula error string; the other has null.
+
+    **Verdict (ticket 60): Python is the correct side, and the test's symmetry
+    is currently unexercised.** Measured over the real 254-tracker pair: all
+    12,680 rows run one way -- Python holds the error string, R holds null --
+    across ``t1d_diagnosis_age`` (8,495), ``bmi`` (4,170) and ``age`` (15), and
+    every one is at the **raw** stage. readxl coerces an Excel error cell to
+    NA; openpyxl returns the literal ``#DIV/0!``, which is what raw extraction
+    is for -- a faithful record of what the cell contains, including that it
+    contains a broken formula rather than a missing value.
+
+    Nothing survives into cleaned output on either side (executed: 0
+    error-string cells in all three columns across every cleaned parquet, both
+    pipelines), so the divergence is confined to the stage whose job is
+    fidelity, and Python's extra information costs the downstream tables
+    nothing. The reverse direction is kept in the test because a future tracker
+    could produce it, not because anything currently does.
+    """
     return (m.r_value in EXCEL_ERROR_STRINGS and m.py_value is None) or (
         m.py_value in EXCEL_ERROR_STRINGS and m.r_value is None
     )
@@ -1623,14 +1730,35 @@ PATIENT_BUDDHIST_ERA_THRESHOLD = 2400
 
 
 def _is_buddhist_era_typo(m: CellMismatch) -> bool:
+    """One side sentinelled a Buddhist-era year the other carried through.
+
+    Bounded by the sheet's own BE band (ticket 60). The bare
+    ``year >= PATIENT_BUDDHIST_ERA_THRESHOLD`` test this used to carry claimed
+    *any* far-future date as a Buddhist-era typo, which after ticket 61 is
+    exactly backwards: the cleaned stage now converts genuine BE dates, so a
+    year still sitting above the threshold is by construction not a
+    recoverable BE date. Both real populations it was claiming are ordinary
+    year typos in the source workbook, verified against the cells themselves
+    -- ``3035-03-01`` (2025 CDA, Mar25!O219) and ``5025-05-19`` (2025 Surat
+    Thani, May25!O70), each a genuine date-formatted Excel cell whose year is
+    neither Gregorian-plausible nor 543 off its tracker's.
+
+    The band mirrors ``_is_python_absurd_excel_serial``'s. Where the sheet
+    year cannot be read the old behaviour stands, since an unknown tracker
+    year cannot disprove a BE date.
+    """
     sentinelled, carried = (
         (m.r_value, m.py_value) if m.r_value == SENTINEL_DATE else (m.py_value, m.r_value)
     )
-    return (
-        sentinelled == SENTINEL_DATE
-        and isinstance(carried, datetime.date)
-        and carried.year >= PATIENT_BUDDHIST_ERA_THRESHOLD
-    )
+    if sentinelled != SENTINEL_DATE or not isinstance(carried, datetime.date):
+        return False
+    if carried.year < PATIENT_BUDDHIST_ERA_THRESHOLD:
+        return False
+    tracker_year = m.tracker_year if m.tracker_year is not None else _sheet_year(m)
+    if tracker_year is None:
+        return True
+    buddhist_year = tracker_year + BUDDHIST_ERA_OFFSET
+    return buddhist_year - YEAR_FLOOR_DELTA <= carried.year <= buddhist_year
 
 
 def _is_python_buddhist_era_converted(m: CellMismatch) -> bool:
