@@ -45,7 +45,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
-    T69["<b>69</b> · task<br/>The biggest finding code<br/>is a recovery filed as<br/>data loss, and every age<br/>finding is emitted twice"]
+    T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
   end
   subgraph DECIDED["Decided · 59"]
     direction TB
@@ -2807,6 +2807,20 @@ finding twice (13,519 + 13,519 and 2,561 + 2,561, an exact split) — **16,080
 duplicate rows, 13% of the table**, and the seventh and eighth instance of the
 pattern ticket 66 collapsed six of.
 
+**A third defect came from the user asking whether there was a code for an
+invalid patient ID. There is not.** Three things can be wrong with a row's ID
+and only two have a code: `excel_error_patient_id` for a `#REF!` cell (120) and
+`missing_required_field` for an empty one (135). A **malformed** ID — 3,027
+findings across 115 trackers, 456 distinct ID values — goes into `invalid_value`
+alongside 24,805 findings from twelve other emitters, so it cannot be filtered
+for at all. **2,993 of those are unrepairable and publish as `Undefined`**, each
+one a patient whose months cannot be attributed; the other 34 were recovered
+from the tracker's own spelling and are mis-filed as `data_lost` exactly as
+`missing_value` is. [Ticket 40](tickets/40-source-defect-findings-report.md)'s
+own catalogue had already argued these are the findings that matter most —
+"an unrepairable one costs the clinic a whole patient's history" — and they are
+today the hardest thing in the table to find.
+
 **The report also gained what the user's own error dashboard had and this did
 not**: an **Overview** sheet of run-level statistics, and a **Trackers** sheet
 joining `tracker_metadata`'s per-arm, per-stage processing record to the
@@ -4538,7 +4552,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
-    U69["<b>69</b><br/>The biggest finding code<br/>is a recovery filed as<br/>data loss, and every age<br/>finding is emitted twice"]
+    U69["<b>69</b><br/>The finding taxonomy<br/>mis-files recoveries as<br/>data loss, duplicates<br/>rows, and has no code<br/>for a malformed patient<br/>ID"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
