@@ -14,14 +14,15 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 | `clean/product.py` | Product cleaning pipeline (R steps 2.0-2.21) → cleaned product parquet |
 | `clean/schema.py` | 83-column patient meta schema matching R output |
 | `clean/schema_product.py` | 20-column product meta schema + helpers |
-| `clean/converters.py` | Safe type conversion with ErrorCollector |
+| `clean/converters.py` | Safe type conversion, reporting a finding per unusable cell |
 | `clean/validators.py` | Case-insensitive allowed-values validation |
 | `clean/transformers.py` | Explicit transformations (regimen, BP splitting, FBG) |
 | `clean/date_parser.py` | Flexible date parsing (Excel serials, DD/MM/YYYY, month-year) |
 | `tables/patient.py` | Aggregate cleaned parquets → static, monthly, annual tables |
 | `tables/product.py` | Aggregate cleaned product parquets → product_data table |
 | `tables/clinic.py` | Create clinic static table from reference_data/clinic_data.xlsx |
-| `tables/logs.py` | Aggregate error logs → logs table |
+| `tables/logs.py` | Aggregate operational logs → logs table |
+| `tables/findings.py` | Aggregate data-quality findings → findings table |
 | `tables/metadata.py` | Tracker metadata table (MD5 + per-tracker output presence flags) |
 | `pipeline/patient.py` | Orchestrate extract+clean per tracker, parallel workers |
 | `pipeline/product.py` | Product pipeline orchestration (mirrors patient, single product_data table) |
@@ -37,8 +38,8 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 | `state/` | Reserved for incremental-processing logic (design in [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md); not yet implemented) |
 | `utils/` | Shared utilities |
 | `config.py` | Pydantic settings from `.env` / `A4D_*` env vars |
-| `logging.py` | loguru setup, `file_logger()` context manager |
-| `errors.py` | Shared error types |
+| `logging.py` | loguru setup, `file_logger()` context manager (operational logging only) |
+| `findings.py` | Data-quality findings: the single emit point, its context, and the record |
 | `cli.py` | Typer CLI entry point |
 
 ## CLI Commands
@@ -53,7 +54,7 @@ uv run a4d run product            # Extract + clean + table (local run, product)
 uv run a4d create tables          # Re-create patient/product/clinic/logs tables from existing cleaned parquets
 uv run a4d create logs            # Re-create only the logs table from existing pipeline log files
 
-uv run a4d upload tables          # Upload tables to BigQuery (--only patient|product|clinic|logs|errors|metadata to restrict)
+uv run a4d upload tables          # Upload tables to BigQuery (--only patient|product|clinic|logs|findings|metadata to restrict)
 uv run a4d upload output          # Upload output directory to GCS
 
 uv run a4d download trackers      # Download tracker files from GCS
@@ -70,7 +71,7 @@ output/
 ├── patient_data_cleaned/   # Cleaned patient parquets (one per tracker)
 ├── product_data_raw/       # Raw extracted product parquets (one per tracker)
 ├── product_data_cleaned/   # Cleaned product parquets (one per tracker)
-├── tables/                 # Final tables: patient_data_{static,monthly,annual}.parquet, product_data.parquet, clinic_data_static.parquet, table_logs.parquet, tracker_metadata.parquet
+├── tables/                 # Final tables: patient_data_{static,monthly,annual}.parquet, product_data.parquet, clinic_data_static.parquet, table_logs.parquet, table_findings.parquet, tracker_metadata.parquet
 └── logs/                   # Per-tracker log files (JSON)
 ```
 
@@ -79,7 +80,11 @@ output/
 - `clinic_id` = parent folder name of the tracker file
 - Year detected from sheet names (`Jan24` → 2024) or filename
 - Error sentinel values: numeric `999999`, string `"Undefined"`, date `"9999-09-09"`
-- `ErrorCollector` accumulates row-level data quality errors; never raises
+- `report_finding()` is the only way to record a data-quality finding; it appends to the
+  collector bound by `tracker_context()` and emits the same finding to the tracker's log
+  stream. It raises outside a context rather than dropping the finding
+- Two published artifacts, two jobs: `findings` (what is wrong with a workbook, for A4D
+  staff) and `logs` (what the pipeline did, for a developer). `errors` is superseded
 - `reference_data/` holds the pipeline's shared configuration (synonyms, validation rules, provinces); changing it changes cleaning behaviour for every tracker
 
 ## Pipeline Status

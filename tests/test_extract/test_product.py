@@ -7,7 +7,6 @@ import polars as pl
 import pytest
 from openpyxl import Workbook
 
-from a4d.errors import ErrorCollector
 from a4d.extract.product import (
     ProductSectionNotFoundError,
     _count_orphan_released_units,
@@ -89,32 +88,30 @@ def _make_mapper(known_to_standard: dict[str, str]):
     return mapper
 
 
-def test_harmonize_renames_known_drops_unknown():
+def test_harmonize_renames_known_drops_unknown(collector):
     df = pl.DataFrame(
         {"Product Name": ["Insulin"], "Random Junk": ["x"]},
         schema={"Product Name": pl.String, "Random Junk": pl.String},
     )
     mapper = _make_mapper({"Product Name": "product"})
-    collector = ErrorCollector()
 
-    out = _harmonize(df, mapper, sheet_name="Jun24", error_collector=collector, file_name="t.xlsx")
+    out = _harmonize(df, mapper, sheet_name="Jun24", file_name="t.xlsx")
 
     assert out.columns == ["product"]
     assert len(collector) == 1
-    assert collector.errors[0].column == "Random Junk"
-    assert collector.errors[0].error_code == "invalid_tracker"
-    assert collector.errors[0].function_name == "harmonize_input_data_columns"
+    assert collector.findings[0].column == "Random Junk"
+    assert collector.findings[0].error_code == "invalid_tracker"
+    assert collector.findings[0].function_name == "harmonize_input_data_columns"
 
 
-def test_harmonize_no_unknowns_no_log():
+def test_harmonize_no_unknowns_no_log(collector):
     df = pl.DataFrame(
         {"Product Name": ["Insulin"]},
         schema={"Product Name": pl.String},
     )
     mapper = _make_mapper({"Product Name": "product"})
-    collector = ErrorCollector()
 
-    out = _harmonize(df, mapper, sheet_name="Jun24", error_collector=collector, file_name="t.xlsx")
+    out = _harmonize(df, mapper, sheet_name="Jun24", file_name="t.xlsx")
 
     assert out.columns == ["product"]
     assert len(collector) == 0
@@ -260,7 +257,7 @@ def test_remove_header_rows_drops_row_of_empty_strings():
     assert out["product"].to_list() == ["Insulin"]
 
 
-def test_read_all_product_sheets_end_to_end(tmp_path: Path):
+def test_read_all_product_sheets_end_to_end(tmp_path: Path, collector):
     """End-to-end: build a tracker workbook with one month sheet, stub the
     mapper, and verify the orchestrator wires extract → harmonize →
     metadata → totals correctly."""
@@ -292,9 +289,8 @@ def test_read_all_product_sheets_end_to_end(tmp_path: Path):
             "Released": "product_units_released",
         }
     )
-    collector = ErrorCollector()
 
-    out = read_all_product_sheets(tracker_path, mapper=mapper, error_collector=collector)
+    out = read_all_product_sheets(tracker_path, mapper=mapper)
 
     assert out.height == 2
     assert "product" in out.columns
@@ -322,7 +318,7 @@ def test_read_all_product_sheets_no_month_sheets_raises(tmp_path: Path):
         read_all_product_sheets(tracker_path, mapper=mapper)
 
 
-def test_count_orphan_released_units_logs_per_sheet():
+def test_count_orphan_released_units_logs_per_sheet(collector):
     """3 orphan rows (released_to null while units_released non-null)
     produce exactly 1 ErrorCollector entry naming the sheet and count."""
     df = pl.DataFrame(
@@ -335,22 +331,19 @@ def test_count_orphan_released_units_logs_per_sheet():
             "product_units_released": pl.String,
         },
     )
-    collector = ErrorCollector()
 
-    _count_orphan_released_units(
-        df, sheet_name="Jul24", file_name="t.xlsx", error_collector=collector
-    )
+    _count_orphan_released_units(df, sheet_name="Jul24", file_name="t.xlsx")
 
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.error_code == "invalid_tracker"
-    assert err.function_name == "read_product_data_step1"
+    assert err.function_name == "_count_orphan_released_units"
     assert err.column == "product_released_to"
-    assert "Jul24" in err.error_message
-    assert "3" in err.error_message
+    assert "Jul24" in err.message
+    assert "3" in err.message
 
 
-def test_count_orphan_released_units_zero_rows_no_log():
+def test_count_orphan_released_units_zero_rows_no_log(collector):
     """Clean fixture (all releases have a recipient) emits no log."""
     df = pl.DataFrame(
         {
@@ -362,12 +355,11 @@ def test_count_orphan_released_units_zero_rows_no_log():
             "product_units_released": pl.String,
         },
     )
-    collector = ErrorCollector()
-    _count_orphan_released_units(df, "Jul24", "t.xlsx", collector)
+    _count_orphan_released_units(df, "Jul24", "t.xlsx")
     assert len(collector) == 0
 
 
-def test_count_orphan_released_units_treats_whitespace_as_null():
+def test_count_orphan_released_units_treats_whitespace_as_null(collector):
     """Whitespace-only product_released_to (e.g. ' ') counts as orphan."""
     df = pl.DataFrame(
         {
@@ -379,13 +371,12 @@ def test_count_orphan_released_units_treats_whitespace_as_null():
             "product_units_released": pl.String,
         },
     )
-    collector = ErrorCollector()
-    _count_orphan_released_units(df, "Jul24", "t.xlsx", collector)
+    _count_orphan_released_units(df, "Jul24", "t.xlsx")
     assert len(collector) == 1
-    assert "2" in collector.errors[0].error_message
+    assert "2" in collector.findings[0].message
 
 
-def test_count_orphan_released_units_no_collector_is_noop():
+def test_count_orphan_released_units_without_findings_does_not_raise(collector):
     """When no collector is passed (e.g. preview path), the helper is a no-op."""
     df = pl.DataFrame(
         {
@@ -397,5 +388,5 @@ def test_count_orphan_released_units_no_collector_is_noop():
             "product_units_released": pl.String,
         },
     )
-    # Just must not raise.
-    _count_orphan_released_units(df, "Jul24", "t.xlsx", None)
+    # Must not raise: no orphan rows means no findings.
+    _count_orphan_released_units(df, "Jul24", "t.xlsx")

@@ -19,10 +19,9 @@ from a4d.clean.date_parser import (
     rescue_date_typos,
 )
 from a4d.config import settings
-from a4d.errors import ErrorCollector
 
 
-def test_safe_convert_column_success():
+def test_safe_convert_column_success(collector):
     """Test successful conversion without errors."""
     df = pl.DataFrame(
         {
@@ -32,13 +31,10 @@ def test_safe_convert_column_success():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="age",
         target_type=pl.Int32,
-        error_collector=collector,
     )
 
     assert result.schema["age"] == pl.Int32
@@ -46,7 +42,7 @@ def test_safe_convert_column_success():
     assert len(collector) == 0  # No errors
 
 
-def test_safe_convert_column_with_failures():
+def test_safe_convert_column_with_failures(collector):
     """Test conversion with some failures."""
     df = pl.DataFrame(
         {
@@ -56,13 +52,10 @@ def test_safe_convert_column_with_failures():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="age",
         target_type=pl.Int32,
-        error_collector=collector,
     )
 
     assert result.schema["age"] == pl.Int32
@@ -81,7 +74,7 @@ def test_safe_convert_column_with_failures():
     assert all(errors_df["error_code"] == "type_conversion")
 
 
-def test_safe_convert_column_preserves_nulls():
+def test_safe_convert_column_preserves_nulls(collector):
     """Test that existing nulls are preserved."""
     df = pl.DataFrame(
         {
@@ -91,20 +84,17 @@ def test_safe_convert_column_preserves_nulls():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="age",
         target_type=pl.Int32,
-        error_collector=collector,
     )
 
     assert result["age"].to_list() == [25, None, 30]
     assert len(collector) == 0  # Nulls are not errors
 
 
-def test_normalize_excel_formula_errors_nulls_and_logs():
+def test_normalize_excel_formula_errors_nulls_and_logs(collector):
     """Excel formula-error strings become null and are logged (ticket 27).
 
     Extraction preserves the source cell's literal error text; cleaning is
@@ -118,19 +108,17 @@ def test_normalize_excel_formula_errors_nulls_and_logs():
         }
     )
 
-    collector = ErrorCollector()
-
-    result = normalize_excel_formula_errors(df, collector)
+    result = normalize_excel_formula_errors(df)
 
     assert result["t1d_diagnosis_age"].to_list() == ["9", None, None]
     assert len(collector) == 2
-    codes = {e.error_code for e in collector.errors}
+    codes = {e.error_code for e in collector.findings}
     assert codes == {"source_formula_error"}
-    originals = {e.original_value for e in collector.errors}
+    originals = {e.original_value for e in collector.findings}
     assert originals == {"#NUM!", "#DIV/0!"}
 
 
-def test_normalize_excel_formula_errors_leaves_clean_data_untouched():
+def test_normalize_excel_formula_errors_leaves_clean_data_untouched(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
@@ -139,29 +127,25 @@ def test_normalize_excel_formula_errors_leaves_clean_data_untouched():
         }
     )
 
-    collector = ErrorCollector()
-
-    result = normalize_excel_formula_errors(df, collector)
+    result = normalize_excel_formula_errors(df)
 
     assert result["bmi"].to_list() == ["17.5", None]
     assert len(collector) == 0
 
 
-def test_normalize_excel_formula_errors_skips_non_string_columns():
+def test_normalize_excel_formula_errors_skips_non_string_columns(collector):
     df = pl.DataFrame(
         {"product_table_year": [2024.0, 2024.0]},
         schema={"product_table_year": pl.Float64},
     )
 
-    collector = ErrorCollector()
-
-    result = normalize_excel_formula_errors(df, collector)
+    result = normalize_excel_formula_errors(df)
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_normalize_excel_formula_errors_uses_custom_id_column():
+def test_normalize_excel_formula_errors_uses_custom_id_column(collector):
     """The product arm identifies rows by `product`, not `patient_id`."""
     df = pl.DataFrame(
         {
@@ -171,13 +155,11 @@ def test_normalize_excel_formula_errors_uses_custom_id_column():
         }
     )
 
-    collector = ErrorCollector()
-
-    result = normalize_excel_formula_errors(df, collector, patient_id_col="product")
+    result = normalize_excel_formula_errors(df, patient_id_col="product")
 
     assert result["product_balance"].to_list() == [None]
     assert len(collector) == 1
-    assert collector.errors[0].patient_id == "Insulin"
+    assert collector.findings[0].patient_id == "Insulin"
 
 
 def test_correct_decimal_sign():
@@ -193,7 +175,7 @@ def test_correct_decimal_sign():
     assert result["weight"].to_list() == ["70.5", "80.2", "65.5"]
 
 
-def test_cut_numeric_value():
+def test_cut_numeric_value(collector):
     """Test cutting out-of-range values."""
     df = pl.DataFrame(
         {
@@ -203,14 +185,11 @@ def test_cut_numeric_value():
         }
     )
 
-    collector = ErrorCollector()
-
     result = cut_numeric_value(
         df=df,
         column="age",
         min_val=0,
         max_val=25,
-        error_collector=collector,
     )
 
     assert result["age"].to_list() == [
@@ -223,7 +202,7 @@ def test_cut_numeric_value():
     assert len(collector) == 2  # Two values out of range
 
 
-def test_safe_convert_multiple_columns():
+def test_safe_convert_multiple_columns(collector):
     """Test batch conversion of multiple columns."""
     df = pl.DataFrame(
         {
@@ -235,13 +214,10 @@ def test_safe_convert_multiple_columns():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_multiple_columns(
         df=df,
         columns=["age", "height", "weight"],
         target_type=pl.Float64,
-        error_collector=collector,
     )
 
     assert result.schema["age"] == pl.Float64
@@ -250,7 +226,7 @@ def test_safe_convert_multiple_columns():
     assert len(collector) == 0
 
 
-def test_safe_convert_column_missing_column():
+def test_safe_convert_column_missing_column(collector):
     """Test that missing columns are handled gracefully."""
     df = pl.DataFrame(
         {
@@ -259,21 +235,18 @@ def test_safe_convert_column_missing_column():
         }
     )
 
-    collector = ErrorCollector()
-
     # Should not raise error
     result = safe_convert_column(
         df=df,
         column="nonexistent",
         target_type=pl.Int32,
-        error_collector=collector,
     )
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_safe_convert_column_float64():
+def test_safe_convert_column_float64(collector):
     """Test conversion to Float64 with decimal values."""
     df = pl.DataFrame(
         {
@@ -283,13 +256,10 @@ def test_safe_convert_column_float64():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="weight",
         target_type=pl.Float64,
-        error_collector=collector,
     )
 
     assert result.schema["weight"] == pl.Float64
@@ -299,7 +269,7 @@ def test_safe_convert_column_float64():
     assert len(collector) == 1
 
 
-def test_safe_convert_column_custom_error_value():
+def test_safe_convert_column_custom_error_value(collector):
     """Test using a custom error value."""
     df = pl.DataFrame(
         {
@@ -309,13 +279,10 @@ def test_safe_convert_column_custom_error_value():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="age",
         target_type=pl.Int32,
-        error_collector=collector,
         error_value=-1,
     )
 
@@ -323,7 +290,7 @@ def test_safe_convert_column_custom_error_value():
     assert len(collector) == 1
 
 
-def test_safe_convert_column_string_type():
+def test_safe_convert_column_string_type(collector):
     """Test conversion to string type (always succeeds)."""
     df = pl.DataFrame(
         {
@@ -333,13 +300,10 @@ def test_safe_convert_column_string_type():
         }
     )
 
-    collector = ErrorCollector()
-
     result = safe_convert_column(
         df=df,
         column="value",
         target_type=pl.Utf8,
-        error_collector=collector,
     )
 
     assert result.schema["value"] == pl.Utf8
@@ -356,25 +320,22 @@ def test_correct_decimal_sign_missing_column():
     assert result.equals(df)
 
 
-def test_cut_numeric_value_missing_column():
+def test_cut_numeric_value_missing_column(collector):
     """Test cutting with missing column."""
     df = pl.DataFrame({"other": [1, 2, 3]})
-
-    collector = ErrorCollector()
 
     result = cut_numeric_value(
         df=df,
         column="nonexistent",
         min_val=0,
         max_val=10,
-        error_collector=collector,
     )
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_cut_numeric_value_with_nulls():
+def test_cut_numeric_value_with_nulls(collector):
     """Test that nulls are preserved when cutting values."""
     df = pl.DataFrame(
         {
@@ -384,21 +345,18 @@ def test_cut_numeric_value_with_nulls():
         }
     )
 
-    collector = ErrorCollector()
-
     result = cut_numeric_value(
         df=df,
         column="age",
         min_val=0,
         max_val=25,
-        error_collector=collector,
     )
 
     assert result["age"].to_list() == [15, None, settings.error_val_numeric, 20]
     assert len(collector) == 1  # Only 30 is out of range
 
 
-def test_cut_numeric_value_ignores_existing_errors():
+def test_cut_numeric_value_ignores_existing_errors(collector):
     """Test that existing error values are not re-logged."""
     df = pl.DataFrame(
         {
@@ -408,14 +366,11 @@ def test_cut_numeric_value_ignores_existing_errors():
         }
     )
 
-    collector = ErrorCollector()
-
     result = cut_numeric_value(
         df=df,
         column="age",
         min_val=0,
         max_val=25,
-        error_collector=collector,
     )
 
     # Only 30 should be logged, not the existing error value
@@ -500,7 +455,7 @@ def test_parse_date_flexible_keeps_trailing_free_text_behaviour():
     assert parse_date_flexible("16-Nov-2019 due to DKA") == date(2019, 11, 16)
 
 
-def test_parse_date_column_rescues_typo_and_logs():
+def test_parse_date_column_rescues_typo_and_logs(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx", "t.xlsx"],
@@ -508,22 +463,21 @@ def test_parse_date_column_rescues_typo_and_logs():
             "entry_date": ["23-Mach-20", "15-Mar-2024"],
         }
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df, "entry_date", collector)
+    result = parse_date_column(df, "entry_date")
 
     parsed = result["entry_date"].to_list()
     assert parsed[0] == date(2020, 3, 23)
     assert parsed[1] == date(2024, 3, 15)
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.error_code == "typo_rescued"
     assert err.column == "entry_date"
     assert err.original_value == "23-Mach-20"
     assert err.patient_id == "P1"
 
 
-def test_parse_date_column_logs_unparseable_dates():
+def test_parse_date_column_logs_unparseable_dates(collector):
     """Pin parse_date_column's observability for genuinely unparseable cells.
 
     A cell that cannot be read must be recoverable from the log rather than
@@ -544,9 +498,8 @@ def test_parse_date_column_logs_unparseable_dates():
             "entry_date": pl.String,
         },
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df=df, column="entry_date", error_collector=collector)
+    result = parse_date_column(df=df, column="entry_date")
 
     parsed = result["entry_date"].to_list()
     assert parsed[0] == date(2024, 3, 15)
@@ -554,7 +507,7 @@ def test_parse_date_column_logs_unparseable_dates():
     assert parsed[2] == date(2024, 4, 20)
 
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.error_code == "type_conversion"
     assert err.function_name == "parse_date_column"
     assert err.column == "entry_date"
@@ -885,7 +838,7 @@ def test_recovering_from_text_leaves_every_other_reading_untouched():
     assert parse_date_flexible("1/16/224") == date(9999, 9, 9)
 
 
-def test_parse_date_column_logs_a_date_read_out_of_a_note():
+def test_parse_date_column_logs_a_date_read_out_of_a_note(collector):
     """Recovery has to stay auditable: the entry carries the note it was read
     from, so a reviewer can judge the extraction without re-running anything.
     """
@@ -897,17 +850,16 @@ def test_parse_date_column_logs_a_date_read_out_of_a_note():
             "hospitalisation_date": ["DKA 23 Oct 2020"],
         }
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df, "hospitalisation_date", collector)
+    result = parse_date_column(df, "hospitalisation_date")
 
     assert result["hospitalisation_date"].to_list() == [date(2020, 10, 23)]
-    codes = [e.error_code for e in collector.errors]
+    codes = [e.error_code for e in collector.findings]
     assert codes == ["date_recovered_from_text"]
-    assert collector.errors[0].original_value == "DKA 23 Oct 2020"
+    assert collector.findings[0].original_value == "DKA 23 Oct 2020"
 
 
-def test_parse_date_column_reports_a_note_holding_several_dates():
+def test_parse_date_column_reports_a_note_holding_several_dates(collector):
     """A single date column cannot represent three admissions. The extra dates
     are discarded, and the cell is reported so the workbook can be corrected --
     the repair belongs in the tracker, not in the parser.
@@ -920,15 +872,14 @@ def test_parse_date_column_reports_a_note_holding_several_dates():
             "hospitalisation_date": ["Dec 2019, Mar 2020 DKA Jan 2021 DKA"],
         }
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df, "hospitalisation_date", collector)
+    result = parse_date_column(df, "hospitalisation_date")
 
     assert result["hospitalisation_date"].to_list() == [date(2019, 12, 1)]
-    assert "date_multiple_in_cell" in [e.error_code for e in collector.errors]
+    assert "date_multiple_in_cell" in [e.error_code for e in collector.findings]
 
 
-def test_parse_date_column_reports_a_year_taken_from_the_tracker():
+def test_parse_date_column_reports_a_year_taken_from_the_tracker(collector):
     """The one component published that the cell does not state, so it is
     logged under its own code rather than folded into recovery.
     """
@@ -940,12 +891,11 @@ def test_parse_date_column_reports_a_year_taken_from_the_tracker():
             "hospitalisation_date": ["26 Jun (ceton urine high)"],
         }
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df, "hospitalisation_date", collector)
+    result = parse_date_column(df, "hospitalisation_date")
 
     assert result["hospitalisation_date"].to_list() == [date(2020, 6, 26)]
-    assert "date_year_inferred" in [e.error_code for e in collector.errors]
+    assert "date_year_inferred" in [e.error_code for e in collector.findings]
 
 
 def test_parse_date_column_takes_the_year_from_each_row_not_the_column():
@@ -961,14 +911,13 @@ def test_parse_date_column_takes_the_year_from_each_row_not_the_column():
             "hospitalisation_date": ["26 Jun (ceton urine high)"] * 2,
         }
     )
-    collector = ErrorCollector()
 
-    result = parse_date_column(df, "hospitalisation_date", collector)
+    result = parse_date_column(df, "hospitalisation_date")
 
     assert result["hospitalisation_date"].to_list() == [date(2020, 6, 26), date(2021, 6, 26)]
 
 
-def test_parse_date_column_says_nothing_when_no_note_is_involved():
+def test_parse_date_column_says_nothing_when_no_note_is_involved(collector):
     """The codes must stay rare enough to read: an ordinary date column logs
     none of them.
     """
@@ -980,8 +929,7 @@ def test_parse_date_column_says_nothing_when_no_note_is_involved():
             "entry_date": ["15-Mar-2024", "2024-04-20"],
         }
     )
-    collector = ErrorCollector()
 
-    parse_date_column(df, "entry_date", collector)
+    parse_date_column(df, "entry_date")
 
-    assert collector.errors == []
+    assert collector.findings == []

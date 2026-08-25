@@ -6,10 +6,9 @@ from loguru import logger
 
 from a4d.clean.patient import clean_patient_file
 from a4d.clean.product import clean_product_file
-from a4d.errors import ErrorCollector
 from a4d.extract.patient import export_patient_raw, read_all_patient_sheets
 from a4d.extract.product import export_product_raw, read_all_product_sheets
-from a4d.logging import file_logger
+from a4d.findings import tracker_context
 from a4d.pipeline.models import TrackerResult
 from a4d.reference.synonyms import ColumnMapper, load_product_mapper
 
@@ -57,17 +56,14 @@ def process_tracker_patient(
         raw_output = raw_dir / f"{tracker_name}_patient_raw.parquet"
         cleaned_output = cleaned_dir / f"{tracker_name}_patient_cleaned.parquet"
 
-        # Log context for this tracker
-        with file_logger(f"{tracker_name}_patient", output_root):
+        # Findings collector and log context for this tracker, bound together
+        with tracker_context(tracker_name, "patient", output_root) as findings:
             logger.info(f"Processing tracker: {tracker_file.name}")
 
             # STEP 1: Extract
             logger.info("Step 1: Extracting patient data from Excel")
-            error_collector = ErrorCollector()
 
-            df_raw = read_all_patient_sheets(
-                tracker_file=tracker_file, mapper=mapper, error_collector=error_collector
-            )
+            df_raw = read_all_patient_sheets(tracker_file=tracker_file, mapper=mapper)
             logger.info(f"Extracted {len(df_raw)} rows")
 
             # Export raw parquet
@@ -82,11 +78,10 @@ def process_tracker_patient(
             clean_patient_file(
                 raw_parquet_path=raw_output,
                 output_parquet_path=cleaned_output,
-                error_collector=error_collector,
             )
 
-            error_count = len(error_collector)
-            error_breakdown = error_collector.get_error_summary()
+            error_count = len(findings)
+            error_breakdown = findings.summary()
             logger.info(f"Cleaned parquet saved: {cleaned_output}")
             logger.info(f"Total data quality errors: {error_count}")
             if error_breakdown:
@@ -101,7 +96,7 @@ def process_tracker_patient(
             error=None,
             cleaning_errors=error_count,
             error_breakdown=error_breakdown if error_breakdown else None,
-            data_errors=error_collector.errors.copy(),
+            findings=findings.findings.copy(),
         )
 
     except Exception as e:
@@ -137,18 +132,16 @@ def process_tracker_product(
 
         cleaned_output = cleaned_dir / f"{tracker_name}_product_cleaned.parquet"
 
-        with file_logger(f"{tracker_name}_product", output_root):
+        with tracker_context(tracker_name, "product", output_root) as findings:
             logger.info(f"Processing tracker: {tracker_file.name}")
 
             logger.info("Step 1: Extracting product data from Excel")
-            error_collector = ErrorCollector()
 
             mapper = mapper or load_product_mapper()
 
             df_raw = read_all_product_sheets(
                 tracker_file=tracker_file,
                 mapper=mapper,
-                error_collector=error_collector,
             )
             logger.info(f"Extracted {len(df_raw)} rows")
 
@@ -161,11 +154,10 @@ def process_tracker_product(
             clean_product_file(
                 raw_parquet_path=raw_output,
                 output_parquet_path=cleaned_output,
-                error_collector=error_collector,
             )
 
-            error_count = len(error_collector)
-            error_breakdown = error_collector.get_error_summary()
+            error_count = len(findings)
+            error_breakdown = findings.summary()
             logger.info(f"Cleaned parquet saved: {cleaned_output}")
             logger.info(f"Total data quality errors: {error_count}")
             if error_breakdown:
@@ -180,7 +172,7 @@ def process_tracker_product(
             error=None,
             cleaning_errors=error_count,
             error_breakdown=error_breakdown if error_breakdown else None,
-            data_errors=error_collector.errors.copy(),
+            findings=findings.findings.copy(),
         )
 
     except Exception as e:

@@ -39,17 +39,13 @@ flowchart TD
   subgraph FRONTIER["Frontier · 6"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
+    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
   end
-  subgraph BLOCKED["Blocked · 1"]
-    direction TB
-    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
-  end
-  subgraph DECIDED["Decided · 57"]
+  subgraph DECIDED["Decided · 58"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -108,6 +104,7 @@ flowchart TD
     T62["<b>62</b> · task<br/>Finish the pre-bar<br/>classifier audit — the two<br/>causes and the one bulk<br/>population it did not<br/>reach"]
     T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
+    T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
   end
   subgraph DROPPED["Out of scope · 2"]
     direction TB
@@ -142,14 +139,11 @@ flowchart TD
   T23 --> T6
   T45 --> T46
   T64 --> T6
-  T66 --> T16
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T66 frontier
-  classDef blocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class T16 blocked
+  class T9,T16,T34,T35,T40,T41 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -3848,6 +3842,14 @@ written, except ticket 16 under the reading above.
   files and 0/148 others). Verified by a second full comparison showing zero
   per-cause movement in all four stages.
 
+- [Unify the two separate channels that report data-quality
+  findings](tickets/66-unify-finding-channels.md) — one emit point
+  (`report_finding`), a `ContextVar`-bound collector that **raises** rather than
+  dropping, `table_errors` deleted and replaced by `findings` (118,175 rows,
+  both arms, zero blank attributions, all 254 files joinable), `logs` narrowed
+  to operational-only. Ticket 65 folded in and discharged. Seven duplicate
+  emissions collapsed and three latent bugs fixed along the way.
+
 ## Assumptions in force
 
 - **A date whose year is past 2400 and which decodes to no later than its
@@ -4005,6 +4007,66 @@ production run publishes them for the first time. And the 526 null-`file_name`
 log rows are run-level operational lines (`main_pipeline_*.log`), not instances
 of the blank-`file_name` defect; under ticket 66's own split, having no
 `file_name` is correct for them.
+
+**[Unifying the finding channels](tickets/66-unify-finding-channels.md) is
+closed, and the pipeline now has one way to report a data-quality problem.**
+`report_finding()` appends to a `ContextVar`-bound collector *and* emits the
+same finding to the tracker's log stream, so a finding cannot exist in one and
+not the other. The user chose the context-bound design over threading a
+collector, and chose to let an emit outside any context **raise** rather than
+drop -- which retires the `error_collector: ErrorCollector | None` pattern that
+let a finding vanish whenever a caller passed nothing. Both escape hatches are
+named contexts, so a discard is visible in the source.
+
+**Measured on the real 254-tracker set, both arms, not on a fixture.** One
+queryable table went from 63,553 cell-level rows to **118,175 findings** across
+all 21 error codes (patient 81,591 / product 36,584); blank `file_name`
+attributions from 33 published to **zero**; files joinable against
+`tracker_metadata` from **0 to 254 of 254**, because `file_name` is now the bare
+stem with `arm` as its own column. `logs` fell from 451,527 rows to **215,177,
+all operational** -- 236,350 of its rows were findings already published
+elsewhere, duplicated because loguru writes each line to both the per-tracker
+handler and the worker's own file. Every finding carries a derived `category`:
+`fix_workbook` 48,995, `data_lost` 67,190, `recovered` 1,990.
+
+**The table is `findings`, not `tracker_findings`** -- the dataset is already
+`tracker`, so the prefix would have repeated it. Replace rather than publish
+alongside, on the user's reasoning that the only consumers are one internal
+tool and dashboard; measured first that BigQuery holds only the latest run
+(`replace=True` deletes the table each upload), so no history is stranded.
+
+**One of the "6 hard sites" was not a finding at all.**
+`reference/synonyms.py`'s duplicate-synonym warning fires from `_build_lookup`,
+which runs when `reference_data/` is loaded rather than per tracker -- making it
+a finding would have blamed a config defect on whichever tracker triggered the
+load, once per tracker. The real count was five.
+
+**Three latent bugs surfaced from the refactor rather than from looking for
+them.** `tables/product.py` carried a hand-written re-emit loop whose own
+comment said the table-stage findings would "disappear silently" without it --
+they never reached the errors table either. `fix_patient_id` never named itself
+in `function_name`, found by diffing the rebuilt table against the run's own.
+And `a4d create tables` would have refreshed every table except findings --
+which live in memory during a run -- leaving a stale one for `upload tables` to
+publish, the same silent-staleness shape as the patient-only logs table.
+`rebuild_findings_from_logs` fixes it and is **exact**: 118,175 findings both
+ways on the real run, zero rows differing on any of eleven fields.
+
+**Seven findings were being emitted twice**, once per channel, each with the
+file and patient stuffed into the log copy's message text because that channel
+had no fields for them. Collapsing them is why some counts fell rather than
+rose. Ticket 65 is discharged in the same pass: no `script="script1"` or
+`function_name="read_product_data_step1"` survives outside the historical
+`migration/` package, and a test greps the tree so they cannot return.
+
+**The frontier is six, and [the drill-down log
+analyzer](tickets/16-log-analyzer-drill-down.md) is unblocked** -- its two data
+sources are no longer "logs plus errors" but "findings for what is wrong with
+the workbook, logs for what the pipeline did", which is the split it needed and
+the reason ticket 66 had to land first. Its own premise carried two figures
+that were wrong (a "1M+ row" logs table; `table_errors` as a data source) and
+both are corrected on it. Under the reading that ticket 16 is the destination's
+ninth clause, it is the only frontier ticket on the route.
 
 ## Not yet specified
 
@@ -4333,10 +4395,14 @@ flowchart TB
     direction LR
     U6["<b>6</b><br/>Promote migration into<br/>dev via PR #2"]
   end
+  subgraph S2026_08_25b["Session 2026-08-25b"]
+    direction LR
+    U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
+    U66["<b>66</b><br/>Unify the two separate<br/>channels that report<br/>data-quality findings"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
-    U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
   end
   subgraph Sopen["Not yet worked"]
     direction LR
@@ -4346,7 +4412,6 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U66["<b>66</b><br/>Unify the two separate<br/>channels that report<br/>data-quality findings"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4399,7 +4464,8 @@ flowchart TB
   S2026_08_24e ~~~ S2026_08_24f
   S2026_08_24f ~~~ S2026_08_24g
   S2026_08_24g ~~~ S2026_08_24h
-  S2026_08_24h ~~~ Sunworked
+  S2026_08_24h ~~~ S2026_08_25b
+  S2026_08_25b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4434,7 +4500,6 @@ flowchart TB
   U2 -.->|spawned| U15
   U2 --->|blocked| U15
   U11 -.->|spawned| U16
-  U66 --->|blocked| U16
   U15 -.->|spawned| U17
   U17 -.->|spawned| U18
   U17 -.->|spawned| U19
@@ -4487,11 +4552,9 @@ flowchart TB
   U16 -.->|spawned| U66
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U66 tfrontier
-  classDef tblocked fill:#6e7781,stroke:#424a53,stroke-width:1px,color:#ffffff
-  class U16 tblocked
+  class U9,U16,U34,U35,U40,U41 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```

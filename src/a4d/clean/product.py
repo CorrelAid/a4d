@@ -27,7 +27,7 @@ from a4d.clean.converters import (
 )
 from a4d.clean.schema_product import apply_schema, get_product_data_schema, get_string_columns
 from a4d.config import settings
-from a4d.errors import ErrorCollector
+from a4d.findings import report_finding
 from a4d.reference.products import load_known_products, load_product_categories
 
 ACTIVITY_COLS: tuple[str, ...] = (
@@ -82,7 +82,6 @@ MIN_PLAUSIBLE_EXCEL_SERIAL: int = 36526
 
 def clean_product_data(
     df_raw: pl.DataFrame,
-    error_collector: ErrorCollector,
 ) -> pl.DataFrame:
     """Clean raw product data through the full 2.x step sequence.
 
@@ -91,7 +90,6 @@ def clean_product_data(
 
     Args:
         df_raw: Raw product DataFrame from extraction.
-        error_collector: Accumulator for row-level data quality errors.
 
     Returns:
         Cleaned product DataFrame.
@@ -108,25 +106,25 @@ def clean_product_data(
     # Null out (and log) the source trackers' own formula-error strings,
     # which extraction preserves verbatim (ticket 27). Runs before the step
     # sequence so no step sees a "#DIV/0!" where it expects a value.
-    df_raw = normalize_excel_formula_errors(df_raw, error_collector, patient_id_col="product")
+    df_raw = normalize_excel_formula_errors(df_raw, patient_id_col="product")
 
     df = _normalize_empty_strings_to_null(df_raw)  # 2.0 (see helper docstring)
     df = _split_multi_product_cells(df)  # 2.1
     df = _switch_misplaced_columns(df)  # 2.3
     df = _remove_uninformative_rows(df)  # 2.4
     df = _add_row_index(df)  # 2.5
-    df = _format_dates(df, error_collector)  # 2.6
-    _check_entry_dates_match_sheet(df, error_collector)  # 2.6a (log only)
-    df = _validate_entry_dates(df, error_collector)  # 2.6b
+    df = _format_dates(df)  # 2.6
+    _check_entry_dates_match_sheet(df)  # 2.6a (log only)
+    df = _validate_entry_dates(df)  # 2.6b
     df = _fill_product_names_and_sort(df)  # 2.7
     df = _extract_balance_from_received(df)  # 2.8
     df = _recode_na_units_to_zero(df)  # 2.9
     df = _clean_received_from(df)  # 2.10
-    df = _clean_units_received(df, error_collector)  # 2.11
+    df = _clean_units_received(df)  # 2.11
     df = _recode_na_units_to_zero(df)  # 2.12
     df = _remove_empty_data_rows(df)  # 2.13
     df = _compute_balance_status(df)  # 2.14
-    df = _compute_running_balance(df, error_collector)  # 2.15
+    df = _compute_running_balance(df)  # 2.15
 
     # 2.16 — type cast numeric/date columns via ErrorCollector; strip strings,
     # because end-whitespace never carries meaning here and an untrimmed value
@@ -141,7 +139,7 @@ def clean_product_data(
             continue
         if df.schema[col] == target:
             continue
-        df = safe_convert_column(df, col, target, error_collector)
+        df = safe_convert_column(df, col, target)
 
     string_cols = [c for c in get_string_columns() if c in df.columns]
     if string_cols:
@@ -151,8 +149,8 @@ def clean_product_data(
     if "index" in df.columns:
         df = df.drop("index")
 
-    df = _validate_negative_balances(df, error_collector)  # 2.18
-    df = _report_unknown_products(df, error_collector)  # 2.19
+    df = _validate_negative_balances(df)  # 2.18
+    df = _report_unknown_products(df)  # 2.19
     df = _add_product_categories(df)  # 2.20
     df = _extract_unit_capacity(df)  # 2.21
     # 2.22 cross-month combine happens at the table stage (S4-T1), not here.
@@ -168,7 +166,6 @@ def clean_product_data(
 def clean_product_file(
     raw_parquet_path: Path,
     output_parquet_path: Path,
-    error_collector: ErrorCollector | None = None,
 ) -> None:
     """Clean a single product parquet file (I/O wrapper).
 
@@ -178,11 +175,9 @@ def clean_product_file(
     Args:
         raw_parquet_path: Raw product parquet produced by extraction.
         output_parquet_path: Destination for the cleaned parquet.
-        error_collector: Optional ErrorCollector; a new one is created if None.
     """
-    ec = error_collector if error_collector is not None else ErrorCollector()
     df_raw = pl.read_parquet(raw_parquet_path)
-    df_clean = clean_product_data(df_raw, ec)
+    df_clean = clean_product_data(df_raw)
     df_clean.write_parquet(output_parquet_path)
 
 
@@ -365,7 +360,7 @@ def _null_entry_date_residues(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _format_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _format_dates(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.6 — parse ``product_entry_date`` with the flexible date parser.
 
     Three preprocessing steps run before delegating to ``parse_date_column``:
@@ -398,10 +393,10 @@ def _format_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataF
         .str.replace_all(r"_", " ")
         .alias("product_entry_date")
     )
-    return parse_date_column(df, "product_entry_date", error_collector, patient_id_col="product")
+    return parse_date_column(df, "product_entry_date", patient_id_col="product")
 
 
-def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorCollector) -> None:
+def _check_entry_dates_match_sheet(df: pl.DataFrame) -> None:
     """Warn on entry dates that disagree with the sheet they were found on.
 
     One log entry per row where the parsed ``product_entry_date`` doesn't match
@@ -435,7 +430,6 @@ def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorColle
     )
 
     select_cols = [
-        "file_name" if "file_name" in df.columns else pl.lit("unknown").alias("file_name"),
         "product" if "product" in df.columns else pl.lit("unknown").alias("product"),
         "product_entry_date",
         table_year.alias("_table_year"),
@@ -446,13 +440,12 @@ def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorColle
     ]
     offenders = df.filter(is_real_date & mismatch).select(select_cols)
 
-    for file_name, product, entry_date, ty, tm, sheet_name in offenders.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    for product, entry_date, ty, tm, sheet_name in offenders.iter_rows():
+        report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            error_message=(
+            message=(
                 f"product_entry_date {entry_date} does not match sheet "
                 f"'{sheet_name or 'unknown'}' (expected {ty}-{tm:02d})"
             ),
@@ -461,7 +454,7 @@ def _check_entry_dates_match_sheet(df: pl.DataFrame, error_collector: ErrorColle
         )
 
 
-def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.6b — flag fat-fingered Gregorian entry dates outside the tracker window.
 
     A row is flagged when its parsed Gregorian year falls outside
@@ -535,15 +528,14 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     )
 
     convertible = df.filter(convert_mask).select(
-        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product", "product_entry_date", "product_table_year", "product_sheet_name"
     )
-    for file_name, product, entry_date, table_year_val, sheet_name in convertible.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    for product, entry_date, table_year_val, sheet_name in convertible.iter_rows():
+        report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            error_message=(
+            message=(
                 f"product_entry_date {entry_date} is the Buddhist-era year of "
                 f"product_table_year {table_year_val}; converted to "
                 f"{entry_date.year - BUDDHIST_ERA_OFFSET}-{entry_date.month:02d}-"
@@ -554,15 +546,14 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
         )
 
     implausible = df.filter(implausible_era_mask).select(
-        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product", "product_entry_date", "product_table_year", "product_sheet_name"
     )
-    for file_name, product, entry_date, table_year_val, sheet_name in implausible.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    for product, entry_date, table_year_val, sheet_name in implausible.iter_rows():
+        report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            error_message=(
+            message=(
                 f"product_entry_date {entry_date} is neither a Gregorian date nor "
                 f"the Buddhist-era year of product_table_year {table_year_val} "
                 f"(sheet '{sheet_name or 'unknown'}')"
@@ -584,15 +575,14 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
     )
 
     above = df.filter(above_max_mask).select(
-        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product", "product_entry_date", "product_table_year", "product_sheet_name"
     )
-    for file_name, product, entry_date, table_year_val, sheet_name in above.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    for product, entry_date, table_year_val, sheet_name in above.iter_rows():
+        report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            error_message=(
+            message=(
                 f"product_entry_date {entry_date} beyond "
                 f"product_table_year {table_year_val} "
                 f"(sheet '{sheet_name or 'unknown'}')"
@@ -602,15 +592,14 @@ def _validate_entry_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> 
         )
 
     below = df.filter(below_min_mask).select(
-        "file_name", "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product", "product_entry_date", "product_table_year", "product_sheet_name"
     )
-    for file_name, product, entry_date, table_year_val, sheet_name in below.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    for product, entry_date, table_year_val, sheet_name in below.iter_rows():
+        report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            error_message=(
+            message=(
                 f"product_entry_date {entry_date} before "
                 f"product_table_year {table_year_val} - {YEAR_FLOOR_DELTA} "
                 f"(sheet '{sheet_name or 'unknown'}')"
@@ -853,14 +842,13 @@ def _clean_received_from(df: pl.DataFrame) -> pl.DataFrame:
 
 def _clean_units_received(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
 ) -> pl.DataFrame:
     """Step 2.11 — zero out balance markers and cast to numeric.
 
     Rows where ``product_units_received`` contains "START", "END" or
     "BALANCE" are set to 0. Remaining values are cast to numeric; failures
     yield null (then 0 via the second pass of step 2.12) and emit one
-    ``type_conversion`` entry per row to ``error_collector``, so a quantity
+    ``type_conversion`` finding per row, so a quantity
     that could not be read is recoverable from the log rather than silently
     becoming a zero movement.
     """
@@ -876,16 +864,14 @@ def _clean_units_received(
     failures = df.filter(failure_mask)
     for row in failures.iter_rows(named=True):
         original = row["product_units_received"]
-        error_collector.add_error(
-            file_name=row.get("file_name") or "unknown",
+        report_finding(
+            file_name=row.get("file_name") or None,
             patient_id=row.get("product") or "unknown",
             column="product_units_received",
             error_code="type_conversion",
             function_name="_clean_units_received",
             original_value=str(original),
-            error_message=(
-                f"product_units_received '{original}' could not be converted to numeric"
-            ),
+            message=(f"product_units_received '{original}' could not be converted to numeric"),
         )
 
     return df.with_columns(
@@ -933,9 +919,7 @@ def _compute_balance_status(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _compute_running_balance(
-    df: pl.DataFrame, error_collector: ErrorCollector | None = None
-) -> pl.DataFrame:
+def _compute_running_balance(df: pl.DataFrame) -> pl.DataFrame:
     """Step 2.15 — compute the running stock balance per product.
 
     Formula: ``balance[i] = balance[i-1] - released[i] + received[i]``.
@@ -1041,8 +1025,7 @@ def _compute_running_balance(
         .alias("product_balance")
     )
 
-    if error_collector is not None:
-        _report_balance_reconciliation(df, source_balance, group, error_collector)
+    _report_balance_reconciliation(df, source_balance, group)
     return df
 
 
@@ -1054,7 +1037,6 @@ def _report_balance_reconciliation(
     df: pl.DataFrame,
     source_balance: pl.DataFrame,
     group: list[str],
-    error_collector: ErrorCollector,
 ) -> None:
     """Flag groups whose recomputed closing stock contradicts the tracker's own.
 
@@ -1095,12 +1077,11 @@ def _report_balance_reconciliation(
             continue
         product = row.get("product") or "unknown"
         sheet_name = row.get("product_sheet_name") or "unknown"
-        error_collector.add_error(
-            file_name=row.get("_file_name") or "unknown",
+        report_finding(
             patient_id="unknown",
             column="product_balance",
             original_value=source_value,
-            error_message=(
+            message=(
                 f"Closing balance mismatch for product '{product}' in sheet "
                 f"'{sheet_name}': tracker recorded {source_value}, but the "
                 f"recorded transactions add up to {computed} "
@@ -1114,7 +1095,6 @@ def _report_balance_reconciliation(
 
 def _validate_negative_balances(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
 ) -> pl.DataFrame:
     """Step 2.18 — log rows with a negative ``product_balance``.
 
@@ -1126,14 +1106,13 @@ def _validate_negative_balances(
 
     negatives = df.filter(
         pl.col("product_balance").is_not_null() & (pl.col("product_balance") < 0)
-    ).select("file_name", "product_balance", "product", "product_sheet_name")
-    for file_name, balance, product, sheet_name in negatives.iter_rows():
-        error_collector.add_error(
-            file_name=file_name or "unknown",
+    ).select("product_balance", "product", "product_sheet_name")
+    for balance, product, sheet_name in negatives.iter_rows():
+        report_finding(
             patient_id="unknown",
             column="product_balance",
             original_value=balance,
-            error_message=(
+            message=(
                 f"Negative balance {balance} for product "
                 f"'{product or 'unknown'}' in sheet "
                 f"'{sheet_name or 'unknown'}'"
@@ -1146,7 +1125,6 @@ def _validate_negative_balances(
 
 def _report_unknown_products(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
 ) -> pl.DataFrame:
     """Step 2.19 — flag product names missing from the Stock_Summary reference.
 
@@ -1171,12 +1149,11 @@ def _report_unknown_products(
         .unique()
     )
     for row in unknowns.iter_rows(named=True):
-        error_collector.add_error(
-            file_name=row.get("file_name") or "unknown",
+        report_finding(
             patient_id="unknown",
             column="product",
             original_value=row["product"],
-            error_message=(
+            message=(
                 f"Unknown product '{row['product']}' in sheet "
                 f"'{row.get('product_sheet_name') or 'unknown'}'"
             ),

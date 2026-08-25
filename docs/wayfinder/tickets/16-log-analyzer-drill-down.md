@@ -3,7 +3,7 @@ id: 16
 title: Build a drill-down log analyzer for admins to inspect a specific tracker file's errors/logs
 labels: [wayfinder:grilling]
 status: open
-blocked_by: [66]
+blocked_by: []
 assignee: null
 claimed_at: null
 resolution: null
@@ -32,17 +32,37 @@ closes) that read local tab-separated `.log` files and offered a per-tracker
 log table + Sankey diagram, a cross-tracker regex-filterable overview, and a
 reference-data validation tab (missing/duplicate `clinic_id`). Read before
 building, not to be ported as-is — its design assumes local log files; the
-current pipeline logs via loguru into the `logs` BigQuery table (1M+ rows)
-and `table_errors.parquet` instead, so any Python equivalent needs a
-different shape.
+current pipeline logs via loguru into the `logs` BigQuery table and the
+findings table instead, so any Python equivalent needs a different shape.
+
+**Both of those figures were wrong and are corrected here.** The logs table is
+not 1M+ rows: measured on the real 254-tracker set it is ~215,000 operational
+rows, and one tracker's entire detail is a few hundred. Both tables answer any
+question in under a second in `duckdb`, which is what killed the dashboard
+framing during this ticket's own grilling session and settled the deliverable
+as an Excel workbook.
+
+**And `table_errors` no longer exists.** [Ticket
+66](66-unify-finding-channels.md) closed 2026-08-25: there is now one channel.
+Every data-quality finding lives in `table_findings` -- 118,175 on the
+254-tracker run, both arms, one schema, `file_name` the bare tracker stem, so
+it joins against `table_logs` and `tracker_metadata` on all 254 files. Each
+finding carries a `category` (`fix_workbook` / `recovered` / `data_lost`) that
+says whether anyone has to act. `table_logs` is now operational only --
+timings, progress, exceptions -- with no `error_code` column at all.
+
+**So this ticket's two data sources are no longer "logs plus errors" but
+"findings for what is wrong with the workbook, logs for what the pipeline
+did".** That is the split the drill-down should present, and it is the reason
+ticket 66 had to land first.
 
 ## Question
 
 Design and build a tool (CLI subcommand, small TUI, or lightweight
 dashboard — open which) that lets an admin/developer pick one tracker file
 from a run and see everything relevant to it: every log line (from
-`table_logs`), every data-quality error row (from `table_errors`: column,
-original value, error code), and the exception detail for an outright
+`table_logs`), every data-quality finding (from `table_findings`: column,
+original value, error code, category), and the exception detail for an outright
 processing failure — without hand-querying BigQuery or grepping JSON.
 
 Concrete use case to design against: the combined run summary (ticket 11)
@@ -66,9 +86,12 @@ Questions to resolve:
 
 This ticket was worked, not resolved: the grilling established that the tool it
 asks for cannot be built well on the data as it stands, so the session split
-rather than sprawled. `blocked_by` gains **66**
-([unify the finding channels](66-unify-finding-channels.md)), which carries
-every measurement taken here.
+rather than sprawled. `blocked_by` gained **66**
+([unify the finding channels](66-unify-finding-channels.md)), which carried
+every measurement taken here. **That blocker closed 2026-08-25 and this ticket
+is unblocked**: the unified `table_findings` is exactly the shape the workbook
+needs, and its `category` column is the ranking key the summary sheet asks
+for.
 
 **What this ticket is now:** build the report -- and it is an **Excel workbook**,
 not a TUI or a dashboard. The user's goal is to replace a Looker error dashboard

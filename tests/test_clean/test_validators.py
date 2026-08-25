@@ -11,7 +11,6 @@ from a4d.clean.validators import (
     validate_column_from_rules,
 )
 from a4d.config import settings
-from a4d.errors import ErrorCollector
 
 
 def test_load_validation_rules():
@@ -35,7 +34,7 @@ def test_load_validation_rules():
     assert rules["clinic_visit"]["replace_invalid"] is True
 
 
-def test_validate_allowed_values_all_valid():
+def test_validate_allowed_values_all_valid(collector):
     """Test validation when all values are valid."""
     df = pl.DataFrame(
         {
@@ -45,13 +44,10 @@ def test_validate_allowed_values_all_valid():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="status",
         allowed_values=["Active", "Inactive", "Transferred"],
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -59,7 +55,7 @@ def test_validate_allowed_values_all_valid():
     assert len(collector) == 0
 
 
-def test_validate_allowed_values_with_invalid():
+def test_validate_allowed_values_with_invalid(collector):
     """Test validation when some values are invalid."""
     df = pl.DataFrame(
         {
@@ -69,13 +65,10 @@ def test_validate_allowed_values_with_invalid():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="status",
         allowed_values=["Active", "Inactive"],
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -97,7 +90,7 @@ def test_validate_allowed_values_with_invalid():
     assert errors_df["error_code"].to_list() == ["invalid_value", "invalid_value"]
 
 
-def test_validate_allowed_values_preserves_nulls():
+def test_validate_allowed_values_preserves_nulls(collector):
     """Test that nulls are preserved and not logged as errors."""
     df = pl.DataFrame(
         {
@@ -107,13 +100,10 @@ def test_validate_allowed_values_preserves_nulls():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="status",
         allowed_values=["Active", "Inactive"],
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -121,7 +111,7 @@ def test_validate_allowed_values_preserves_nulls():
     assert len(collector) == 0
 
 
-def test_validate_allowed_values_no_replace():
+def test_validate_allowed_values_no_replace(collector):
     """Test validation without replacing invalid values."""
     df = pl.DataFrame(
         {
@@ -131,13 +121,10 @@ def test_validate_allowed_values_no_replace():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="status",
         allowed_values=["Active"],
-        error_collector=collector,
         replace_invalid=False,
     )
 
@@ -147,7 +134,7 @@ def test_validate_allowed_values_no_replace():
     assert len(collector) == 1
 
 
-def test_validate_allowed_values_missing_column():
+def test_validate_allowed_values_missing_column(collector):
     """Test that missing columns are handled gracefully."""
     df = pl.DataFrame(
         {
@@ -156,20 +143,17 @@ def test_validate_allowed_values_missing_column():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="nonexistent",
         allowed_values=["Active"],
-        error_collector=collector,
     )
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_validate_allowed_values_ignores_existing_errors():
+def test_validate_allowed_values_ignores_existing_errors(collector):
     """Test that existing error values are not re-logged."""
     df = pl.DataFrame(
         {
@@ -179,13 +163,10 @@ def test_validate_allowed_values_ignores_existing_errors():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="status",
         allowed_values=["Active", "Inactive"],
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -198,7 +179,7 @@ def test_validate_allowed_values_ignores_existing_errors():
     ]
 
 
-def test_validate_column_from_rules():
+def test_validate_column_from_rules(collector):
     """Test validation using rules from data_cleaning.yaml."""
     df = pl.DataFrame(
         {
@@ -209,13 +190,11 @@ def test_validate_column_from_rules():
     )
 
     rules = load_validation_rules()
-    collector = ErrorCollector()
 
     result = validate_column_from_rules(
         df=df,
         column="clinic_visit",
         rules=rules["clinic_visit"],
-        error_collector=collector,
     )
 
     # "INVALID" should be replaced with error value
@@ -223,7 +202,7 @@ def test_validate_column_from_rules():
     assert len(collector) == 1
 
 
-def test_validate_column_from_rules_missing_column():
+def test_validate_column_from_rules_missing_column(collector):
     """Test validation with missing column."""
     df = pl.DataFrame(
         {
@@ -233,20 +212,18 @@ def test_validate_column_from_rules_missing_column():
     )
 
     rules = load_validation_rules()
-    collector = ErrorCollector()
 
     result = validate_column_from_rules(
         df=df,
         column="nonexistent",
         rules=rules["clinic_visit"],
-        error_collector=collector,
     )
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_validate_all_columns():
+def test_validate_all_columns(collector):
     """Test validation of all columns with rules.
 
     Note: Validation uses case-insensitive matching and normalizes to canonical values.
@@ -262,9 +239,7 @@ def test_validate_all_columns():
         }
     )
 
-    collector = ErrorCollector()
-
-    result = validate_all_columns(df, collector)
+    result = validate_all_columns(df)
 
     # All invalid values should be replaced
     # Valid values should be normalized to canonical form (Title Case for status)
@@ -276,7 +251,7 @@ def test_validate_all_columns():
     assert len(collector) == 3
 
 
-def test_validate_all_columns_only_validates_existing():
+def test_validate_all_columns_only_validates_existing(collector):
     """Test that validation only processes columns that exist in DataFrame."""
     df = pl.DataFrame(
         {
@@ -287,16 +262,14 @@ def test_validate_all_columns_only_validates_existing():
         }
     )
 
-    collector = ErrorCollector()
-
     # Should not raise error even though many rule columns don't exist
-    result = validate_all_columns(df, collector)
+    result = validate_all_columns(df)
 
     assert "clinic_visit" in result.columns
     assert len(collector) == 0
 
 
-def test_validate_allowed_values_case_insensitive():
+def test_validate_allowed_values_case_insensitive(collector):
     """Test that validation is case-insensitive and normalizes to canonical values.
 
     - "y" matches "Y" (case-insensitive)
@@ -310,13 +283,10 @@ def test_validate_allowed_values_case_insensitive():
         }
     )
 
-    collector = ErrorCollector()
-
     result = validate_allowed_values(
         df=df,
         column="clinic_visit",
         allowed_values=["Y", "N"],
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -325,7 +295,7 @@ def test_validate_allowed_values_case_insensitive():
     assert len(collector) == 0  # No errors - "y" is valid
 
 
-def test_validate_allowed_values_csv_subset():
+def test_validate_allowed_values_csv_subset(collector):
     """CSV values whose every token is in allowed_values emit canonical CSV."""
     allowed = ["Pre-mixed", "Short-acting", "Intermediate-acting", "Rapid-acting", "Long-acting"]
     df = pl.DataFrame(
@@ -342,12 +312,10 @@ def test_validate_allowed_values_csv_subset():
         }
     )
 
-    collector = ErrorCollector()
     result = validate_allowed_values(
         df=df,
         column="insulin_subtype",
         allowed_values=allowed,
-        error_collector=collector,
         replace_invalid=True,
         allow_csv_subset=True,
     )
@@ -373,12 +341,10 @@ def test_validate_allowed_values_csv_subset_disabled():
         }
     )
 
-    collector = ErrorCollector()
     result = validate_allowed_values(
         df=df,
         column="insulin_subtype",
         allowed_values=allowed,
-        error_collector=collector,
         replace_invalid=True,
     )
 
@@ -388,7 +354,7 @@ def test_validate_allowed_values_csv_subset_disabled():
 # Tests for fix_patient_id
 
 
-def test_fix_patient_id_valid_ids():
+def test_fix_patient_id_valid_ids(collector):
     """Test that valid patient IDs are not changed."""
     df = pl.DataFrame(
         {
@@ -396,14 +362,13 @@ def test_fix_patient_id_valid_ids():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["KD_EW004", "AB_CD123", "XY_ZW999"]
     assert len(collector) == 0
 
 
-def test_fix_patient_id_hyphen_normalization():
+def test_fix_patient_id_hyphen_normalization(collector):
     """Test that hyphens are replaced with underscores."""
     df = pl.DataFrame(
         {
@@ -411,14 +376,13 @@ def test_fix_patient_id_hyphen_normalization():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["KD_EW004", "AB_CD123"]
     assert len(collector) == 0  # Normalization doesn't generate errors
 
 
-def test_fix_patient_id_overlong_without_candidate_is_sentinelled():
+def test_fix_patient_id_overlong_without_candidate_is_sentinelled(collector):
     """An over-length ID is never truncated into an identity nobody wrote.
 
     Truncating to 8 characters manufactures an ID that appears in no source
@@ -431,14 +395,13 @@ def test_fix_patient_id_overlong_without_candidate_is_sentinelled():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
     assert len(collector) == 3
 
 
-def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling():
+def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling(collector):
     """A one-edit typo resolves to the ID the same tracker spells correctly."""
     df = pl.DataFrame(
         {
@@ -446,21 +409,19 @@ def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["KH_NP026", "KH_NP026", "KH_NP027"]
     # Recovery is still a defect in the source workbook, so it is reported.
     assert len(collector) == 1
-    assert "KH_NPH026" in collector.errors[0].original_value
+    assert "KH_NPH026" in collector.findings[0].original_value
 
 
 def test_fix_patient_id_recovers_a_short_id_too():
     """Recovery is not limited to the over-length branch."""
     df = pl.DataFrame({"patient_id": ["MM_NO97", "MM_NO097"]})
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["MM_NO097", "MM_NO097"]
 
@@ -469,8 +430,7 @@ def test_fix_patient_id_ambiguous_candidates_are_sentinelled():
     """Two candidates one edit away means the intended patient is unknowable."""
     df = pl.DataFrame({"patient_id": ["KH_NP02", "KH_NP021", "KH_NP023"]})
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"][0] == "Undefined"
 
@@ -483,13 +443,12 @@ def test_fix_patient_id_candidate_must_be_in_the_same_tracker():
     """
     df = pl.DataFrame({"patient_id": ["MM_NO97", "MM_NO096", "MM_NO001"]})
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"][0] == "Undefined"
 
 
-def test_fix_patient_id_invalid_too_short_first_part():
+def test_fix_patient_id_invalid_too_short_first_part(collector):
     """Test that IDs with < 2 letters in first part are replaced."""
     df = pl.DataFrame(
         {
@@ -497,14 +456,13 @@ def test_fix_patient_id_invalid_too_short_first_part():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
     assert len(collector) == 2
 
 
-def test_fix_patient_id_invalid_too_short_second_part():
+def test_fix_patient_id_invalid_too_short_second_part(collector):
     """Test that IDs with < 2 letters in second part are replaced."""
     df = pl.DataFrame(
         {
@@ -512,8 +470,7 @@ def test_fix_patient_id_invalid_too_short_second_part():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
     assert len(collector) == 2
@@ -527,15 +484,14 @@ def test_fix_patient_id_invalid_wrong_digits():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     # All invalid (2 digits, 1 digit, 4 digits), and none has a well-formed
     # ID in the same frame to recover against.
     assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
 
 
-def test_fix_patient_id_invalid_digits_in_letter_positions():
+def test_fix_patient_id_invalid_digits_in_letter_positions(collector):
     """Test that IDs with digits instead of letters are replaced."""
     df = pl.DataFrame(
         {
@@ -543,14 +499,13 @@ def test_fix_patient_id_invalid_digits_in_letter_positions():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
     assert len(collector) == 3
 
 
-def test_fix_patient_id_invalid_letters_in_digit_positions():
+def test_fix_patient_id_invalid_letters_in_digit_positions(collector):
     """Test that IDs with letters in digit positions are replaced."""
     df = pl.DataFrame(
         {
@@ -558,14 +513,13 @@ def test_fix_patient_id_invalid_letters_in_digit_positions():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
     assert len(collector) == 2
 
 
-def test_fix_patient_id_invalid_no_underscore():
+def test_fix_patient_id_invalid_no_underscore(collector):
     """Test that IDs without underscore are replaced."""
     df = pl.DataFrame(
         {
@@ -573,14 +527,13 @@ def test_fix_patient_id_invalid_no_underscore():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["Undefined", "Undefined"]
     assert len(collector) == 2
 
 
-def test_fix_patient_id_null_values():
+def test_fix_patient_id_null_values(collector):
     """Test that null values are preserved."""
     df = pl.DataFrame(
         {
@@ -588,8 +541,7 @@ def test_fix_patient_id_null_values():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"][0] == "KD_EW004"
     assert result["patient_id"][1] is None
@@ -597,7 +549,7 @@ def test_fix_patient_id_null_values():
     assert len(collector) == 0
 
 
-def test_fix_patient_id_empty_string():
+def test_fix_patient_id_empty_string(collector):
     """Test that empty string is replaced with error value."""
     df = pl.DataFrame(
         {
@@ -605,26 +557,24 @@ def test_fix_patient_id_empty_string():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"][0] == "Undefined"
     assert result["patient_id"][1] == "KD_EW004"
     assert len(collector) == 1
 
 
-def test_fix_patient_id_missing_column():
+def test_fix_patient_id_missing_column(collector):
     """Test that missing column is handled gracefully."""
     df = pl.DataFrame({"other": [1, 2, 3]})
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_fix_patient_id_mixed_valid_invalid():
+def test_fix_patient_id_mixed_valid_invalid(collector):
     """Test mixed valid and invalid IDs."""
     df = pl.DataFrame(
         {
@@ -638,8 +588,7 @@ def test_fix_patient_id_mixed_valid_invalid():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"][0] == "KD_EW004"
     assert result["patient_id"][1] == "KD_AB123"
@@ -649,7 +598,7 @@ def test_fix_patient_id_mixed_valid_invalid():
     assert len(collector) == 2
 
 
-def test_fix_patient_id_lowercase_letters():
+def test_fix_patient_id_lowercase_letters(collector):
     """Test that lowercase letters make ID invalid."""
     df = pl.DataFrame(
         {
@@ -657,15 +606,14 @@ def test_fix_patient_id_lowercase_letters():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     # All should be replaced (format requires uppercase)
     assert result["patient_id"].to_list() == ["Undefined", "Undefined", "Undefined"]
     assert len(collector) == 3
 
 
-def test_fix_patient_id_never_truncates_an_overlong_id():
+def test_fix_patient_id_never_truncates_an_overlong_id(collector):
     """Ticket 47: every malformed ID is recovered or sentinelled, never cut.
 
     A malformed ID is recovered against a well-formed ID in the same tracker
@@ -685,8 +633,7 @@ def test_fix_patient_id_never_truncates_an_overlong_id():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     expected = [
         "KD_EW004",  # Valid
@@ -700,7 +647,7 @@ def test_fix_patient_id_never_truncates_an_overlong_id():
     assert len(collector) == 3
 
 
-def test_fix_patient_id_recovers_a_single_character_typo():
+def test_fix_patient_id_recovers_a_single_character_typo(collector):
     """The other half of the same divergence: one edit, one candidate, recover.
 
     These four spellings are all one edit from the valid `KD_EW004` the same
@@ -718,8 +665,7 @@ def test_fix_patient_id_recovers_a_single_character_typo():
         }
     )
 
-    collector = ErrorCollector()
-    result = fix_patient_id(df, collector)
+    result = fix_patient_id(df)
 
     assert result["patient_id"].to_list() == ["KD_EW004"] * 5
     # Recovered, but still four defective source cells to report.
@@ -735,7 +681,6 @@ def test_validate_allowed_values_maps_a_configured_alias_to_its_canonical_form()
     reports, and which one is canonical is stated in the config rather than
     implied by list order.
     """
-    collector = ErrorCollector()
     df = pl.DataFrame({"status": ["Active - Remote", "active remote", "Active"]})
 
     result = validate_allowed_values(
@@ -743,7 +688,6 @@ def test_validate_allowed_values_maps_a_configured_alias_to_its_canonical_form()
         column="status",
         allowed_values=["Active", "Active Remote"],
         aliases={"Active Remote": ["Active - Remote"]},
-        error_collector=collector,
     )
 
     assert result["status"].to_list() == ["Active Remote", "Active Remote", "Active"]
@@ -752,7 +696,6 @@ def test_validate_allowed_values_maps_a_configured_alias_to_its_canonical_form()
 def test_validate_allowed_values_rejects_two_allowed_values_that_sanitize_alike():
     """Two canonical values reducing to one key made the winner depend on
     dict-insertion order (ticket 29). Fail loudly instead of picking one."""
-    collector = ErrorCollector()
     df = pl.DataFrame({"status": ["Active Remote"]})
 
     with pytest.raises(ValueError, match="sanitize to the same key"):
@@ -760,14 +703,12 @@ def test_validate_allowed_values_rejects_two_allowed_values_that_sanitize_alike(
             df=df,
             column="status",
             allowed_values=["Active - Remote", "Active Remote"],
-            error_collector=collector,
         )
 
 
 def test_validate_allowed_values_rejects_aliases_for_a_non_allowed_canonical():
     """Aliases declared under a label that is not a canonical value are a
     config typo."""
-    collector = ErrorCollector()
     df = pl.DataFrame({"status": ["Active"]})
 
     with pytest.raises(ValueError, match="not an allowed value"):
@@ -776,5 +717,4 @@ def test_validate_allowed_values_rejects_aliases_for_a_non_allowed_canonical():
             column="status",
             allowed_values=["Active"],
             aliases={"Active Remotte": ["Active - Remote"]},
-            error_collector=collector,
         )

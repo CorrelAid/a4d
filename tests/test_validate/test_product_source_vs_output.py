@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import polars as pl
+from loguru import logger
 
-from a4d.errors import ErrorCollector
 from a4d.validate.source_vs_output_product import (
     _explode_multi_product_cells,
     check_column_null_rate_delta,
@@ -38,7 +38,7 @@ def _clean(rows: list[dict]) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=CLEAN_SCHEMA)
 
 
-def test_explode_splits_multi_product_cell() -> None:
+def test_explode_splits_multi_product_cell(collector) -> None:
     df = _raw(
         [
             {
@@ -54,7 +54,7 @@ def test_explode_splits_multi_product_cell() -> None:
     assert sorted(exploded["product"].to_list()) == ["Insulin A", "Insulin B"]
 
 
-def test_missing_group_after_explode() -> None:
+def test_missing_group_after_explode(collector) -> None:
     raw = _raw(
         [
             {
@@ -79,13 +79,12 @@ def test_missing_group_after_explode() -> None:
             # Insulin B is missing from cleaned -> should fire MISSING_GROUP
         ]
     )
-    coll = ErrorCollector()
-    check_missing_groups(_explode_multi_product_cells(raw), cleaned, coll)
-    msgs = [e.error_message for e in coll.errors]
+    check_missing_groups(_explode_multi_product_cells(raw), cleaned)
+    msgs = [e.message for e in collector.findings]
     assert any("MISSING_GROUP" in m and "Insulin B" in m for m in msgs)
 
 
-def test_phantom_group_fires_for_invented_product() -> None:
+def test_phantom_group_fires_for_invented_product(collector) -> None:
     raw = _raw(
         [
             {
@@ -117,15 +116,13 @@ def test_phantom_group_fires_for_invented_product() -> None:
             },
         ]
     )
-    coll = ErrorCollector()
-    check_missing_groups(_explode_multi_product_cells(raw), cleaned, coll)
+    check_missing_groups(_explode_multi_product_cells(raw), cleaned)
     assert any(
-        "PHANTOM_GROUP" in e.error_message and "Phantom Drug" in e.error_message
-        for e in coll.errors
+        "PHANTOM_GROUP" in e.message and "Phantom Drug" in e.message for e in collector.findings
     )
 
 
-def test_row_count_delta_fires_when_counts_differ() -> None:
+def test_row_count_delta_fires_when_counts_differ(collector) -> None:
     raw = _raw(
         [
             {
@@ -164,14 +161,13 @@ def test_row_count_delta_fires_when_counts_differ() -> None:
             # Cleaner dropped two rows
         ]
     )
-    coll = ErrorCollector()
-    check_row_count_delta(_explode_multi_product_cells(raw), cleaned, coll)
+    check_row_count_delta(_explode_multi_product_cells(raw), cleaned)
     assert any(
-        "ROW_COUNT_DELTA" in e.error_message and "delta=-2" in e.error_message for e in coll.errors
+        "ROW_COUNT_DELTA" in e.message and "delta=-2" in e.message for e in collector.findings
     )
 
 
-def test_row_count_delta_silent_when_counts_match() -> None:
+def test_row_count_delta_silent_when_counts_match(collector) -> None:
     raw = _raw(
         [
             {
@@ -195,12 +191,11 @@ def test_row_count_delta_silent_when_counts_match() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_row_count_delta(_explode_multi_product_cells(raw), cleaned, coll)
-    assert len(coll) == 0
+    check_row_count_delta(_explode_multi_product_cells(raw), cleaned)
+    assert len(collector) == 0
 
 
-def test_column_null_rate_delta_fires_for_silent_loss() -> None:
+def test_column_null_rate_delta_fires_for_silent_loss(collector) -> None:
     raw = _raw(
         [
             {
@@ -239,9 +234,15 @@ def test_column_null_rate_delta_fires_for_silent_loss() -> None:
             },
         ]
     )
-    coll = ErrorCollector()
-    check_column_null_rate_delta(raw, cleaned, coll)
-    assert any(
-        "COLUMN_NULL_RATE_DELTA" in e.error_message and e.column == "product_units_released"
-        for e in coll.errors
-    )
+    # A null-rate delta describes the run, not one workbook, so it is a
+    # diagnostic log line rather than a finding (ticket 66: every finding
+    # names the tracker it is about).
+    messages: list[str] = []
+    sink_id = logger.add(lambda m: messages.append(m), level="WARNING")
+    try:
+        check_column_null_rate_delta(raw, cleaned)
+    finally:
+        logger.remove(sink_id)
+
+    assert any("COLUMN_NULL_RATE_DELTA" in m and "product_units_released" in m for m in messages)
+    assert not collector.findings

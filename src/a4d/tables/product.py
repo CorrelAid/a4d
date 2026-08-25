@@ -12,7 +12,6 @@ from loguru import logger
 from a4d.clean.converters import safe_convert_column
 from a4d.clean.schema_product import apply_schema, get_product_data_schema
 from a4d.clean.validators import fix_patient_id
-from a4d.errors import ErrorCollector
 
 
 def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
@@ -54,10 +53,8 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
 
     df = df.with_columns(pl.col("product_released_to").alias("orig_product_released_to"))
 
-    error_collector = ErrorCollector()
     df = fix_patient_id(
         df=df,
-        error_collector=error_collector,
         patient_id_col="product_released_to",
     )
 
@@ -72,37 +69,13 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
                 df=df,
                 column=col,
                 target_type=dtype,
-                error_collector=error_collector,
                 patient_id_col="product_released_to",
             )
 
-    # Surface any errors collected by fix_patient_id / safe_convert_column at
-    # the table-aggregation stage. These run outside any per-tracker file_logger,
-    # so without this loop the errors disappear silently. Full per-row detail
-    # goes to DEBUG only — with thousands of truncated/invalid IDs across a
-    # real run, logging each at WARNING flooded the console (same issue as
-    # link_product_patient's per-pair loop). The console gets one aggregate
-    # line per (column, error_message) group instead.
-    for err in error_collector.errors:
-        logger.bind(
-            error_code=err.error_code,
-            script="script3",
-            function_name=err.function_name,
-            file_name=err.file_name,
-            column=err.column,
-        ).debug(
-            f"Table-stage error: {err.error_message} "
-            f"(file={err.file_name}, column={err.column}, value={err.original_value})"
-        )
-    if error_collector.errors:
-        group_counts: dict[tuple[str, str], int] = {}
-        for err in error_collector.errors:
-            key = (err.column, err.error_message)
-            group_counts[key] = group_counts.get(key, 0) + 1
-        for (column, message), count in sorted(group_counts.items(), key=lambda kv: -kv[1]):
-            logger.warning(f"Table-stage errors: {count}x '{message}' (column={column})")
-        logger.info(f"Table-stage errors: {len(error_collector.errors)} total")
-
+    # fix_patient_id and safe_convert_column above run at the table-aggregation
+    # stage, over a frame spanning every tracker rather than inside one
+    # tracker's context. Their findings carry the row's own file_name and are
+    # returned to the caller to reach the findings table with the rest.
     logger.info(f"Product data table dimensions: {df.shape}")
 
     output_dir.mkdir(parents=True, exist_ok=True)

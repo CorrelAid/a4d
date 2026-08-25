@@ -42,13 +42,12 @@ from a4d.clean.schema import (
 from a4d.clean.transformers import extract_regimen, strip_string_whitespace
 from a4d.clean.validators import validate_all_columns
 from a4d.config import settings
-from a4d.errors import ErrorCollector
 from a4d.extract.common import normalize_patient_id_expr
+from a4d.findings import report_finding
 
 
 def clean_patient_data(
     df_raw: pl.DataFrame,
-    error_collector: ErrorCollector,
 ) -> pl.DataFrame:
     """Clean raw patient data following the complete pipeline.
 
@@ -57,14 +56,13 @@ def clean_patient_data(
 
     Args:
         df_raw: Raw patient data from extraction
-        error_collector: ErrorCollector instance for tracking errors
 
     Returns:
         Cleaned DataFrame with complete meta schema applied
 
     Example:
         >>> from a4d.extract.patient import extract_patient_data
-        >>> from a4d.errors import ErrorCollector
+        >>> from a4d.findings import ErrorCollector
         >>>
         >>> collector = ErrorCollector()
         >>> df_raw = extract_patient_data(tracker_file)
@@ -79,7 +77,7 @@ def clean_patient_data(
     # strings, which extraction preserves verbatim (ticket 27). Must run
     # before type conversion so these don't land in safe_convert_column's
     # parse-failure branch and pick up the 999999 sentinel.
-    df_raw = normalize_excel_formula_errors(df_raw, error_collector)
+    df_raw = normalize_excel_formula_errors(df_raw)
 
     # Step 0.5: Strip whitespace from the ends of every string cell (ticket
     # 36). End-whitespace never carries meaning in this data, and it runs
@@ -109,12 +107,12 @@ def clean_patient_data(
     df = apply_schema(df)
 
     # Step 5: Type conversions
-    df = _apply_type_conversions(df, error_collector)
+    df = _apply_type_conversions(df)
 
     # Step 5.4: Convert Buddhist-era dates to Gregorian (ticket 61).
     # Before _fix_age_from_dob so no age is derived from a BE dob, and before
     # _validate_dates, which would otherwise sentinel every one of them.
-    df = _convert_buddhist_era_dates(df, error_collector)
+    df = _convert_buddhist_era_dates(df)
 
     # Step 5.5: Derive age from DOB, overriding the sheet's own Age cell --
     # a typed age goes stale between the month it was written and the month
@@ -122,7 +120,7 @@ def clean_patient_data(
     # 2009-01-16 makes Jan23 an age of 14; the clinic's cell says 13).
     # Must happen after type conversions so DOB is a proper date, and before
     # range validation so the validated age is the derived one.
-    df = _fix_age_from_dob(df, error_collector)
+    df = _fix_age_from_dob(df)
 
     # Step 5.5b: Fill t1d_diagnosis_age from dob and t1d_diagnosis_date, but
     # only where the tracker recorded no usable age of its own (ticket 52)
@@ -130,18 +128,18 @@ def clean_patient_data(
 
     # Step 5.6: Validate dates (replace future dates with error value)
     # Must happen after type conversions so dates are proper date types
-    df = _validate_dates(df, error_collector)
+    df = _validate_dates(df)
 
     # Step 5.7: Resolve glucose readings recorded under the wrong unit's header.
     # Before range validation so the analytical limits judge corrected values,
     # and before step 8 so the mg/mmol cross-derivation sees matching units.
-    df = resolve_glucose_units(df, error_collector)
+    df = resolve_glucose_units(df)
 
     # Step 6: Range validation and cleanup
-    df = _apply_range_validation(df, error_collector)
+    df = _apply_range_validation(df)
 
     # Step 7: Allowed values validation
-    df = validate_all_columns(df, error_collector)
+    df = validate_all_columns(df)
 
     # Step 8: Unit conversions (requires schema to be applied first!)
     df = _apply_unit_conversions(df)
@@ -153,7 +151,6 @@ def clean_patient_data(
     df = df.sort(["tracker_date", "patient_id"])
 
     logger.info(f"Cleaning complete: {len(df)} rows, {len(df.columns)} columns")
-    logger.info(f"Errors collected: {len(error_collector)}")
 
     return df
 
@@ -506,7 +503,7 @@ def _apply_transformations(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
-def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _apply_type_conversions(df: pl.DataFrame) -> pl.DataFrame:
     """Convert columns to target types using safe_convert_column.
 
     Only converts columns that exist in both the DataFrame and the schema.
@@ -517,7 +514,6 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
 
     Args:
         df: Input DataFrame
-        error_collector: ErrorCollector for tracking conversion failures
 
     Returns:
         DataFrame with types converted
@@ -548,17 +544,16 @@ def _apply_type_conversions(df: pl.DataFrame, error_collector: ErrorCollector) -
                 .alias(col)
             )
             # Use custom date parser for flexibility (handles Mar-18, Excel serials, etc.)
-            df = parse_date_column(df, col, error_collector)
+            df = parse_date_column(df, col)
         # Special handling for Int32: convert via Float64 first (handles "14.0" → 14.0 → 14)
         elif target_type == pl.Int32:
-            df = safe_convert_column(df, col, pl.Float64, error_collector)
+            df = safe_convert_column(df, col, pl.Float64)
             df = df.with_columns(pl.col(col).round(0).cast(pl.Int32, strict=False).alias(col))
         else:
             df = safe_convert_column(
                 df=df,
                 column=col,
                 target_type=target_type,
-                error_collector=error_collector,
             )
 
     return df
@@ -587,7 +582,7 @@ def _calculate_bmi(df: pl.DataFrame) -> pl.DataFrame:
     return fix_bmi(df)
 
 
-def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _apply_range_validation(df: pl.DataFrame) -> pl.DataFrame:
     """Apply range validation and value cleanup.
 
     This includes:
@@ -600,7 +595,6 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
 
     Args:
         df: Input DataFrame
-        error_collector: ErrorCollector for tracking violations
 
     Returns:
         DataFrame with range validation applied
@@ -617,11 +611,11 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
             .otherwise(pl.col("height"))
             .alias("height")
         )
-        df = cut_numeric_value(df, "height", 0, 2.3, error_collector)
+        df = cut_numeric_value(df, "height", 0, 2.3)
 
     # Weight: 0-200 kg
     if "weight" in df.columns:
-        df = cut_numeric_value(df, "weight", 0, 200, error_collector)
+        df = cut_numeric_value(df, "weight", 0, 200)
 
     # BMI is derived here rather than earlier so it sees the validated height:
     # an out-of-bounds height voids the BMI instead of producing one
@@ -630,19 +624,19 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
 
     # BMI: 4-60
     if "bmi" in df.columns:
-        df = cut_numeric_value(df, "bmi", 10, 80, error_collector)
+        df = cut_numeric_value(df, "bmi", 10, 80)
 
     # Age: 0-25 years
     if "age" in df.columns:
-        df = cut_numeric_value(df, "age", 0, 100, error_collector)
+        df = cut_numeric_value(df, "age", 0, 100)
 
     # HbA1c baseline: 4-18%
     if "hba1c_baseline" in df.columns:
-        df = cut_numeric_value(df, "hba1c_baseline", 0, 25, error_collector)
+        df = cut_numeric_value(df, "hba1c_baseline", 0, 25)
 
     # HbA1c updated: 4-18%
     if "hba1c_updated" in df.columns:
-        df = cut_numeric_value(df, "hba1c_updated", 0, 25, error_collector)
+        df = cut_numeric_value(df, "hba1c_updated", 0, 25)
 
     # FBG: the analytical limits of the machines in use, given by A4D's medical
     # advisor 2026-08-17 (ticket 42). The permissive end of each range he gave is
@@ -652,14 +646,10 @@ def _apply_range_validation(df: pl.DataFrame, error_collector: ErrorCollector) -
     # 832 readings are rejected on these limits.
     for column in ("fbg_baseline_mg", "fbg_updated_mg"):
         if column in df.columns:
-            df = cut_numeric_value(
-                df, column, MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX, error_collector
-            )
+            df = cut_numeric_value(df, column, MG_ANALYTICAL_MIN, MG_ANALYTICAL_MAX)
     for column in ("fbg_baseline_mmol", "fbg_updated_mmol"):
         if column in df.columns:
-            df = cut_numeric_value(
-                df, column, MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX, error_collector
-            )
+            df = cut_numeric_value(df, column, MMOL_ANALYTICAL_MIN, MMOL_ANALYTICAL_MAX)
 
     return df
 
@@ -699,7 +689,7 @@ def _apply_unit_conversions(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
-def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
     """Fix age by calculating from DOB and tracker date.
 
     Always uses the age calculated from DOB rather than the sheet's own Age
@@ -715,7 +705,6 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
 
     Args:
         df: DataFrame with age, dob, tracker_year, tracker_month, patient_id columns
-        error_collector: ErrorCollector for tracking data quality issues
 
     Returns:
         DataFrame with corrected age values
@@ -771,52 +760,63 @@ def _fix_age_from_dob(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.D
         & ((pl.col("age").is_null()) | (pl.col("age") != pl.col("_calc_age")))
     ).iter_rows(named=True):
         patient_id = row["patient_id"]
-        file_name = row.get("file_name") or "unknown"
         excel_age = row["age"]
         calc_age = row["_calc_age"]
 
         if excel_age is None or (excel_age == settings.error_val_numeric):
-            logger.bind(error_code="missing_value").warning(
-                f"Patient {patient_id}: age is missing. "
-                f"Using calculated age {calc_age} instead of original age."
+            report_finding(
+                error_code="missing_value",
+                message=(
+                    f"Patient {patient_id}: age is missing. "
+                    f"Using calculated age {calc_age} instead of original age."
+                ),
+                stage="clean",
+                function_name="_fix_age_from_dob",
             )
-            error_collector.add_error(
-                file_name=file_name,
+            report_finding(
                 patient_id=patient_id,
                 column="age",
                 original_value=excel_age if excel_age is not None else "NULL",
-                error_message=f"Age missing, calculated from DOB as {calc_age}",
+                message=f"Age missing, calculated from DOB as {calc_age}",
                 error_code="missing_value",
                 function_name="_fix_age_from_dob",
             )
             ages_missing += 1
         elif calc_age < 0:
-            logger.bind(error_code="invalid_value").warning(
-                f"Patient {patient_id}: calculated age is negative ({calc_age}). "
-                f"Please check this manually. Using error value instead."
+            report_finding(
+                error_code="invalid_value",
+                message=(
+                    f"Patient {patient_id}: calculated age is negative ({calc_age}). "
+                    f"Please check this manually. Using error value instead."
+                ),
+                stage="clean",
+                function_name="_fix_age_from_dob",
             )
-            error_collector.add_error(
-                file_name=file_name,
+            report_finding(
                 patient_id=patient_id,
                 column="age",
                 original_value=str(excel_age),
-                error_message=f"Calculated age is negative ({calc_age}), check DOB",
+                message=f"Calculated age is negative ({calc_age}), check DOB",
                 error_code="invalid_value",
                 function_name="_fix_age_from_dob",
             )
             ages_negative += 1
         else:
-            logger.bind(error_code="invalid_value").warning(
-                f"Patient {patient_id}: age {excel_age} is different "
-                f"from calculated age {calc_age}. "
-                f"Using calculated age instead of original age."
+            report_finding(
+                error_code="invalid_value",
+                message=(
+                    f"Patient {patient_id}: age {excel_age} is different "
+                    f"from calculated age {calc_age}. "
+                    f"Using calculated age instead of original age."
+                ),
+                stage="clean",
+                function_name="_fix_age_from_dob",
             )
-            error_collector.add_error(
-                file_name=file_name,
+            report_finding(
                 patient_id=patient_id,
                 column="age",
                 original_value=str(excel_age),
-                error_message=(
+                message=(
                     f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age."
                 ),
                 error_code="invalid_value",
@@ -916,7 +916,7 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
-def _convert_buddhist_era_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _convert_buddhist_era_dates(df: pl.DataFrame) -> pl.DataFrame:
     """Shift Buddhist-era dates to Gregorian before anything else reads them.
 
     Thai clinics keep their trackers in a Thai-locale Excel, so a date arrives
@@ -952,17 +952,14 @@ def _convert_buddhist_era_dates(df: pl.DataFrame, error_collector: ErrorCollecto
         )
 
         candidates = df.with_columns(shifted.alias("_shifted")).filter(mask)
-        for patient_id, file_name, original, shifted_value in candidates.select(
-            "patient_id", "file_name", col, "_shifted"
+        for patient_id, original, shifted_value in candidates.select(
+            "patient_id", col, "_shifted"
         ).iter_rows():
-            error_collector.add_error(
-                file_name=file_name or "UNKNOWN",
+            report_finding(
                 patient_id=patient_id or "UNKNOWN",
                 column=col,
                 original_value=str(original),
-                error_message=(
-                    f"Date {original} is a Buddhist-era year; converted to {shifted_value}"
-                ),
+                message=(f"Date {original} is a Buddhist-era year; converted to {shifted_value}"),
                 error_code="buddhist_era_converted",
                 function_name="_convert_buddhist_era_dates",
             )
@@ -976,7 +973,7 @@ def _convert_buddhist_era_dates(df: pl.DataFrame, error_collector: ErrorCollecto
     return df
 
 
-def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def _validate_dates(df: pl.DataFrame) -> pl.DataFrame:
     """Validate date columns and replace future dates with error value.
 
     Dates beyond the tracker year are considered invalid and replaced with
@@ -992,7 +989,6 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
 
     Args:
         df: Input DataFrame with date columns
-        error_collector: ErrorCollector for tracking validation errors
 
     Returns:
         DataFrame with invalid dates replaced
@@ -1026,17 +1022,21 @@ def _validate_dates(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.Dat
             patient_id = patient_id if patient_id is not None else "UNKNOWN"
             file_name = file_name if file_name is not None else "UNKNOWN"
 
-            logger.bind(error_code="invalid_value").warning(
-                f"Patient {patient_id}: {col} = {original_date} "
-                f"is beyond tracker year {tracker_year}. "
-                f"Replacing with error date."
+            report_finding(
+                error_code="invalid_value",
+                message=(
+                    f"Patient {patient_id}: {col} = {original_date} "
+                    f"is beyond tracker year {tracker_year}. "
+                    f"Replacing with error date."
+                ),
+                stage="clean",
+                function_name="_validate_dates",
             )
-            error_collector.add_error(
-                file_name=file_name,
+            report_finding(
                 patient_id=patient_id,
                 column=col,
                 original_value=str(original_date),
-                error_message=f"Date {original_date} is beyond tracker year {tracker_year}",
+                message=f"Date {original_date} is beyond tracker year {tracker_year}",
                 error_code="invalid_value",
                 function_name="_validate_dates",
             )
@@ -1087,7 +1087,6 @@ def _add_tracker_date(df: pl.DataFrame) -> pl.DataFrame:
 def clean_patient_file(
     raw_parquet_path: Path,
     output_parquet_path: Path,
-    error_collector: ErrorCollector | None = None,
 ) -> None:
     """Clean a single patient data parquet file.
 
@@ -1096,7 +1095,6 @@ def clean_patient_file(
     Args:
         raw_parquet_path: Path to raw patient parquet (from extraction)
         output_parquet_path: Path to write cleaned parquet
-        error_collector: Optional ErrorCollector (creates new one if not provided)
 
     Example:
         >>> from pathlib import Path
@@ -1104,16 +1102,13 @@ def clean_patient_file(
         >>> clean_path = Path("output/patient_data_clean/2024_Hospital_patient_clean.parquet")
         >>> clean_patient_file(raw_path, clean_path)
     """
-    if error_collector is None:
-        error_collector = ErrorCollector()
-
     logger.info(f"Cleaning patient file: {raw_parquet_path}")
 
     # Read raw parquet
     df_raw = pl.read_parquet(raw_parquet_path)
 
     # Clean data
-    df_clean = clean_patient_data(df_raw, error_collector)
+    df_clean = clean_patient_data(df_raw)
 
     # Create output directory if needed
     output_parquet_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1122,4 +1117,3 @@ def clean_patient_file(
     df_clean.write_parquet(output_parquet_path)
 
     logger.info(f"Cleaned patient file written: {output_parquet_path}")
-    logger.info(f"Total errors: {len(error_collector)}")

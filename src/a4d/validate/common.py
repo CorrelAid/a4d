@@ -8,7 +8,7 @@ import polars as pl
 
 from a4d.clean.converters import safe_convert_column
 from a4d.config import settings
-from a4d.errors import ErrorCode, ErrorCollector
+from a4d.findings import Arm, ErrorCode, findings_discarded, report_finding
 
 # Mirrors clean/patient.py:241-256. Hyphen->underscore happens first, then we
 # extract the leading "LETTERS_NON-UNDERSCORE-CHARS" group. Single-token IDs
@@ -35,23 +35,18 @@ def safe_parse_series(
 ) -> pl.Series:
     """Re-parse a raw string Series to ``target_type``, discarding parse errors.
 
-    ``safe_convert_column`` writes to its caller's ErrorCollector with code
-    ``type_conversion``. We pass a sacrificial collector here so those entries
-    don't pollute the validator's findings collector.
+    ``safe_convert_column`` reports a ``type_conversion`` finding for every
+    cell it cannot parse. Here those findings are about the validator's own
+    probe rather than about a workbook, so the block discards them explicitly.
     """
     name = raw_col.name
-    sacrificial = ErrorCollector()
     df = pl.DataFrame({name: raw_col})
-    parsed = safe_convert_column(
-        df=df,
-        column=name,
-        target_type=target_type,
-        error_collector=sacrificial,
-        # safe_convert_column reads file_name/patient_id for error attribution; we
-        # don't care about the entries it generates, but the columns must exist.
-        file_name_col="__unused_file__",
-        patient_id_col="__unused_pid__",
-    )
+    with findings_discarded():
+        parsed = safe_convert_column(
+            df=df,
+            column=name,
+            target_type=target_type,
+        )
     series = parsed[name]
     # safe_convert_column writes settings.error_val_numeric / error_val_character /
     # error_val_date for parse failures; map those sentinels back to null so the
@@ -67,9 +62,9 @@ def safe_parse_series(
 
 
 def emit_finding(
-    collector: ErrorCollector,
     *,
     file_name: str,
+    arm: Arm = "patient",
     patient_id: str,
     column: str,
     original_value: Any,
@@ -77,24 +72,25 @@ def emit_finding(
     error_code: ErrorCode,
     function_name: str,
 ) -> None:
-    """Thin wrapper around ``ErrorCollector.add_error`` enforcing the schema.
+    """Thin wrapper around ``report_finding`` enforcing the schema.
 
-    The collector accepts only the ErrorCode literal types — validator codes
+    The taxonomy accepts only the ErrorCode literal types — validator codes
     that don't fit (MISSING_ROW, VALUE_SHIFT, ...) are encoded in
     ``error_message`` and the underlying ``error_code`` is set to the closest
     existing literal. Caller must pass one of: ``"missing_value"`` for
     missing/phantom rows, ``"invalid_value"`` for shifts/range violations,
     ``"type_conversion"`` for parse-driven nulls.
     """
-    collector.add_error(
+    report_finding(
         file_name=file_name,
+        arm=arm,
         patient_id=patient_id,
         column=column,
         original_value="" if original_value is None else str(original_value),
-        error_message=error_message,
+        message=error_message,
         error_code=error_code,
         function_name=function_name,
-        script="validate",
+        stage="validate",
     )
 
 

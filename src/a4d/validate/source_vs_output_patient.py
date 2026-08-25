@@ -12,7 +12,7 @@ import polars as pl
 from loguru import logger
 
 from a4d.clean.validators import load_numeric_ranges
-from a4d.errors import ErrorCollector
+from a4d.findings import FindingCollector, findings_collected
 from a4d.validate.common import (
     emit_finding,
     is_close,
@@ -62,18 +62,17 @@ def _normalize_join_keys(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def check_missing_patients(
-    raw: pl.DataFrame, cleaned: pl.DataFrame, collector: ErrorCollector
-) -> None:
+def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
     """MISSING_ROW + PHANTOM_ROW: anti-joins on the normalized row key."""
-    raw_keys = _normalize_join_keys(raw).select(ROW_KEY).unique()
-    cleaned_keys = _normalize_join_keys(cleaned).select(ROW_KEY).unique()
+    raw_keys = _normalize_join_keys(raw).select([*ROW_KEY, "file_name"]).unique(subset=ROW_KEY)
+    cleaned_keys = (
+        _normalize_join_keys(cleaned).select([*ROW_KEY, "file_name"]).unique(subset=ROW_KEY)
+    )
 
-    missing = raw_keys.join(cleaned_keys, on=ROW_KEY, how="anti")
+    missing = raw_keys.join(cleaned_keys.select(ROW_KEY), on=ROW_KEY, how="anti")
     for row in missing.iter_rows(named=True):
         emit_finding(
-            collector,
-            file_name="",
+            file_name=row["file_name"],
             patient_id=row["patient_id"] or "unknown",
             column="__row__",
             original_value=f"{row['clinic_id']}|{row['tracker_year']}|{row['tracker_month']}",
@@ -86,11 +85,10 @@ def check_missing_patients(
             function_name="check_missing_patients",
         )
 
-    phantom = cleaned_keys.join(raw_keys, on=ROW_KEY, how="anti")
+    phantom = cleaned_keys.join(raw_keys.select(ROW_KEY), on=ROW_KEY, how="anti")
     for row in phantom.iter_rows(named=True):
         emit_finding(
-            collector,
-            file_name="",
+            file_name=row["file_name"],
             patient_id=row["patient_id"] or "unknown",
             column="__row__",
             original_value=f"{row['clinic_id']}|{row['tracker_year']}|{row['tracker_month']}",
@@ -120,9 +118,7 @@ def _join_for_cell_checks(raw: pl.DataFrame, cleaned: pl.DataFrame) -> pl.DataFr
     return raw_renamed.join(cleaned_renamed, on=ROW_KEY, how="inner")
 
 
-def check_unexpected_nulls(
-    joined: pl.DataFrame, collector: ErrorCollector, file_name_col: str = "file_name_raw"
-) -> None:
+def check_unexpected_nulls(joined: pl.DataFrame, file_name_col: str = "file_name_raw") -> None:
     """UNEXPECTED_NULL: raw cell non-empty, cleaned cell null.
 
     Each finding carries a ``was_parseable`` indicator in the message so
@@ -154,8 +150,7 @@ def check_unexpected_nulls(
         for row, parsed_val in zip(suspect.iter_rows(named=True), parsed.to_list(), strict=True):
             was_parseable = parsed_val is not None
             emit_finding(
-                collector,
-                file_name=row.get(file_name_col) or "",
+                file_name=row[file_name_col],
                 patient_id=row.get("patient_id") or "unknown",
                 column=base,
                 original_value=row[raw_col],
@@ -168,9 +163,7 @@ def check_unexpected_nulls(
             )
 
 
-def check_value_shifts(
-    joined: pl.DataFrame, collector: ErrorCollector, file_name_col: str = "file_name_raw"
-) -> None:
+def check_value_shifts(joined: pl.DataFrame, file_name_col: str = "file_name_raw") -> None:
     """VALUE_SHIFT: numeric, non-derived, non-unit-converted columns only.
 
     For each eligible column, re-parse raw via the sacrificial converter and
@@ -204,8 +197,7 @@ def check_value_shifts(
             if is_close(float(raw_v), float(clean_v)):
                 continue
             emit_finding(
-                collector,
-                file_name=fname or "",
+                file_name=fname,
                 patient_id=pid or "unknown",
                 column=base,
                 original_value=raw_v,
@@ -224,9 +216,7 @@ def _apply_height_auto_conversion(s: pl.Series) -> pl.Series:
     )
 
 
-def check_out_of_range(
-    raw: pl.DataFrame, collector: ErrorCollector, file_name_col: str = "file_name"
-) -> None:
+def check_out_of_range(raw: pl.DataFrame, file_name_col: str = "file_name") -> None:
     """OUT_OF_RANGE_RAW: raw values outside the YAML numeric_ranges.
 
     Runs against the raw frame because the cleaner replaces out-of-range
@@ -256,8 +246,7 @@ def check_out_of_range(
                 continue
             if v < min_v or v > max_v:
                 emit_finding(
-                    collector,
-                    file_name=fname or "",
+                    file_name=fname,
                     patient_id=pid or "unknown",
                     column=column,
                     original_value=v,
@@ -267,7 +256,7 @@ def check_out_of_range(
                 )
 
 
-def validate_patient_run(run_dir: Path) -> ErrorCollector | None:
+def validate_patient_run(run_dir: Path) -> FindingCollector | None:
     """Run all four patient checks against a pipeline run directory.
 
     Returns ``None`` if the run does not contain patient pipeline outputs
@@ -279,14 +268,16 @@ def validate_patient_run(run_dir: Path) -> ErrorCollector | None:
         logger.info(f"Patient pipeline outputs not found in {run_dir}; skipping.")
         return None
 
-    collector = ErrorCollector()
     logger.info(f"Patient validation: raw={raw.shape}, cleaned_monthly={cleaned.shape}")
 
-    check_missing_patients(raw, cleaned, collector)
-    joined = _join_for_cell_checks(raw, cleaned)
-    check_unexpected_nulls(joined, collector)
-    check_value_shifts(joined, collector)
-    check_out_of_range(raw, collector)
+    # The validator walks a finished run rather than processing a tracker, so
+    # it opens its own collector; each check names the file it is looking at.
+    with findings_collected() as collector:
+        check_missing_patients(raw, cleaned)
+        joined = _join_for_cell_checks(raw, cleaned)
+        check_unexpected_nulls(joined)
+        check_value_shifts(joined)
+        check_out_of_range(raw)
 
     logger.info(f"Patient validation: {len(collector)} findings")
     return collector

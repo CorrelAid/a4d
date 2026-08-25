@@ -10,6 +10,7 @@ type: basic_function.
 import polars as pl
 
 from a4d.config import settings
+from a4d.findings import report_finding
 
 
 def strip_string_whitespace(df: pl.DataFrame) -> pl.DataFrame:
@@ -309,8 +310,6 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
     if "testing_frequency" not in df.columns:
         return df
 
-    from loguru import logger
-
     # Track if we logged warnings
     has_ranges = False
 
@@ -345,8 +344,11 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 
     # Log warning if any ranges were found
     if has_ranges:
-        logger.bind(error_code="invalid_value").warning(
-            "Found ranges in testing_frequency column. Replacing with mean values."
+        report_finding(
+            error_code="invalid_value",
+            message="Found ranges in testing_frequency column. Replacing with mean values.",
+            column="testing_frequency",
+            function_name="convert_testing_frequency",
         )
 
     return df
@@ -373,8 +375,6 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
     if "blood_pressure_mmhg" not in df.columns:
         return df
 
-    from loguru import logger
-
     # First, replace invalid values (those without "/") with error format
     error_val_int = int(settings.error_val_numeric)
     df = df.with_columns(
@@ -389,10 +389,15 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
     has_errors = df.filter(pl.col("blood_pressure_mmhg") == error_pattern).height > 0
 
     if has_errors:
-        logger.bind(error_code="invalid_value").warning(
-            "Found invalid values for column blood_pressure_mmhg "
-            f"that do not follow the format X/Y. "
-            f"Values were replaced with {error_val_int}."
+        report_finding(
+            error_code="invalid_value",
+            message=(
+                "Found invalid values for column blood_pressure_mmhg "
+                "that do not follow the format X/Y. "
+                f"Values were replaced with {error_val_int}."
+            ),
+            column="blood_pressure_mmhg",
+            function_name="split_blood_pressure",
         )
 
     # Split the column, trimming each fragment. Polars' numeric cast fails on

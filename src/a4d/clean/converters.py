@@ -14,7 +14,6 @@ The pattern is:
 from datetime import date
 
 import polars as pl
-from loguru import logger
 
 from a4d.clean.date_parser import (
     MISSING_VALUE_MARKERS,
@@ -23,13 +22,12 @@ from a4d.clean.date_parser import (
     rescue_date_typos,
 )
 from a4d.config import settings
-from a4d.errors import ErrorCode, ErrorCollector
 from a4d.extract.common import EXCEL_ERROR_STRINGS
+from a4d.findings import ErrorCode, report_finding
 
 
 def normalize_excel_formula_errors(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -67,12 +65,12 @@ def normalize_excel_formula_errors(
         if offenders.is_empty():
             continue
         for row in offenders.iter_rows(named=True):
-            error_collector.add_error(
-                file_name=row.get(file_name_col) or "unknown",
+            report_finding(
+                file_name=row.get(file_name_col) or None,
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=col,
                 original_value=row[col],
-                error_message=(
+                message=(
                     f"Source tracker formula error '{row[col]}' in {col}: "
                     "a required input was not recorded, so no value could be computed"
                 ),
@@ -95,7 +93,6 @@ def safe_convert_column(
     df: pl.DataFrame,
     column: str,
     target_type: type[pl.DataType] | pl.DataType,
-    error_collector: ErrorCollector,
     error_value: float | str | None = None,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
@@ -110,7 +107,6 @@ def safe_convert_column(
         df: Input DataFrame
         column: Column name to convert
         target_type: Target Polars data type (pl.Int32, pl.Float64, etc.)
-        error_collector: ErrorCollector instance to track failures
         error_value: Value to use for failed conversions (default from settings)
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
@@ -124,7 +120,7 @@ def safe_convert_column(
         ...     df=df,
         ...     column="age",
         ...     target_type=pl.Int32,
-        ...     error_collector=collector,
+        ...,
         ... )
         >>> # Failures are logged in collector, replaced with ERROR_VAL_NUMERIC
     """
@@ -181,12 +177,12 @@ def safe_convert_column(
     # Log each failure
     if len(failed_rows) > 0:
         for row in failed_rows.iter_rows(named=True):
-            error_collector.add_error(
-                file_name=row.get(file_name_col) or "unknown",
+            report_finding(
+                file_name=row.get(file_name_col) or None,
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
-                error_message=f"Could not convert '{row[f'_orig_{column}']}' to {target_type}",
+                message=f"Could not convert '{row[f'_orig_{column}']}' to {target_type}",
                 error_code="type_conversion",
                 function_name="safe_convert_column",
             )
@@ -208,14 +204,13 @@ def safe_convert_column(
 def _apply_typo_rescue(
     df: pl.DataFrame,
     column: str,
-    error_collector: ErrorCollector,
     file_name_col: str,
     patient_id_col: str,
 ) -> pl.DataFrame:
     """Rewrite known month-name typos in-place before parsing.
 
     Builds a rescue_map from unique strings, logs each affected row to
-    error_collector + loguru with code "typo_rescued", then applies the
+    report_finding with code "typo_rescued", then applies the
     substitutions column-wide. No-op if no typos match.
     """
     rescue_map: dict[str, str] = {}
@@ -232,18 +227,14 @@ def _apply_typo_rescue(
         if select_cols:
             affected = df.filter(pl.col(column) == original).select(select_cols)
             for row in affected.iter_rows(named=True):
-                file_name = row.get(file_name_col) or "unknown"
+                file_name = row.get(file_name_col) or None
                 patient_id = row.get(patient_id_col) or "unknown"
-                logger.bind(error_code="typo_rescued").warning(
-                    f"date typo rescued in {column}: {original!r} -> {rescued_val!r} "
-                    f"(file={file_name!r}, {patient_id_col}={patient_id!r})"
-                )
-                error_collector.add_error(
-                    file_name=str(file_name),
+                report_finding(
+                    file_name=file_name,
                     patient_id=str(patient_id),
                     column=column,
                     original_value=original,
-                    error_message=f"date typo rescued: '{original}' -> '{rescued_val}'",
+                    message=f"date typo rescued: '{original}' -> '{rescued_val}'",
                     error_code="typo_rescued",
                     function_name="parse_date_column",
                 )
@@ -260,7 +251,6 @@ def _log_text_recoveries(
     df: pl.DataFrame,
     column: str,
     detailed: dict[tuple[str, int | None], tuple[date | None, TextDateRecovery | None]],
-    error_collector: ErrorCollector,
     file_name_col: str,
     patient_id_col: str,
 ) -> None:
@@ -308,18 +298,15 @@ def _log_text_recoveries(
         if select_cols:
             affected = affected.select(select_cols)
         for row in affected.iter_rows(named=True):
-            file_name = row.get(file_name_col) or "unknown"
+            file_name = row.get(file_name_col) or None
             patient_id = row.get(patient_id_col) or "unknown"
             for message, code in messages:
-                logger.bind(error_code=code).warning(
-                    f"{message} in {column} (file={file_name!r}, {patient_id_col}={patient_id!r})"
-                )
-                error_collector.add_error(
-                    file_name=str(file_name),
+                report_finding(
+                    file_name=file_name,
                     patient_id=str(patient_id),
                     column=column,
                     original_value=text,
-                    error_message=message,
+                    message=message,
                     error_code=code,
                     function_name="parse_date_column",
                 )
@@ -328,7 +315,6 @@ def _log_text_recoveries(
 def parse_date_column(
     df: pl.DataFrame,
     column: str,
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -343,7 +329,6 @@ def parse_date_column(
     Args:
         df: Input DataFrame
         column: Column name to parse
-        error_collector: ErrorCollector instance to track failures
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
@@ -354,7 +339,7 @@ def parse_date_column(
         >>> df = parse_date_column(
         ...     df=df,
         ...     column="hba1c_updated_date",
-        ...     error_collector=collector,
+        ...,
         ... )
     """
     if column not in df.columns:
@@ -363,7 +348,7 @@ def parse_date_column(
     # Substitute known month-name typos (e.g. "MACH" -> "MAR") before parsing,
     # logging each affected row so the source tracker remains visible to
     # data-quality triage. Skipped silently when no typos match.
-    df = _apply_typo_rescue(df, column, error_collector, file_name_col, patient_id_col)
+    df = _apply_typo_rescue(df, column, file_name_col, patient_id_col)
 
     # Store original values for error reporting
     df = df.with_columns(pl.col(column).alias(f"_orig_{column}"))
@@ -390,7 +375,7 @@ def parse_date_column(
             for pair in unique_strs
         }
         lookup = {pair: value for pair, (value, _) in detailed.items()}
-        _log_text_recoveries(df, column, detailed, error_collector, file_name_col, patient_id_col)
+        _log_text_recoveries(df, column, detailed, file_name_col, patient_id_col)
         parsed_series = pl.Series(
             f"_parsed_{column}",
             [
@@ -417,12 +402,12 @@ def parse_date_column(
     # Log each failure
     if len(failed_rows) > 0:
         for row in failed_rows.iter_rows(named=True):
-            error_collector.add_error(
-                file_name=row.get(file_name_col) or "unknown",
+            report_finding(
+                file_name=row.get(file_name_col) or None,
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[f"_orig_{column}"],
-                error_message=f"Could not parse date '{row[f'_orig_{column}']}'",
+                message=f"Could not parse date '{row[f'_orig_{column}']}'",
                 error_code="type_conversion",
                 function_name="parse_date_column",
             )
@@ -464,7 +449,6 @@ def cut_numeric_value(
     column: str,
     min_val: float,
     max_val: float,
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -475,7 +459,6 @@ def cut_numeric_value(
         column: Column name to check
         min_val: Minimum allowed value
         max_val: Maximum allowed value
-        error_collector: ErrorCollector instance to track violations
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
@@ -488,7 +471,7 @@ def cut_numeric_value(
         ...     column="age",
         ...     min_val=0,
         ...     max_val=25,
-        ...     error_collector=collector,
+        ...,
         ... )
     """
     if column not in df.columns:
@@ -507,12 +490,12 @@ def cut_numeric_value(
     # Log each invalid value
     if len(invalid_rows) > 0:
         for row in invalid_rows.iter_rows(named=True):
-            error_collector.add_error(
-                file_name=row.get(file_name_col) or "unknown",
+            report_finding(
+                file_name=row.get(file_name_col) or None,
                 patient_id=row.get(patient_id_col) or "unknown",
                 column=column,
                 original_value=row[column],
-                error_message=f"Value {row[column]} outside allowed range [{min_val}, {max_val}]",
+                message=f"Value {row[column]} outside allowed range [{min_val}, {max_val}]",
                 error_code="invalid_value",
                 function_name="cut_numeric_value",
             )
@@ -532,7 +515,6 @@ def safe_convert_multiple_columns(
     df: pl.DataFrame,
     columns: list[str],
     target_type: type[pl.DataType] | pl.DataType,
-    error_collector: ErrorCollector,
     error_value: float | str | None = None,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
@@ -545,7 +527,6 @@ def safe_convert_multiple_columns(
         df: Input DataFrame
         columns: List of column names to convert
         target_type: Target Polars data type
-        error_collector: ErrorCollector instance
         error_value: Value to use for failed conversions
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
@@ -558,7 +539,7 @@ def safe_convert_multiple_columns(
         ...     df=df,
         ...     columns=["age", "height", "weight"],
         ...     target_type=pl.Float64,
-        ...     error_collector=collector,
+        ...,
         ... )
     """
     for column in columns:
@@ -566,7 +547,6 @@ def safe_convert_multiple_columns(
             df=df,
             column=column,
             target_type=target_type,
-            error_collector=error_collector,
             error_value=error_value,
             file_name_col=file_name_col,
             patient_id_col=patient_id_col,

@@ -12,13 +12,13 @@ import openpyxl
 import polars as pl
 from loguru import logger
 
-from a4d.errors import ErrorCollector
 from a4d.extract.common import (
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
 )
 from a4d.extract.wide_format import handle_wide_format_cells, handle_wide_format_columns
+from a4d.findings import report_finding
 from a4d.reference.synonyms import ColumnMapper, load_product_mapper
 
 warnings.filterwarnings("ignore", category=UserWarning, module=r"openpyxl\..*")
@@ -263,7 +263,6 @@ def _count_orphan_released_units(
     df: pl.DataFrame,
     sheet_name: str,
     file_name: str,
-    error_collector: ErrorCollector | None,
 ) -> None:
     """Warn on orphan ``product_units_released`` values.
 
@@ -278,8 +277,6 @@ def _count_orphan_released_units(
     runs in clean rather than extract, so the check folds them into the null
     branch here.
     """
-    if error_collector is None:
-        return
     if "product_released_to" not in df.columns or "product_units_released" not in df.columns:
         return
 
@@ -294,22 +291,18 @@ def _count_orphan_released_units(
     if count == 0:
         return
 
-    logger.bind(error_code="invalid_tracker").warning(
-        f"Sheet '{sheet_name}' has {count} rows where product_released_to "
-        f"is missing next to product_units_released."
-    )
-    error_collector.add_error(
-        file_name=file_name,
+    report_finding(
         patient_id="unknown",
         column="product_released_to",
         original_value=str(count),
-        error_message=(
+        message=(
             f"Sheet '{sheet_name}' has {count} rows where product_released_to "
             f"is missing next to product_units_released."
         ),
         error_code="invalid_tracker",
-        script="script1",
-        function_name="read_product_data_step1",
+        sheet_name=sheet_name,
+        stage="extract",
+        function_name="_count_orphan_released_units",
     )
 
 
@@ -317,7 +310,6 @@ def _harmonize(
     df: pl.DataFrame,
     mapper: ColumnMapper,
     sheet_name: str,
-    error_collector: ErrorCollector | None,
     file_name: str,
 ) -> pl.DataFrame:
     """Rename columns via the mapper, then drop any column not in the synonym schema (step 1.5)."""
@@ -325,21 +317,16 @@ def _harmonize(
         col for col in df.columns if not mapper.is_known_column(col) and col not in mapper.synonyms
     ]
     if unknown:
-        logger.bind(error_code="invalid_tracker").warning(
-            f"Sheet {sheet_name}: unknown column names: {unknown}."
-        )
-        if error_collector is not None:
-            for col in unknown:
-                error_collector.add_error(
-                    file_name=file_name,
-                    patient_id="unknown",
-                    column=col,
-                    original_value=col,
-                    error_message=f"Sheet {sheet_name}: unknown column '{col}'",
-                    error_code="invalid_tracker",
-                    script="script1",
-                    function_name="harmonize_input_data_columns",
-                )
+        for col in unknown:
+            report_finding(
+                patient_id="unknown",
+                column=col,
+                original_value=col,
+                message=f"Sheet {sheet_name}: unknown column '{col}'",
+                error_code="invalid_tracker",
+                stage="extract",
+                function_name="harmonize_input_data_columns",
+            )
 
     df = mapper.rename_columns(df)
     known = set(mapper.synonyms.keys())
@@ -350,7 +337,6 @@ def _harmonize(
 def read_all_product_sheets(
     tracker_file: Path,
     mapper: ColumnMapper | None = None,
-    error_collector: ErrorCollector | None = None,
 ) -> pl.DataFrame:
     """Run steps 1.1-1.10 across every month sheet, returning one combined DataFrame."""
     tracker_file = Path(tracker_file)
@@ -374,20 +360,22 @@ def read_all_product_sheets(
         try:
             start, end = find_product_section(ws)
         except ProductSectionNotFoundError as exc:
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Sheet {sheet_name}: {exc}. Skipping."
+            report_finding(
+                error_code="invalid_tracker",
+                message=(f"Sheet {sheet_name}: {exc}. Skipping."),
+                sheet_name=sheet_name,
+                stage="extract",
+                function_name="read_all_product_sheets",
             )
-            if error_collector is not None:
-                error_collector.add_error(
-                    file_name=filename,
-                    patient_id="unknown",
-                    column="",
-                    original_value="",
-                    error_message=f"Sheet {sheet_name}: {exc}",
-                    error_code="invalid_tracker",
-                    script="script1",
-                    function_name="find_product_section",
-                )
+            report_finding(
+                patient_id="unknown",
+                column="",
+                original_value="",
+                message=f"Sheet {sheet_name}: {exc}",
+                error_code="invalid_tracker",
+                stage="extract",
+                function_name="find_product_section",
+            )
             continue
 
         df = extract_product_data(ws, start, end)
@@ -397,7 +385,7 @@ def read_all_product_sheets(
         df = handle_wide_format_columns(df, filename)
         df = handle_wide_format_cells(df, filename)
 
-        df = _harmonize(df, mapper, sheet_name, error_collector, filename)
+        df = _harmonize(df, mapper, sheet_name, filename)
         if df.height == 0 or df.width == 0:
             continue
 
@@ -409,7 +397,7 @@ def read_all_product_sheets(
 
         df = remove_header_rows(df)
         df = add_product_metadata(df, sheet_name, month, year, filename, clinic_id)
-        _count_orphan_released_units(df, sheet_name, filename, error_collector)
+        _count_orphan_released_units(df, sheet_name, filename)
         df = replace_extra_totals(df)
 
         if df.height > 0:
@@ -418,8 +406,11 @@ def read_all_product_sheets(
     wb.close()
 
     if not per_sheet:
-        logger.bind(error_code="empty_product_data").warning(
-            f"Empty product data: no product section found in any sheet of {filename}."
+        report_finding(
+            error_code="empty_product_data",
+            message=(f"Empty product data: no product section found in any sheet of {filename}."),
+            stage="extract",
+            function_name="read_all_product_sheets",
         )
         return pl.DataFrame()
 

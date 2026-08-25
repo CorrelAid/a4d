@@ -18,7 +18,6 @@ from a4d.clean.product import (
     _validate_entry_dates,
     clean_product_data,
 )
-from a4d.errors import ErrorCollector
 
 
 def _entry_date_df(
@@ -45,27 +44,26 @@ def _entry_date_df(
     )
 
 
-def test_validate_entry_dates_flags_future_dates_within_window():
+def test_validate_entry_dates_flags_future_dates_within_window(collector):
     df = _entry_date_df(
         products=["P1", "P2", "P3"],
         entry_dates=[date(2024, 6, 1), date(2099, 3, 15), None],
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     parsed = result["product_entry_date"].to_list()
     assert parsed[0] == date(2024, 6, 1)
     assert parsed[1] == date(9999, 9, 9)
     assert parsed[2] is None
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.column == "product_entry_date"
     assert err.error_code == "invalid_value"
     assert err.patient_id == "P2"
 
 
-def test_validate_entry_dates_converts_buddhist_era_dates_to_gregorian():
+def test_validate_entry_dates_converts_buddhist_era_dates_to_gregorian(collector):
     """Ticket 61: a BE date is the clinic's calendar, not its error, so it is
     converted like any other recovery -- and logged, so the conversion is
     auditable rather than silent. The parse-failure sentinel stays put."""
@@ -73,19 +71,18 @@ def test_validate_entry_dates_converts_buddhist_era_dates_to_gregorian():
         products=["P1", "P2"],
         entry_dates=[date(2567, 11, 11), date(9999, 9, 9)],
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     parsed = result["product_entry_date"].to_list()
     assert parsed[0] == date(2024, 11, 11)
     assert parsed[1] == date(9999, 9, 9)
     assert len(collector) == 1
-    assert collector.errors[0].error_code == "buddhist_era_converted"
-    assert collector.errors[0].original_value == "2567-11-11"
+    assert collector.findings[0].error_code == "buddhist_era_converted"
+    assert collector.findings[0].original_value == "2567-11-11"
 
 
-def test_validate_entry_dates_leaves_a_buddhist_leap_day_that_cannot_shift():
+def test_validate_entry_dates_leaves_a_buddhist_leap_day_that_cannot_shift(collector):
     """543 is not a multiple of 4, so 2568-02-29 would have to become a
     29 February 2025 that does not exist. Left unconverted and sentinelled as
     an implausible era date rather than invented."""
@@ -94,15 +91,14 @@ def test_validate_entry_dates_leaves_a_buddhist_leap_day_that_cannot_shift():
         entry_dates=[date(2568, 2, 29)],
         table_year=2025,
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     assert result["product_entry_date"].to_list() == [date(9999, 9, 9)]
-    assert {e.error_code for e in collector.errors} == {"implausible_era_date"}
+    assert {e.error_code for e in collector.findings} == {"implausible_era_date"}
 
 
-def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band():
+def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band(collector):
     """A year above BUDDHIST_ERA_THRESHOLD is only exempt if it is this
     tracker's own Buddhist-era year. Ticket 32 found the blanket >= 2400 skip
     let two corrupt Excel serials (1339576, 411384) reach BigQuery as
@@ -112,22 +108,21 @@ def test_validate_entry_dates_sentinels_far_future_outside_the_buddhist_band():
         products=["P1", "P2", "P3"],
         entry_dates=[date(2567, 11, 11), date(5567, 8, 19), date(2525, 10, 2)],
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     parsed = result["product_entry_date"].to_list()
     assert parsed[0] == date(2024, 11, 11)
     assert parsed[1] == date(9999, 9, 9)
     assert parsed[2] == date(9999, 9, 9)
     assert len(collector) == 3
-    assert {e.patient_id for e in collector.errors if e.error_code == "implausible_era_date"} == {
+    assert {e.patient_id for e in collector.findings if e.error_code == "implausible_era_date"} == {
         "P2",
         "P3",
     }
 
 
-def test_validate_entry_dates_converts_at_both_buddhist_band_edges():
+def test_validate_entry_dates_converts_at_both_buddhist_band_edges(collector):
     """The band mirrors the Gregorian window: BE equivalents of
     [table_year - YEAR_FLOOR_DELTA, table_year]. Every year inside it converts;
     the edges are where an off-by-one would show."""
@@ -135,42 +130,39 @@ def test_validate_entry_dates_converts_at_both_buddhist_band_edges():
         products=["P1", "P2"],
         entry_dates=[date(2024 + 543 - YEAR_FLOOR_DELTA, 1, 1), date(2024 + 543, 12, 31)],
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     assert result["product_entry_date"].to_list() == [
         date(2024 - YEAR_FLOOR_DELTA, 1, 1),
         date(2024, 12, 31),
     ]
-    assert {e.error_code for e in collector.errors} == {"buddhist_era_converted"}
+    assert {e.error_code for e in collector.findings} == {"buddhist_era_converted"}
 
 
-def test_validate_entry_dates_does_not_relog_the_sentinel():
+def test_validate_entry_dates_does_not_relog_the_sentinel(collector):
     """9999-09-09 is the pipeline's own parse-failure sentinel, so re-flagging
     it would double-log a cell some earlier step already reported."""
     df = _entry_date_df(products=["P1"], entry_dates=[date(9999, 9, 9)])
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     assert result["product_entry_date"].to_list() == [date(9999, 9, 9)]
     assert len(collector) == 0
 
 
-def test_validate_entry_dates_missing_columns_is_noop():
+def test_validate_entry_dates_missing_columns_is_noop(collector):
     df = pl.DataFrame({"product": ["P1"]})
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     assert result.equals(df)
     assert len(collector) == 0
 
 
-def test_validate_entry_dates_logs_year_floor_but_preserves_date():
+def test_validate_entry_dates_logs_year_floor_but_preserves_date(collector):
     """Year-floor violations (parsed.year < tracker_year - YEAR_FLOOR_DELTA) are
-    logged via error_collector but the parsed date is preserved in
+    logged via collector but the parsed date is preserved in
     product_entry_date. Sentinelling it instead would drop the row out of
     chronological order and distort the running balance accumulated in step
     2.15, so the date is preserved and the audit trail carries the flag."""
@@ -178,20 +170,19 @@ def test_validate_entry_dates_logs_year_floor_but_preserves_date():
         products=["P1", "P2", "P3"],
         entry_dates=[date(2024, 6, 1), date(1967, 2, 5), None],
     )
-    collector = ErrorCollector()
 
-    result = _validate_entry_dates(df, collector)
+    result = _validate_entry_dates(df)
 
     parsed = result["product_entry_date"].to_list()
     assert parsed[0] == date(2024, 6, 1)
     assert parsed[1] == date(1967, 2, 5)
     assert parsed[2] is None
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.column == "product_entry_date"
     assert err.error_code == "invalid_value"
     assert err.patient_id == "P2"
-    assert "before" in err.error_message
+    assert "before" in err.message
 
 
 def test_null_entry_date_residues_nulls_amount_left_marker():
@@ -272,7 +263,7 @@ def test_null_entry_date_residues_missing_column_is_noop():
     assert out.equals(df)
 
 
-def test_format_dates_residue_cells_become_null_after_parsing():
+def test_format_dates_residue_cells_become_null_after_parsing(collector):
     """End-to-end: residue cells flowing through _format_dates emerge as
     NULL in the parsed Date column, not 9999-09-09 or 1900-01-29."""
     df = pl.DataFrame(
@@ -293,9 +284,8 @@ def test_format_dates_residue_cells_become_null_after_parsing():
             "file_name": pl.String,
         },
     )
-    collector = ErrorCollector()
 
-    out = _format_dates(df, collector)
+    out = _format_dates(df)
 
     parsed = out["product_entry_date"].to_list()
     assert parsed[0] is None  # "Amount Left" — nulled
@@ -306,7 +296,7 @@ def test_format_dates_residue_cells_become_null_after_parsing():
     assert parsed[4] is None
     # No parse-failure errors logged because residue cells were nulled
     # before parse_date_flexible saw them.
-    assert all(err.error_code != "invalid_value" for err in collector.errors)
+    assert all(err.error_code != "invalid_value" for err in collector.findings)
 
 
 def test_switch_misplaced_columns_scoped_per_sheet():
@@ -574,7 +564,7 @@ def test_format_dates_normalizes_separator_typos():
         },
     )
 
-    out = _format_dates(df, ErrorCollector())
+    out = _format_dates(df)
 
     assert out["product_entry_date"].to_list() == [
         date(2020, 2, 24),
@@ -606,7 +596,7 @@ def test_format_dates_preserves_year_typo_sentinels():
         },
     )
 
-    out = _format_dates(df, ErrorCollector())
+    out = _format_dates(df)
 
     parsed = out["product_entry_date"].to_list()
     # Mahosot: real datetime parses to 2009-12-04 (year-floor catches later).
@@ -671,7 +661,7 @@ def test_split_multi_product_cells_extracts_unit_count_to_released_when_released
     assert out["product_units_received"].to_list() == [None]
 
 
-def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero():
+def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero(collector):
     """Pin the handling of a date typo'd into the units_received column.
 
     Reading the cell's underlying Excel serial (43644.0 for 2019-06-28) would
@@ -727,14 +717,13 @@ def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero():
         },
     )
 
-    collector = ErrorCollector()
-    out = clean_product_data(df, collector)
+    out = clean_product_data(df)
 
     assert out["product_units_received"].to_list() == [0.0]
 
     units_errors = [
         e
-        for e in collector.errors
+        for e in collector.findings
         if e.column == "product_units_received" and e.function_name == "_clean_units_received"
     ]
     assert len(units_errors) == 1
@@ -859,36 +848,34 @@ def _check_dates_df(
     )
 
 
-def test_check_entry_dates_logs_month_mismatch():
+def test_check_entry_dates_logs_month_mismatch(collector):
     df = _check_dates_df(
         entry_dates=[date(2024, 6, 15), date(2024, 3, 15)],
         table_month=6,
         table_year=2024,
     )
-    collector = ErrorCollector()
 
-    _check_entry_dates_match_sheet(df, collector)
+    _check_entry_dates_match_sheet(df)
 
     assert len(collector) == 1
-    err = collector.errors[0]
+    err = collector.findings[0]
     assert err.column == "product_entry_date"
     assert err.error_code == "invalid_value"
     assert err.function_name == "check_entry_dates"
     assert err.patient_id == "P1"
 
 
-def test_check_entry_dates_logs_year_mismatch():
+def test_check_entry_dates_logs_year_mismatch(collector):
     df = _check_dates_df(
         entry_dates=[date(2023, 6, 15)],  # year mismatch even though month matches
         table_month=6,
         table_year=2024,
     )
-    collector = ErrorCollector()
-    _check_entry_dates_match_sheet(df, collector)
+    _check_entry_dates_match_sheet(df)
     assert len(collector) == 1
 
 
-def test_check_entry_dates_skips_sentinel_buddhist_and_null():
+def test_check_entry_dates_skips_sentinel_buddhist_and_null(collector):
     df = _check_dates_df(
         entry_dates=[
             None,  # null — skip
@@ -899,23 +886,21 @@ def test_check_entry_dates_skips_sentinel_buddhist_and_null():
         table_month=6,
         table_year=2024,
     )
-    collector = ErrorCollector()
-    _check_entry_dates_match_sheet(df, collector)
+    _check_entry_dates_match_sheet(df)
     assert len(collector) == 0
 
 
-def test_check_entry_dates_no_log_on_match():
+def test_check_entry_dates_no_log_on_match(collector):
     df = _check_dates_df(
         entry_dates=[date(2024, 6, 1), date(2024, 6, 30)],
         table_month=6,
         table_year=2024,
     )
-    collector = ErrorCollector()
-    _check_entry_dates_match_sheet(df, collector)
+    _check_entry_dates_match_sheet(df)
     assert len(collector) == 0
 
 
-def test_fat_finger_future_falls_into_input_order_rank_after_validation():
+def test_fat_finger_future_falls_into_input_order_rank_after_validation(collector):
     """Pin the deliberate _validate_entry_dates × _fill_product_names_and_sort
     interaction. `2099-03-15` is clobbered to the 9999-09-09 sentinel inside
     _validate_entry_dates, and the sentinel is then treated as null when
@@ -925,7 +910,6 @@ def test_fat_finger_future_falls_into_input_order_rank_after_validation():
     The test exists so any future revert of either _validate_entry_dates'
     future-year guard or the sentinel-rank fix in
     _fill_product_names_and_sort breaks loudly."""
-    collector = ErrorCollector()
     df = pl.DataFrame(
         {
             "product": ["P", "P", "P", "P"],
@@ -949,7 +933,7 @@ def test_fat_finger_future_falls_into_input_order_rank_after_validation():
         },
     )
 
-    validated = _validate_entry_dates(df, collector)
+    validated = _validate_entry_dates(df)
     out = _fill_product_names_and_sort(validated)
 
     # _validate_entry_dates rewrote the 2099 future to the sentinel.
@@ -971,15 +955,14 @@ def test_fat_finger_future_falls_into_input_order_rank_after_validation():
     assert dates[3] is None  # end
 
 
-def test_clean_product_data_handles_columnless_raw_frame():
+def test_clean_product_data_handles_columnless_raw_frame(collector):
     """Trackers from pre-product-tracking years extract to a 0-column,
     0-row frame (no product section in any sheet). Cleaning must hand back
     an empty, schema-conformant frame rather than crash on a missing
     "product" column (ticket 14)."""
     df_raw = pl.DataFrame()
-    collector = ErrorCollector()
 
-    out = clean_product_data(df_raw, collector)
+    out = clean_product_data(df_raw)
 
     assert out.height == 0
     assert out.width == 20
@@ -1024,10 +1007,10 @@ def _balance_reconciliation_frame(source_closing, released, status=None):
 
 
 def _reconciliation_errors(collector):
-    return [e for e in collector.errors if e.error_code == "balance_reconciliation"]
+    return [e for e in collector.findings if e.error_code == "balance_reconciliation"]
 
 
-def test_running_balance_logs_when_closing_disagrees_with_source():
+def test_running_balance_logs_when_closing_disagrees_with_source(collector):
     """Ticket 36: the running balance is recomputed from the start balance plus
     transactions, in Python's chronological row order rather than the source's
     data-entry order, so intermediate balances legitimately differ from the
@@ -1035,36 +1018,33 @@ def test_running_balance_logs_when_closing_disagrees_with_source():
     there is a real source arithmetic or data-entry problem and must surface."""
     # 100 - 8 - 4 = 88 computed, but the tracker recorded 90.
     df = _balance_reconciliation_frame(source_closing=90.0, released=[0.0, 8.0, 4.0])
-    collector = ErrorCollector()
 
-    out = _compute_running_balance(df, collector)
+    out = _compute_running_balance(df)
 
     assert out["product_balance"].to_list() == [100.0, 92.0, 88.0]
     errors = _reconciliation_errors(collector)
     assert len(errors) == 1
     assert errors[0].column == "product_balance"
     assert errors[0].function_name == "_compute_running_balance"
-    assert "90" in errors[0].error_message
-    assert "88" in errors[0].error_message
+    assert "90" in errors[0].message
+    assert "88" in errors[0].message
 
 
-def test_running_balance_silent_when_closing_matches_source():
+def test_running_balance_silent_when_closing_matches_source(collector):
     """No warning when the recomputed ledger lands where the tracker says."""
     df = _balance_reconciliation_frame(source_closing=88.0, released=[0.0, 8.0, 4.0])
-    collector = ErrorCollector()
 
-    _compute_running_balance(df, collector)
+    _compute_running_balance(df)
 
     assert _reconciliation_errors(collector) == []
 
 
-def test_running_balance_silent_when_source_records_no_closing_balance():
+def test_running_balance_silent_when_source_records_no_closing_balance(collector):
     """Most groups record only a start balance and leave the rest blank -- that
     is not a disagreement, and warning on it would drown the real signal."""
     df = _balance_reconciliation_frame(source_closing=None, released=[0.0, 8.0, 4.0])
-    collector = ErrorCollector()
 
-    _compute_running_balance(df, collector)
+    _compute_running_balance(df)
 
     assert _reconciliation_errors(collector) == []
 
