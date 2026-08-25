@@ -10,6 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from a4d.config import settings
+from a4d.discovery import discover_tracker_files
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
 from a4d.pipeline.tracker import process_tracker_patient
@@ -31,30 +32,6 @@ def _init_worker_logging(output_root: Path) -> None:
         log_name=f"worker_{timestamp}_pid{pid}",
         console_level="ERROR",
     )
-
-
-def discover_tracker_files(data_root: Path) -> list[Path]:
-    """Discover all Excel tracker files in data_root.
-
-    Searches recursively for .xlsx files, excluding temp files (~$*).
-
-    Args:
-        data_root: Root directory to search
-
-    Returns:
-        List of tracker file paths
-
-    Example:
-        >>> tracker_files = discover_tracker_files(Path("/data"))
-        >>> len(tracker_files)
-        42
-    """
-    tracker_files = []
-    for file in data_root.rglob("*.xlsx"):
-        if not file.name.startswith("~$"):
-            tracker_files.append(file)
-
-    return sorted(tracker_files)
 
 
 def process_patient_tables(cleaned_dir: Path, output_dir: Path) -> dict[str, Path]:

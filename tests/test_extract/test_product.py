@@ -100,7 +100,7 @@ def test_harmonize_renames_known_drops_unknown(collector):
     assert out.columns == ["product"]
     assert len(collector) == 1
     assert collector.findings[0].column == "Random Junk"
-    assert collector.findings[0].error_code == "invalid_tracker"
+    assert collector.findings[0].error_code == "unrecognised_column"
     assert collector.findings[0].function_name == "harmonize_input_data_columns"
 
 
@@ -336,7 +336,7 @@ def test_count_orphan_released_units_logs_per_sheet(collector):
 
     assert len(collector) == 1
     err = collector.findings[0]
-    assert err.error_code == "invalid_tracker"
+    assert err.error_code == "released_units_without_recipient"
     assert err.function_name == "_count_orphan_released_units"
     assert err.column == "product_released_to"
     assert "Jul24" in err.message

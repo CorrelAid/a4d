@@ -2,12 +2,12 @@
 id: 69
 title: The finding taxonomy mis-files recoveries as data loss, duplicates rows, and has no code for a malformed patient ID
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-25d
+claimed_at: 2026-08-25
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 16
 ---
@@ -144,3 +144,119 @@ part of this ticket's question:
 Per the map's **triage means deciding, not labelling** preference: read the
 emit sites, do not infer the meaning from the code name -- that is exactly the
 mistake that produced both the wrong glossary and the wrong category.
+
+
+## Resolution
+
+**Decision.** The taxonomy is keyed on the **outcome**, not the input. Every
+live emit site now has a code that names what happened to the value, the two
+catch-all buckets are gone, and `21 codes -> 37`. Where a value is both lost
+and correctable at the clinic, **`fix_workbook` wins**: `data_lost` now means
+specifically that nobody can get the value back.
+
+All six questions answered:
+
+1. **A malformed patient ID has two codes**, because ticket 66 made category
+   derived from the code, so one code cannot carry two categories.
+   `patient_id_unrepairable` (2,993 findings, 115 trackers, `fix_workbook`) and
+   `patient_id_recovered` (34, `recovered`). The unrepairable one is now the
+   only code in the table that names the defect the map has repeatedly called
+   the costliest a tracker can carry.
+2. **`missing_value` became `age_derived_from_dob`, category `recovered`.**
+   The `invalid_value` half of the same function split by branch:
+   `age_corrected_from_dob` (`recovered`) and `age_negative_from_dob`
+   (`fix_workbook`, 0 instances this run).
+3. **Four duplicate emissions collapsed**, not the two the ticket knew about --
+   see below.
+4. **Both misleading names are gone.** `missing_column` and the
+   `harmonize_input_data_columns` half of `invalid_tracker` were the *same
+   finding under two names* and merged into one `unrecognised_column`
+   (3,116 + 20,064 = 23,180). The rest of `invalid_tracker` split by what it
+   actually reports: `sheet_skipped`, `static_sheet_duplicate_id`,
+   `product_section_not_found`, `released_units_without_recipient`. Renaming
+   was judged cheap because ticket 66 established BigQuery holds only the
+   latest run (`load_parquet_to_bigquery` replaces the table) and the only
+   consumers are one internal tool and dashboard.
+5. **The guard is `tests/test_finding_taxonomy_guard.py`**, and it checks the
+   thing exhaustiveness cannot: it derives the code-to-emitter map from the
+   source with `ast` and compares it to a declared expectation, so a code that
+   *gains a second emit site* fails until someone re-reads that site and
+   confirms the category still fits. That is precisely how `missing_value` went
+   wrong. Proven non-vacuous by making `resolve_glucose_units` emit
+   `age_derived_from_dob` and watching it name both functions.
+6. **Re-measured on the full 255-tracker local dataset**, before and after.
+
+**Because.** The user chose outcome-keying explicitly, on the grounds that
+specific codes aid filtering and that 49k findings in a handful of buckets
+cannot be reasoned about. Outcome-keying is also the only option compatible
+with ticket 66's derived category, and it makes question 5's guard tractable:
+"is this category right?" becomes checkable by reading the code name against
+its emit site.
+
+**Rejected.**
+- *Keying on the defect, one code carrying both outcomes* -- would require
+  categories to go back to being passed per call site, which is the exact thing
+  ticket 66 was written to end.
+- *A separate `outcome` field beside `category`* -- most expressive, but adds a
+  column to a published table and a third structure to keep exhaustive, for a
+  distinction the code name can carry for free.
+- *`data_lost` winning the overlap* -- keeps the loss count honest but buries
+  `patient_id_unrepairable` under the least actionable label in the report,
+  which is the same class of error this ticket exists to fix.
+- *Giving the standalone `validate/` tool its own borrowed codes* -- its
+  wrapper previously admitted in its own docstring that it set `error_code` to
+  "the closest existing literal" and encoded the real meaning in the message.
+  That is the mis-filing this taxonomy forbids, so it got one honest code,
+  `source_row_not_in_output`.
+
+**Evidence: executed.** Two full pipeline runs over the real 255-tracker
+dataset (local USB drive), before and after, plus `duckdb` over
+`table_findings.parquet` both times. Suite **1,237 passed, 1 skipped**; ruff
+and `ty check src/` clean.
+
+| | before | after |
+|---|---|---|
+| findings total | 122,590 | **105,441** |
+| `data_lost` | 71,566 | **24,164** |
+| `recovered` | 1,990 | **18,114** |
+| `fix_workbook` | 49,034 | **63,163** |
+| distinct codes fired | 21 | **34** |
+
+The 17,149-row drop is the duplication, exactly as predicted.
+
+**Two things the measurement found that the ticket did not know.**
+
+- **The duplication was 17,149 rows, not 16,080.** Beyond `_fix_age_from_dob`
+  (16,080), `_validate_dates` emits each future date twice (1,024 + 1,024) and
+  `read_all_product_sheets`/`find_product_section` emit each skipped product
+  section twice (45 + 45). Four pairs, not two -- the seventh through tenth
+  instances of the pattern ticket 66 collapsed six of. All four had one copy
+  carrying `patient_id` and `column` and one carrying only a message; the
+  message-only copy was dropped in each.
+- **`_validate_entry_dates` has two live branches**, not the one the ticket's
+  table implied: 104 "beyond the tracker year" and 78 "before it". They share
+  one code, `entry_date_outside_tracker_year`, rather than the
+  `entry_date_before_tracker_year` originally proposed.
+
+**Tense.** Every figure above is *current behaviour*, measured. `sheet_skipped`
+(0), `age_negative_from_dob` (0) and `source_row_not_in_output` (0) fired zero
+times on this dataset; they are declared because their emit sites exist, and
+the guard's `test_every_code_in_the_taxonomy_is_actually_emitted` holds them to
+having one.
+
+**Two further defects the measurement exposed, both fixed in this session at
+the user's direction** ("it's small enough so fix it directly") rather than
+carried:
+
+- **The pipeline read its own report as a tracker.** See [ticket
+  71](71-pipeline-ingests-its-own-output-as-a-tracker.md), spawned and closed
+  here. 257 trackers -> **255**.
+- **A negative calculated age published as a recovery.** `_fix_age_from_dob`
+  tested whether the *age cell* was empty before testing whether the calculated
+  age was sane, so a row with both an empty age and a date of birth after the
+  visit emitted `age_derived_from_dob` and published the negative number --
+  "Age missing, calculated from DOB as -1" was in the data. The branches are
+  now ordered the other way, because a DOB after the visit is a workbook defect
+  regardless of whether the age cell was filled in. `age_negative_from_dob`
+  **0 -> 1**, `age_derived_from_dob` **13,519 -> 13,518**. Verified on the real
+  dataset; the guard test pins both branches to `_fix_age_from_dob`.

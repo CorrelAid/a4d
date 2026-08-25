@@ -798,7 +798,7 @@ def extract_patient_data(
         if close_wb:
             workbook.close()
         report_finding(
-            error_code="invalid_tracker",
+            error_code="sheet_skipped",
             message=(f"No valid headers found in sheet '{sheet_name}'"),
             sheet_name=sheet_name,
             stage="extract",
@@ -939,7 +939,7 @@ def join_static_sheet(
     deduped = static.unique(subset=[key], keep="first", maintain_order=True)
     if deduped.height != static.height:
         report_finding(
-            error_code="invalid_tracker",
+            error_code="static_sheet_duplicate_id",
             message=(
                 f"'{sheet_name}' has {static.height - deduped.height} entries whose IDs "
                 "differ only by hyphen or transfer-clinic suffix; keeping the first of each"
@@ -1053,7 +1053,7 @@ def read_all_patient_sheets(
 
         if df_sheet.is_empty():
             report_finding(
-                error_code="invalid_tracker",
+                error_code="sheet_skipped",
                 message=(f"Sheet '{sheet_name}' has no data, skipping"),
                 sheet_name=sheet_name,
                 stage="extract",
@@ -1065,7 +1065,7 @@ def read_all_patient_sheets(
 
         if "patient_id" not in df_sheet.columns:
             report_finding(
-                error_code="invalid_tracker",
+                error_code="sheet_skipped",
                 message=(
                     f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
                 ),
@@ -1079,7 +1079,7 @@ def read_all_patient_sheets(
             month_num = extract_tracker_month(sheet_name)
         except ValueError as e:
             report_finding(
-                error_code="invalid_tracker",
+                error_code="sheet_skipped",
                 message=(f"Could not extract month from '{sheet_name}': {e}, skipping"),
                 sheet_name=sheet_name,
                 stage="extract",
@@ -1119,7 +1119,7 @@ def read_all_patient_sheets(
 
     if missing_count > 0:
         report_finding(
-            error_code="invalid_value",
+            error_code="missing_required_field",
             message=(
                 f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
                 f"these rows will be excluded from processing"
@@ -1251,7 +1251,7 @@ def read_all_patient_sheets(
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
                     report_finding(
-                        error_code="invalid_tracker",
+                        error_code="sheet_skipped",
                         message=(
                             "Patient List sheet has no 'patient_id' column after harmonization"
                         ),
@@ -1260,7 +1260,7 @@ def read_all_patient_sheets(
                     )
             else:
                 report_finding(
-                    error_code="invalid_tracker",
+                    error_code="sheet_skipped",
                     message="Patient List sheet is empty",
                     sheet_name="Patient List",
                     stage="extract",
@@ -1268,7 +1268,7 @@ def read_all_patient_sheets(
                 )
         except Exception as e:
             report_finding(
-                error_code="invalid_tracker",
+                error_code="sheet_skipped",
                 message=(f"Could not process Patient List sheet: {e}"),
                 stage="extract",
                 function_name="read_all_patient_sheets",
@@ -1313,14 +1313,14 @@ def read_all_patient_sheets(
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:
                     report_finding(
-                        error_code="invalid_tracker",
+                        error_code="sheet_skipped",
                         message=("Annual sheet has no 'patient_id' column after harmonization"),
                         stage="extract",
                         function_name="read_all_patient_sheets",
                     )
             else:
                 report_finding(
-                    error_code="invalid_tracker",
+                    error_code="sheet_skipped",
                     message="Annual sheet is empty",
                     sheet_name="Annual",
                     stage="extract",
@@ -1328,7 +1328,7 @@ def read_all_patient_sheets(
                 )
         except Exception as e:
             report_finding(
-                error_code="invalid_tracker",
+                error_code="sheet_skipped",
                 message=(f"Could not process Annual sheet: {e}"),
                 stage="extract",
                 function_name="read_all_patient_sheets",

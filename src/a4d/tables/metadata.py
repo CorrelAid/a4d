@@ -18,6 +18,8 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
+from a4d.discovery import discover_tracker_files
+
 # Column order is part of the published table's contract; BigQuery consumers
 # may depend on it.
 _SUBDIRS: tuple[str, ...] = (
@@ -65,7 +67,7 @@ def create_table_tracker_metadata(
     Returns:
         Path to the written parquet file.
     """
-    tracker_files = sorted(data_root.rglob("*.xlsx"))
+    tracker_files = discover_tracker_files(data_root, output_root=output_root)
     logger.info(f"Building tracker metadata for {len(tracker_files)} tracker(s)")
 
     # Index each subdir once so per-tracker lookups are O(1) prefix checks.

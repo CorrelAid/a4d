@@ -81,7 +81,7 @@ def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
                 f"({row['tracker_year']}-{row['tracker_month']:02d}) "
                 f"not found in cleaned patient_data_monthly"
             ),
-            error_code="missing_value",
+            error_code="source_row_not_in_output",
             function_name="check_missing_patients",
         )
 
@@ -97,7 +97,7 @@ def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
                 f"({row['tracker_year']}-{row['tracker_month']:02d}) "
                 f"has no matching raw source"
             ),
-            error_code="missing_value",
+            error_code="source_row_not_in_output",
             function_name="check_missing_patients",
         )
 
@@ -158,7 +158,7 @@ def check_unexpected_nulls(joined: pl.DataFrame, file_name_col: str = "file_name
                     f"UNEXPECTED_NULL: raw={row[raw_col]!r} cleaned=null "
                     f"was_parseable={was_parseable}"
                 ),
-                error_code="missing_value",
+                error_code="source_row_not_in_output",
                 function_name="check_unexpected_nulls",
             )
 
@@ -202,7 +202,7 @@ def check_value_shifts(joined: pl.DataFrame, file_name_col: str = "file_name_raw
                 column=base,
                 original_value=raw_v,
                 error_message=f"VALUE_SHIFT: raw={raw_v} cleaned={clean_v}",
-                error_code="invalid_value",
+                error_code="value_out_of_range",
                 function_name="check_value_shifts",
             )
 
@@ -251,7 +251,7 @@ def check_out_of_range(raw: pl.DataFrame, file_name_col: str = "file_name") -> N
                     column=column,
                     original_value=v,
                     error_message=(f"OUT_OF_RANGE_RAW: value {v} outside [{min_v}, {max_v}]"),
-                    error_code="invalid_value",
+                    error_code="value_out_of_range",
                     function_name="check_out_of_range",
                 )
 

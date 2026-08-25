@@ -177,7 +177,7 @@ class TestFindingsAtTheTableStage:
 
         _, findings = create_table_product_data([cleaned], tmp_path / "tables")
 
-        assert [f.error_code for f in findings] == ["invalid_value"]
+        assert [f.error_code for f in findings] == ["patient_id_unrepairable"]
         assert findings[0].function_name == "fix_patient_id"
         assert findings[0].arm == "product"
         assert findings[0].file_name == "tracker_a.xlsx"

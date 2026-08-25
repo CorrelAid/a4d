@@ -59,7 +59,7 @@ def test_validate_entry_dates_flags_future_dates_within_window(collector):
     assert len(collector) == 1
     err = collector.findings[0]
     assert err.column == "product_entry_date"
-    assert err.error_code == "invalid_value"
+    assert err.error_code == "entry_date_outside_tracker_year"
     assert err.patient_id == "P2"
 
 
@@ -180,7 +180,7 @@ def test_validate_entry_dates_logs_year_floor_but_preserves_date(collector):
     assert len(collector) == 1
     err = collector.findings[0]
     assert err.column == "product_entry_date"
-    assert err.error_code == "invalid_value"
+    assert err.error_code == "entry_date_outside_tracker_year"
     assert err.patient_id == "P2"
     assert "before" in err.message
 
@@ -296,7 +296,7 @@ def test_format_dates_residue_cells_become_null_after_parsing(collector):
     assert parsed[4] is None
     # No parse-failure errors logged because residue cells were nulled
     # before parse_date_flexible saw them.
-    assert all(err.error_code != "invalid_value" for err in collector.findings)
+    assert all(err.error_code != "type_conversion" for err in collector.findings)
 
 
 def test_switch_misplaced_columns_scoped_per_sheet():
@@ -860,7 +860,7 @@ def test_check_entry_dates_logs_month_mismatch(collector):
     assert len(collector) == 1
     err = collector.findings[0]
     assert err.column == "product_entry_date"
-    assert err.error_code == "invalid_value"
+    assert err.error_code == "entry_date_outside_sheet_month"
     assert err.function_name == "check_entry_dates"
     assert err.patient_id == "P1"
 

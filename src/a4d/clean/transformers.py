@@ -345,7 +345,7 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
     # Log warning if any ranges were found
     if has_ranges:
         report_finding(
-            error_code="invalid_value",
+            error_code="testing_frequency_averaged",
             message="Found ranges in testing_frequency column. Replacing with mean values.",
             column="testing_frequency",
             function_name="convert_testing_frequency",
@@ -390,7 +390,7 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
 
     if has_errors:
         report_finding(
-            error_code="invalid_value",
+            error_code="blood_pressure_unparseable",
             message=(
                 "Found invalid values for column blood_pressure_mmhg "
                 "that do not follow the format X/Y. "

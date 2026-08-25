@@ -15,10 +15,10 @@ from loguru import logger
 from tqdm import tqdm
 
 from a4d.config import settings
+from a4d.discovery import discover_tracker_files
 from a4d.findings import Finding
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
-from a4d.pipeline.patient import discover_tracker_files
 from a4d.pipeline.tracker import process_tracker_product
 from a4d.tables.product import create_table_product_data
 

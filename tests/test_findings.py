@@ -76,7 +76,7 @@ class TestTrackerContext:
     def test_findings_are_collected(self, tmp_path):
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
             _report()
-            _report(error_code="invalid_value")
+            _report(error_code="value_out_of_range")
         assert len(collector) == 2
 
     def test_file_name_is_the_bare_stem_not_the_arm_suffixed_name(self, tmp_path):
@@ -119,7 +119,7 @@ class TestTrackerContext:
         with tracker_context("outer", "patient", tmp_path) as outer:
             _report()
             with tracker_context("inner", "product", tmp_path) as inner:
-                _report(error_code="invalid_value")
+                _report(error_code="value_out_of_range")
             assert current_findings() is outer
         assert len(outer) == 1
         assert len(inner) == 1
@@ -138,7 +138,7 @@ class TestEscapeHatches:
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
             _report()
             with findings_discarded():
-                _report(error_code="invalid_value")
+                _report(error_code="value_out_of_range")
             assert len(collector) == 1
 
     def test_findings_collected_yields_a_collector_outside_any_tracker(self):
@@ -203,13 +203,13 @@ class TestCategory:
     @pytest.mark.parametrize(
         ("error_code", "expected"),
         [
-            ("missing_column", "fix_workbook"),
-            ("invalid_tracker", "fix_workbook"),
+            ("unrecognised_column", "fix_workbook"),
+            ("sheet_skipped", "fix_workbook"),
             ("blank_header_with_data", "fix_workbook"),
             ("buddhist_era_converted", "recovered"),
             ("typo_rescued", "recovered"),
             ("type_conversion", "data_lost"),
-            ("invalid_value", "data_lost"),
+            ("value_out_of_range", "data_lost"),
         ],
     )
     def test_the_three_way_split_lands_where_agreed(self, error_code, expected):
@@ -217,7 +217,7 @@ class TestCategory:
 
     def test_category_is_readable_off_the_finding(self, tmp_path):
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
-            _report(error_code="missing_column")
+            _report(error_code="unrecognised_column")
         assert collector.findings[0].category == "fix_workbook"
 
 
@@ -249,15 +249,15 @@ class TestCollector:
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
             _report()
             _report()
-            _report(error_code="invalid_value")
-        assert collector.summary() == {"type_conversion": 2, "invalid_value": 1}
+            _report(error_code="value_out_of_range")
+        assert collector.summary() == {"type_conversion": 2, "value_out_of_range": 1}
 
     def test_empty_collector_is_falsy(self):
         assert not FindingCollector()
 
     def test_dataframe_carries_the_derived_category(self, tmp_path):
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
-            _report(error_code="missing_column")
+            _report(error_code="unrecognised_column")
         df = collector.to_dataframe()
         assert df["category"].to_list() == ["fix_workbook"]
 

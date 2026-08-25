@@ -12,6 +12,16 @@ closed_by: null
 spawned_by: 30
 ---
 
+
+> **Numbers and code names below are superseded (2026-08-26).** [The finding
+> taxonomy rework](69-miscategorised-and-duplicated-findings.md) removed
+> `invalid_value`, `missing_value`, `missing_column` and `invalid_tracker`
+> entirely and re-measured the run: findings total **122,590 -> 105,441**. The
+> defects this ticket catalogues are unaffected -- they are still the ones no
+> code covers -- but every `invalid_value` citation now names a specific code
+> instead, and any count quoted from the 2026-08-25 run must be re-measured
+> before it is acted on.
+
 ## Premise
 
 Rests on [Triage the patient pipeline's raw-stage column-existence

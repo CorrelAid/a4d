@@ -200,7 +200,7 @@ def validate_allowed_values(
                     f"Value '{original_val}' not in allowed values "
                     f"(CSV-subset check): {allowed_values}"
                 ),
-                error_code="invalid_value",
+                error_code="value_not_in_allowed_list",
                 function_name="validate_allowed_values",
             )
             value_replacements[original_val] = (
@@ -213,7 +213,7 @@ def validate_allowed_values(
                 column=column,
                 original_value=original_val,
                 message=f"Value '{original_val}' not in allowed values: {allowed_values}",
-                error_code="invalid_value",
+                error_code="value_not_in_allowed_list",
                 function_name="validate_allowed_values",
             )
 
@@ -544,7 +544,7 @@ def fix_patient_id(
                             f"from this tracker's own spelling. The source workbook "
                             f"needs correcting."
                         ),
-                        error_code="invalid_value",
+                        error_code="patient_id_recovered",
                         function_name="fix_patient_id",
                     )
                 else:
@@ -557,7 +557,7 @@ def fix_patient_id(
                             "Invalid patient ID format (expected XX_YY###) and no "
                             "unambiguous match in this tracker"
                         ),
-                        error_code="invalid_value",
+                        error_code="patient_id_unrepairable",
                         function_name="fix_patient_id",
                     )
 

@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -45,10 +45,9 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
-    T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
   end
-  subgraph DECIDED["Decided · 59"]
+  subgraph DECIDED["Decided · 61"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -109,6 +108,8 @@ flowchart TD
     T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
     T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
+    T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
+    T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
   end
   subgraph DROPPED["Out of scope · 2"]
     direction TB
@@ -145,9 +146,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68,T69,T70 frontier
+  class T9,T34,T35,T40,T41,T67,T68,T70 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T71 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -2864,7 +2865,99 @@ surveys the taxonomy once its known faults are fixed and may well subsume
 [40](tickets/40-source-defect-findings-report.md) — both are instances of the
 general question it asks.
 
+**[The finding taxonomy rework](tickets/69-miscategorised-and-duplicated-findings.md)
+is closed, and it changed most of the numbers this map quotes.** The user chose
+outcome-keying explicitly -- specific codes aid filtering, and 49k findings in
+a handful of buckets cannot be reasoned about -- which was also the only option
+compatible with [ticket 66](tickets/66-unify-finding-channels.md)'s derived
+category. Findings **122,590 -> 105,441**, `data_lost` **71,566 -> 24,164**,
+`recovered` **1,990 -> 18,114**.
+
+**The sharpest structural finding was that two codes were the same finding
+under two names.** `missing_column` ("Keeping N unmapped columns as-is", 3,116)
+and the `harmonize_input_data_columns` half of `invalid_tracker` ("unknown
+column '11'", 20,064) both mean *this column header matched nothing in the
+reference list*, on the patient and product sides respectively. Neither name
+said so. They are now one `unrecognised_column`, 23,180 -- the largest code on
+the run, and for the first time a number that means one thing.
+
+**Two defects were found by measuring rather than by reading, and both were
+fixed in the same session at the user's direction.** The pipeline was reading
+its own `findings.xlsx` and Excel's `~$findings.xlsx` lock file as trackers
+([ticket 71](tickets/71-pipeline-ingests-its-own-output-as-a-tracker.md), 257
+-> 255) -- and it reached production, because `output_root` is `data_root /
+output_dir` by construction. And `_fix_age_from_dob` tested whether the age
+cell was empty *before* testing whether the calculated age was sane, so a row
+with an empty age and a date of birth after the visit published "Age missing,
+calculated from DOB as -1" as a **recovery**. Both are instances of [ticket
+70](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md)'s question, and
+neither would have been reported by any channel.
+
+**The Trackers and Findings sheets are now ordered newest-first** (year
+descending from the file name, clinic A-Z within a year), at the user's
+request: the latest trackers are the ones a clinic can still correct. The old
+"who needs a human" ranking is still reachable -- `processed_completely` and
+the category counts are columns on the sheet, with an autofilter.
+
+**The frontier is eight** -- ticket 69 closing, ticket 71 opening and closing
+in the same session -- and **none of the eight is on the route, because the
+route is finished**; all nine clauses of the destination are met. What remains
+is four standing decisions ([golden-master
+tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and four
+data-quality tickets. **Take [ticket
+70](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md) next**: ticket 69
+fixed the faults the taxonomy could be shown to have from the inside, and 70 is
+the only one that asks what it is missing from the outside -- a question this
+session strengthened by turning up two more blind spots while not looking for
+them. It may still subsume [68](tickets/68-blank-header-emitter-vs-catalogue.md)
+and [40](tickets/40-source-defect-findings-report.md).
+
+**Every count quoted above this paragraph from the 2026-08-25 run is
+superseded.** Tickets 40, 67, 68 and 70 each carry a note saying which of their
+own figures moved; ticket 68's headline 217-vs-4,572 did **not** move.
+
 ## Decisions so far
+
+- [The finding taxonomy mis-files recoveries as data loss, duplicates rows, and
+  has no code for a malformed patient ID](tickets/69-miscategorised-and-duplicated-findings.md)
+  -- decided and implemented. **The taxonomy is keyed on the outcome, not the
+  input**: every live emit site now has a code naming what happened to the
+  value, and the two catch-all buckets are gone. **21 codes -> 37.**
+  `invalid_value`'s twelve emitters and `invalid_tracker`'s five split into
+  specific codes; `missing_column` and the `harmonize_input_data_columns` half
+  of `invalid_tracker` turned out to be **the same finding under two names**
+  and merged into one `unrecognised_column` (3,116 + 20,064 = 23,180). Where a
+  value is both lost and correctable at the clinic, **`fix_workbook` wins**, so
+  `data_lost` now means specifically that nobody can get the value back --
+  which is what finally surfaces `patient_id_unrepairable` (2,993 findings,
+  115 trackers), the defect this map has repeatedly called the costliest a
+  tracker can carry. Measured on two full runs over the real 255-tracker
+  dataset: findings **122,590 -> 105,441**, `data_lost` **71,566 -> 24,164**,
+  `recovered` **1,990 -> 18,114**, distinct codes fired **21 -> 34**. The
+  17,149-row drop is duplicate emission, and it was **four** pairs rather than
+  the two the ticket knew: `_validate_dates` and the product-section pair join
+  `_fix_age_from_dob`. Renaming published values was judged cheap because
+  ticket 66 established BigQuery holds only the latest run and the consumers
+  are one internal tool and dashboard. **The guard
+  (`tests/test_finding_taxonomy_guard.py`) checks what exhaustiveness cannot**:
+  it derives the code-to-emitter map from the source with `ast`, so a code that
+  *gains a second emit site* fails until someone re-reads that site -- which is
+  exactly how `missing_value` went wrong. Proven non-vacuous.
+
+- [The pipeline reads its own report, and Excel's lock files, as if they were
+  trackers](tickets/71-pipeline-ingests-its-own-output-as-a-tracker.md) --
+  decided and implemented, spawned and closed inside ticket 69's session at the
+  user's direction. **It reached production**, not just local runs:
+  `Settings.output_root` is the computed `data_root / output_dir`, so the
+  output directory is always inside the tree tracker discovery walks. The two
+  call sites had drifted exactly as the derived-list rule predicts -- the
+  patient pipeline skipped `~$` lock files but not the output directory,
+  `tables/metadata.py` skipped neither -- and are now one
+  `discover_tracker_files` in `src/a4d/discovery.py`. Real run: **257 trackers
+  -> 255**.
 
 - [Two values published into the logs table still name R
   scripts](tickets/65-logs-table-r-named-values.md) -- **superseded**, not
@@ -4559,6 +4652,11 @@ flowchart TB
     direction LR
     U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
   end
+  subgraph S2026_08_25d["Session 2026-08-25d"]
+    direction LR
+    U69["<b>69</b><br/>The finding taxonomy<br/>mis-files recoveries as<br/>data loss, duplicates<br/>rows, and has no code<br/>for a malformed patient<br/>ID"]
+    U71["<b>71</b><br/>The pipeline reads its<br/>own report, and Excel's<br/>lock files, as if they<br/>were trackers"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4572,7 +4670,6 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
-    U69["<b>69</b><br/>The finding taxonomy<br/>mis-files recoveries as<br/>data loss, duplicates<br/>rows, and has no code<br/>for a malformed patient<br/>ID"]
     U70["<b>70</b><br/>What can go wrong in a<br/>tracker that the<br/>pipeline never reports<br/>at all?"]
   end
 
@@ -4628,7 +4725,8 @@ flowchart TB
   S2026_08_24g ~~~ S2026_08_24h
   S2026_08_24h ~~~ S2026_08_25b
   S2026_08_25b ~~~ S2026_08_25c
-  S2026_08_25c ~~~ Sunworked
+  S2026_08_25c ~~~ S2026_08_25d
+  S2026_08_25d ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4717,11 +4815,13 @@ flowchart TB
   U16 -.->|spawned| U68
   U16 -.->|spawned| U69
   U16 -.->|spawned| U70
+  U69 -.->|spawned| U71
+  U69 ==>|closed| U71
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68,U69,U70 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68,U70 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U71 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```

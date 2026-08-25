@@ -12,6 +12,16 @@ closed_by: null
 spawned_by: 16
 ---
 
+
+> **Code names below are superseded (2026-08-26)**, but this ticket's headline
+> numbers are not. [The finding taxonomy
+> rework](69-miscategorised-and-duplicated-findings.md) left
+> `blank_header_with_data` at **217 across 24 trackers**, unchanged, so the
+> 217-vs-4,572 discrepancy this ticket exists for still stands exactly as
+> written. The neighbouring codes it lists were renamed: `invalid_value` and
+> `invalid_tracker` no longer exist and `missing_column` is now
+> `unrecognised_column`.
+
 ## Premise
 
 Rests on [Triage the patient pipeline's raw-stage column-existence

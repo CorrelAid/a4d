@@ -74,12 +74,12 @@ def emit_finding(
 ) -> None:
     """Thin wrapper around ``report_finding`` enforcing the schema.
 
-    The taxonomy accepts only the ErrorCode literal types — validator codes
-    that don't fit (MISSING_ROW, VALUE_SHIFT, ...) are encoded in
-    ``error_message`` and the underlying ``error_code`` is set to the closest
-    existing literal. Caller must pass one of: ``"missing_value"`` for
-    missing/phantom rows, ``"invalid_value"`` for shifts/range violations,
-    ``"type_conversion"`` for parse-driven nulls.
+    Caller must pass one of: ``"source_row_not_in_output"`` for missing or
+    phantom rows, ``"value_out_of_range"`` for shifts and range violations,
+    ``"type_conversion"`` for parse-driven nulls. The first exists for this
+    tool specifically -- an earlier version borrowed whichever operator-facing
+    code was closest and encoded the real one in the message, which is the
+    mis-filing this taxonomy now forbids.
     """
     report_finding(
         file_name=file_name,

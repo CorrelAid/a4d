@@ -12,6 +12,15 @@ closed_by: null
 spawned_by: 16
 ---
 
+
+> **Numbers below are superseded (2026-08-26).** [The finding taxonomy
+> rework](69-miscategorised-and-duplicated-findings.md) re-measured the run:
+> findings total **122,590 -> 105,441**, so the "122,373 carry no `sheet_name`"
+> figure must be re-derived. The gap itself is unchanged -- nothing in that
+> ticket populated `sheet_name` -- and the codes it names by aggregate
+> (`invalid_value`, `missing_column`) have been split into specific ones,
+> which makes the per-code half of this question easier rather than harder.
+
 ## Premise
 
 Rests on [Unify the two separate channels that report data-quality

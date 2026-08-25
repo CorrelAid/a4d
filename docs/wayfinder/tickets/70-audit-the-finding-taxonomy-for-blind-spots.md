@@ -12,6 +12,24 @@ closed_by: null
 spawned_by: 16
 ---
 
+
+> **Partly answered, and re-scoped (2026-08-26).** [The finding taxonomy
+> rework](69-miscategorised-and-duplicated-findings.md) settled this ticket's
+> point 4: the taxonomy is now keyed on the **outcome**, `invalid_value`'s
+> twelve emitters and `invalid_tracker`'s five became specific codes, and 21
+> codes became 37. `tests/test_finding_taxonomy_guard.py` now pins the
+> code-to-emitter map, so a code silently acquiring a second, differently-shaped
+> emit site fails CI.
+>
+> **What is left is this ticket's real question and it is untouched**: nothing
+> has checked the taxonomy *from the defect rather than from the code*. Two new
+> instances were added by that session, both found by measuring rather than by
+> reading the codes -- a negative calculated age was publishing as a recovery
+> (now fixed), and the pipeline was reading its own report as a tracker (see
+> [ticket 71](71-pipeline-ingests-its-own-output-as-a-tracker.md), also fixed),
+> neither of which any channel would have reported. That is two more arguments
+> for the outside-in audit, not fewer.
+
 ## Premise
 
 Rests on [Unify the two separate channels that report data-quality
