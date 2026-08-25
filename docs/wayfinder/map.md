@@ -36,13 +36,15 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 5"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T40["<b>40</b> · task<br/>The findings table misses<br/>defects the triage<br/>catalogued, and cannot say<br/>which sheet a finding is<br/>on"]
+    T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
+    T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
+    T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
   end
   subgraph DECIDED["Decided · 59"]
     direction TB
@@ -141,7 +143,7 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41 frontier
+  class T9,T34,T35,T40,T41,T67,T68 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
@@ -2748,22 +2750,53 @@ the product table stage's findings were filed under `patient`. Fixed together:
 122,590**.
 
 **Ticket 40 was measured against the table rather than closed on the strength
-of the overlap, and it does not close.** Three gaps, all executed against the
-real 255-tracker run: `sheet_name` is empty on **98%** of findings (and there
-is no row number at all), so a reader cannot locate the cell in a
-twelve-sheet workbook; `blank_header_with_data` fires **217 times over 24
-trackers against a catalogued 4,572 over 26**, never on the catalogue's
-clearest example; and `tracker_year`/`tracker_month` are populated on **zero**
-rows. It is retitled to what it now asks and stays on the frontier.
+of the overlap, and it does not close — it splits three ways.** All figures
+executed against the real 255-tracker run. The user's reading, put in session
+and confirmed by measurement, is that a finding about a tracker file should
+almost always know its sheet, year and month, because extraction always begins
+inside a sheet.
 
-**The frontier is five** — ticket 16 leaving it, nothing joining — and **no
-ticket on it is on the route, because the route is finished**. All nine
-clauses of the destination are met. What remains is standing decisions
+**It is worse than "the fields are empty": at 20,000+ sites the sheet is
+already being printed into the message text while the field sits blank.**
+`harmonize_input_data_columns` writes `"Sheet Apr'22: unknown column '11'"`,
+`excel_error_patient_id` writes `"Row in sheet 'Jan22' ..."`. That is the exact
+anti-pattern [ticket 66](tickets/66-unify-finding-channels.md) was written to
+end — data stuffed into prose because the channel had no field — in a channel
+that now has the field. On the clean side the frame being validated carries
+`sheet_name`, `tracker_month` and `tracker_year` as columns, right beside the
+`file_name` the emitter already reads off the row. This became [ticket
+67](tickets/67-findings-must-name-sheet-year-month.md), which also asks whether
+an error code should declare a **scope** (`tracker` / `sheet` / `cell`): the
+user's point that some findings are about the file's overall structure rather
+than one sheet is right, and an empty `sheet_name` today cannot distinguish
+that case from a sheet-level finding that lost its sheet.
+
+The second split is [ticket
+68](tickets/68-blank-header-emitter-vs-catalogue.md): `blank_header_with_data`
+fires **217 times across 24 trackers, all of them 2022**, against [ticket
+30](tickets/30-triage-patient-raw-column-divergence.md)'s catalogued **4,572
+values across 26 trackers** — and never on that catalogue's headline example,
+`2021_Kantha Bopha` column Q. The two numbers come from different machinery
+(the comparison tool's analysis versus the runtime emitter) and neither is yet
+known to be right.
+
+Ticket 40 keeps what is left and is retitled to it: **four kinds of confirmed
+source defect that no error code covers at all**, so they reach no row and no
+report — the 23 duplicated patient rows, the rich-text formatting-run cells,
+the unaccented provinces both pipelines drop silently, and the cleared row
+number that kept a space.
+
+**The frontier is seven** — ticket 16 leaving it, tickets 67 and 68 joining —
+and **no ticket on it is on the route, because the route is finished**. All
+nine clauses of the destination are met. What remains is standing decisions
 ([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
 parity](tickets/34-local-ci-parity-guard.md), [Polars
 2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
-fields](tickets/41-decide-2026-new-patient-list-columns.md)) and the
-data-quality residue (ticket 40).
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and the three
+data-quality tickets. Of those three, [ticket
+67](tickets/67-findings-must-name-sheet-year-month.md) is the one to take
+first: it is the largest population, the other two are read through the same
+report, and its scope decision shapes what ticket 40 can even record.
 
 ## Decisions so far
 
@@ -4469,8 +4502,10 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U40["<b>40</b><br/>The findings table<br/>misses defects the<br/>triage catalogued, and<br/>cannot say which sheet a<br/>finding is on"]
+    U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
+    U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
+    U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4610,9 +4645,11 @@ flowchart TB
   U64 -.->|spawned| U65
   U66 ==>|closed| U65
   U16 -.->|spawned| U66
+  U16 -.->|spawned| U67
+  U16 -.->|spawned| U68
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a

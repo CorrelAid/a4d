@@ -1,6 +1,6 @@
 ---
 id: 40
-title: The findings table misses defects the triage catalogued, and cannot say which sheet a finding is on
+title: Four kinds of source defect the triage confirmed have no error code, so they reach no report
 labels: [wayfinder:task]
 status: open
 blocked_by: []
@@ -403,35 +403,48 @@ a CLI command that outlives R. **Whether it supersedes anything**: it and
 ticket 16 are one workbook.
 
 **What is left is the gap between this ticket's catalogue and what the table
-actually emits**, measured on the real 255-tracker run rather than assumed:
+actually emits.** Three of the four gaps measured on 2026-08-25 were sharp
+enough to ticket on their own and have left this ticket:
 
-1. **The record cannot locate the cell.** `sheet_name` is empty on **120,088 of
-   122,590** findings (98%) and `patient_id` on 54,027. This ticket's own
-   standing bar is that a person can "open the named workbook, find the named
-   cell" -- with twelve month sheets and no sheet name they cannot. There is no
-   row number in the schema at all, which the Question's stated shape ("tracker
-   file, sheet, `patient_id`, row") asks for. Decide what the record must carry
-   and fill it.
-2. **`blank_header_with_data` reaches a fraction of the population this ticket
-   catalogued.** It fires **217 times across 24 trackers, all 2022**, against
-   the catalogued **4,572 values across 26 trackers** -- and never on the
-   clearest example above, `2021_Kantha Bopha` `Mar21`/`Apr21` column Q, 194
-   lost insulin-regimen values. The catalogue's figure came from the comparison
-   tool's analysis; the runtime emitter is a different and far narrower
-   population. Establish which number is right and why they differ before
-   trusting either.
-3. **`tracker_year` and `tracker_month` are dead columns** -- populated on 0 of
-   122,590 rows, because both `tracker_context` call sites in
-   `pipeline/tracker.py` omit them. The Summary sheet drops `tracker_year`
-   rather than render a blank column. The year is a one-line fix from the
-   tracker name; the month is per-sheet and needs the sheet fix above first.
-4. **Catalogue entries no error code covers**, so they reach no row today: the
-   23 patients listed twice on one monthly sheet ([ticket
-   45](45-patient-row-alignment-duplicate-keys.md)), the rich-text
-   formatting-run cells, and the unaccented-province loss (`Thai Nguyen`), which
-   both pipelines drop silently. Decide for each whether it earns a code.
+- **The record cannot locate the cell** -- `sheet_name` empty on 122,373 of
+  122,590 findings, `tracker_year`/`tracker_month` on all of them, no row
+  number in the schema at all. Now [ticket
+  67](67-findings-must-name-sheet-year-month.md), which also asks whether a
+  finding should declare its scope (`tracker` / `sheet` / `cell`), since an
+  empty `sheet_name` today cannot distinguish "about the whole workbook" from
+  "about a sheet and we lost which one".
+- **`blank_header_with_data` reaches 217 of a catalogued 4,572**, and never
+  fires on this ticket's own headline example. Now [ticket
+  68](68-blank-header-emitter-vs-catalogue.md).
+
+**What stays here: the catalogue entries no error code covers at all**, so
+they reach no row in `table_findings` and no line in the report. Each needs a
+decision on whether it earns a code:
+
+- **23 patients listed twice on the same monthly sheet** ([ticket
+  45](45-patient-row-alignment-duplicate-keys.md)) -- 21 on
+  `2024_Vietnam National Children`'s `Jul24`, one on `2023_Vietnam National
+  Children's` `Jun23`, one on `2018_Penang General Hospital_DC` `Oct18`. This
+  one is already machine-derivable per file, sheet and `patient_id` from the
+  pipeline's own raw output, so it is the cheapest of the four.
+- **Rich-text cells whose space sits in its own formatting run** ([ticket
+  46](46-triage-patient-raw-residual-4.md)) -- `2017_Yangon`'s
+  `hba1c_updated`/`fbg_updated_mg`, `2022_Mahosot`'s `observations`. Python
+  reads them correctly, so this is cosmetic for the pipeline; the reason to
+  report it is that the same value then exists in two forms in one column.
+- **Unaccented province spellings neither pipeline recovers** -- `Thai Nguyen`
+  and `Thai nguyen` across the VNCH trackers sanitize to `thainguyen` on both
+  sides and are published as "Undefined". The comparison is silent on it
+  because it is a shared limitation rather than a divergence, which is exactly
+  why it needs a finding to be visible at all. Note this overlaps the
+  **Not yet specified** fog patch on unaccented provinces: that patch asks
+  whether an `aliases` entry should *recover* them, this asks whether the loss
+  should be *reported*; the second does not wait on the first.
+- **A cleared patient row number that kept a space** (`2022_Children's Hospital
+  2`, `Oct22`, `A70`) -- harmless to the pipeline today, listed because the
+  same residue elsewhere costs R a whole patient and a clinician cannot see the
+  difference between an empty cell and one holding a space.
 
 Everything catalogued above this section stands as evidence and needs no
 re-deriving; what it does **not** establish is that each entry survives as a
-row in `table_findings`, and points 2 and 4 are the two places it demonstrably
-does not.
+row in `table_findings`, and the four above are where it demonstrably does not.
