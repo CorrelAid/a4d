@@ -15,9 +15,11 @@ from openpyxl import load_workbook
 
 from a4d.findings import FINDING_GLOSSARY
 from a4d.report import (
+    _HEADERS,
     build_findings_report,
     glossary_frame,
     load_findings,
+    overview_frame,
     summarise_by_tracker,
 )
 
@@ -97,7 +99,7 @@ class TestGlossary:
 
     def test_a_code_that_did_not_fire_reads_zero_rather_than_blank(self):
         glossary = glossary_frame(_findings([{"error_code": "type_conversion"}]))
-        counts = dict(zip(glossary["error_code"], glossary["count_in_this_run"], strict=True))
+        counts = dict(zip(glossary["error_code"], glossary["findings_in_this_run"], strict=True))
 
         assert counts["type_conversion"] == 1
         assert counts["balance_reconciliation"] == 0
@@ -112,7 +114,12 @@ class TestWorkbook:
     def test_it_writes_the_three_agreed_sheets(self, tmp_path):
         out = build_findings_report(_findings([{}]), tmp_path / "findings.xlsx")
 
-        assert [sheet.title for sheet in _sheets(out)] == ["Summary", "Findings", "Glossary"]
+        assert [sheet.title for sheet in _sheets(out)] == [
+            "Overview",
+            "Trackers",
+            "Findings",
+            "Glossary",
+        ]
 
     def test_the_findings_sheet_leads_with_actionability(self, tmp_path):
         """Category first so a reader never scrolls right to learn whether a
@@ -151,14 +158,20 @@ def _sheets(path):
 
 
 def _header(path, sheet_name: str) -> list[str]:
+    """Header row, mapped back to the frame's own column names.
+
+    The sheet shows reader-facing labels; tests assert on the names the code
+    uses, so the two cannot drift apart silently.
+    """
     sheet = load_workbook(path)[sheet_name]
-    return [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+    back = {label: name for name, label in _HEADERS.items()}
+    return [back.get(cell.value, cell.value) for cell in next(sheet.iter_rows(max_row=1))]
 
 
 def _column(path, sheet_name: str, column: str) -> list:
     sheet = load_workbook(path)[sheet_name]
     rows = list(sheet.iter_rows(values_only=True))
-    index = list(rows[0]).index(column)
+    index = list(rows[0]).index(_HEADERS.get(column, column))
     return [row[index] for row in rows[1:] if row[index] is not None]
 
 
@@ -167,10 +180,202 @@ def test_xlsxwriter_is_available():
     assert xlsxwriter.__version__
 
 
-def test_the_summary_carries_no_column_the_pipeline_never_fills(tmp_path):
+def test_the_trackers_sheet_carries_no_column_the_pipeline_never_fills(tmp_path):
     """`tracker_year` is declared on the findings table but never populated
     (0 of 122,590 on the real run), so shipping it would be a blank column in
     the deliverable."""
     out = build_findings_report(_findings([{}]), tmp_path / "findings.xlsx")
 
-    assert "tracker_year" not in _header(out, "Summary")
+    assert "tracker_year" not in _header(out, "Trackers")
+
+
+class TestGlossarySpread:
+    """A cell count alone cannot say whether a problem is systemic."""
+
+    def test_it_reports_how_many_trackers_a_code_touches(self):
+        findings = _findings(
+            [
+                {"file_name": "a", "error_code": "type_conversion"},
+                {"file_name": "a", "error_code": "type_conversion"},
+                {"file_name": "b", "error_code": "type_conversion"},
+            ]
+        )
+
+        row = _glossary_row(glossary_frame(findings), "type_conversion")
+
+        assert row["findings_in_this_run"] == 3
+        assert row["trackers_affected"] == 2
+
+    def test_the_share_is_against_the_run_not_the_affected_set(self):
+        """Two of four trackers is 50%, not 100%."""
+        findings = _findings(
+            [
+                {"file_name": "a", "error_code": "type_conversion"},
+                {"file_name": "b", "error_code": "type_conversion"},
+            ]
+        )
+
+        row = _glossary_row(glossary_frame(findings, total_trackers=4), "type_conversion")
+
+        assert (row["of_trackers_total"], row["share_of_trackers"]) == (4, "50%")
+
+    def test_the_share_is_floored_so_one_clean_tracker_is_visible(self):
+        """254 of 255 must not read as 100%: a share that says "every tracker"
+        when one is clean invites the wrong conclusion about how systemic a
+        problem is."""
+        findings = _findings([{"file_name": f"t{i}"} for i in range(254)])
+
+        row = _glossary_row(glossary_frame(findings, total_trackers=255), "type_conversion")
+
+        assert row["share_of_trackers"] == "99%"
+
+    def test_a_code_that_did_not_fire_reads_zero_trackers(self):
+        row = _glossary_row(glossary_frame(_findings([{}])), "balance_reconciliation")
+
+        assert (row["findings_in_this_run"], row["trackers_affected"]) == (0, 0)
+
+    def test_drilling_into_one_tracker_keeps_the_whole_run_spread(self, tmp_path):
+        """Filtering the sheets must not make every code read "1 of 1"."""
+        findings = _findings(
+            [
+                {"file_name": "2024_Wanted", "error_code": "type_conversion"},
+                {"file_name": "2024_Other", "error_code": "type_conversion"},
+            ]
+        )
+
+        out = build_findings_report(findings, tmp_path / "one.xlsx", tracker="Wanted")
+        codes = _column(out, "Glossary", "error_code")
+        affected = _column(out, "Glossary", "trackers_affected")
+        totals = _column(out, "Glossary", "of_trackers_total")
+        at = codes.index("type_conversion")
+
+        assert (affected[at], totals[at]) == (2, 2)
+
+
+def _glossary_row(frame, error_code: str) -> dict:
+    return frame.filter(pl.col("error_code") == error_code).row(0, named=True)
+
+
+def _metadata(rows: list[dict]) -> pl.DataFrame:
+    defaults = {
+        "file_name": "2024_Clinic_A",
+        "clinic_code": "CA",
+        "md5": "abc",
+        "patient_data_raw": True,
+        "patient_data_cleaned": True,
+        "product_data_raw": True,
+        "product_data_cleaned": True,
+        "complete": True,
+    }
+    return pl.DataFrame([{**defaults, **row} for row in rows])
+
+
+class TestTrackerStatus:
+    """The findings say what is wrong with the data; the metadata says whether
+    the pipeline got through the file at all. An operator asks both together."""
+
+    def test_a_tracker_with_no_findings_still_appears(self):
+        """Absent from a findings-only view, a perfect tracker and one that
+        never processed look identical -- both simply missing."""
+        summary = summarise_by_tracker(
+            _findings([{"file_name": "noisy"}]),
+            _metadata([{"file_name": "noisy"}, {"file_name": "silent"}]),
+        )
+
+        assert set(summary["file_name"]) == {"noisy", "silent"}
+        assert summary.filter(pl.col("file_name") == "silent")["total"].item() == 0
+
+    def test_a_tracker_that_failed_a_stage_is_ranked_first(self):
+        """It reports few findings precisely because it produced little."""
+        summary = summarise_by_tracker(
+            _findings([{"file_name": "noisy", "category": "fix_workbook"}] * 50),
+            _metadata(
+                [
+                    {"file_name": "noisy"},
+                    {"file_name": "broken", "product_data_cleaned": False, "complete": False},
+                ]
+            ),
+        )
+
+        assert summary["file_name"].to_list() == ["broken", "noisy"]
+
+    def test_the_failed_stages_are_named_not_left_as_booleans(self):
+        summary = summarise_by_tracker(
+            _findings([]).clear(),
+            _metadata(
+                [
+                    {
+                        "file_name": "broken",
+                        "product_data_raw": False,
+                        "product_data_cleaned": False,
+                        "complete": False,
+                    }
+                ]
+            ),
+        )
+        row = summary.row(0, named=True)
+
+        assert row["stages_failed"] == "product extract, product clean"
+        assert row["product extract"] == "FAILED"
+        assert row["patient extract"] == "ok"
+
+    def test_without_metadata_it_falls_back_to_findings_only(self):
+        summary = summarise_by_tracker(_findings([{"file_name": "only"}]))
+
+        assert summary["file_name"].to_list() == ["only"]
+        assert "stages_failed" not in summary.columns
+
+
+class TestOverview:
+    def test_it_counts_trackers_that_completed_every_stage(self):
+        overview = overview_frame(
+            _findings([{"file_name": "a"}]),
+            _metadata(
+                [
+                    {"file_name": "a"},
+                    {"file_name": "b", "patient_data_cleaned": False, "complete": False},
+                ]
+            ),
+        )
+        stats = dict(zip(overview["measure"], overview["value"], strict=True))
+
+        assert stats["Trackers processed"] == 2
+        assert stats["Trackers that completed every stage"] == 1
+        assert stats["Trackers with a failed stage"] == 1
+        assert stats["Failed at patient clean"] == 1
+
+    def test_it_distinguishes_trackers_processed_from_trackers_with_findings(self):
+        """Two very different numbers that a findings-only view conflates."""
+        overview = overview_frame(
+            _findings([{"file_name": "a"}]),
+            _metadata([{"file_name": "a"}, {"file_name": "b"}]),
+        )
+        stats = dict(zip(overview["measure"], overview["value"], strict=True))
+
+        assert stats["Trackers processed"] == 2
+        assert stats["Trackers with at least one finding"] == 1
+
+    def test_processing_rows_are_omitted_without_metadata(self):
+        overview = overview_frame(_findings([{}]))
+        measures = overview["measure"].to_list()
+
+        assert "Trackers processed" not in measures
+        assert "Findings total" in measures
+
+
+def test_a_boolean_column_reads_as_words_not_as_one_and_zero(tmp_path):
+    """xlsxwriter takes bool as a number, so "Processed fully?" would read 1."""
+    out = build_findings_report(
+        _findings([{}]),
+        tmp_path / "f.xlsx",
+        metadata=_metadata([{"file_name": "2024_Clinic_A", "complete": True}]),
+    )
+
+    assert _column(out, "Trackers", "processed_completely") == ["yes"]
+
+
+def test_the_workbook_orders_sheets_overview_first(tmp_path):
+    """The run's shape before its detail."""
+    out = build_findings_report(_findings([{}]), tmp_path / "f.xlsx", metadata=_metadata([{}]))
+
+    assert [sheet.title for sheet in _sheets(out)][0] == "Overview"

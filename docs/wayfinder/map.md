@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 7"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -45,6 +45,7 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
+    T69["<b>69</b> · task<br/>The biggest finding code<br/>is a recovery filed as<br/>data loss, and every age<br/>finding is emitted twice"]
   end
   subgraph DECIDED["Decided · 59"]
     direction TB
@@ -143,7 +144,7 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68 frontier
+  class T9,T34,T35,T40,T41,T67,T68,T69 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
@@ -2786,17 +2787,48 @@ report — the 23 duplicated patient rows, the rich-text formatting-run cells,
 the unaccented provinces both pipelines drop silently, and the cleared row
 number that kept a space.
 
-**The frontier is seven** — ticket 16 leaving it, tickets 67 and 68 joining —
+**The glossary the report ships was then audited entry by entry against the
+emit sites, after the user challenged one description as impossible** —
+`invalid_tracker` cannot mean "the workbook could not be read at all" when it
+fires 22,394 times across 255 trackers. **Eleven of the twenty-one entries were
+wrong** and were rewritten against the code, along with the misleading `#`
+comments beside `ErrorCode`. Two were inverted rather than merely vague:
+`missing_column` fires when a tracker column matches nothing in the reference
+list (unrecognised, not absent), and `invalid_tracker` marks a sheet or section
+skipped while the rest of the workbook still processes.
+
+**The audit then found two defects in the taxonomy itself, which is [ticket
+69](tickets/69-miscategorised-and-duplicated-findings.md).** `missing_value` is
+the largest code on the run — 27,038 findings — categorised `data_lost`, but
+both its emit sites fire when an empty age cell was **recovered** from the date
+of birth: **38% of the "data lost" column is data that was not lost**, and that
+is the column the report ranks by. Beside it, `_fix_age_from_dob` emits every
+finding twice (13,519 + 13,519 and 2,561 + 2,561, an exact split) — **16,080
+duplicate rows, 13% of the table**, and the seventh and eighth instance of the
+pattern ticket 66 collapsed six of.
+
+**The report also gained what the user's own error dashboard had and this did
+not**: an **Overview** sheet of run-level statistics, and a **Trackers** sheet
+joining `tracker_metadata`'s per-arm, per-stage processing record to the
+finding counts — so a tracker that never processed is visible instead of
+silently absent, which a findings-only view cannot distinguish from a perfect
+one. The glossary now carries "X of Y trackers affected" beside the cell count,
+floored rather than rounded so 254 of 255 reads 99% and not 100%. Every column
+header was rewritten to say what it means (`arms` became "Arms that reported
+findings").
+
+**The frontier is eight** — ticket 16 leaving it, tickets 67, 68 and 69 joining —
 and **no ticket on it is on the route, because the route is finished**. All
 nine clauses of the destination are met. What remains is standing decisions
 ([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
 parity](tickets/34-local-ci-parity-guard.md), [Polars
 2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
-fields](tickets/41-decide-2026-new-patient-list-columns.md)) and the three
-data-quality tickets. Of those three, [ticket
-67](tickets/67-findings-must-name-sheet-year-month.md) is the one to take
-first: it is the largest population, the other two are read through the same
-report, and its scope decision shapes what ticket 40 can even record.
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and four
+data-quality tickets. Of those four, [ticket
+69](tickets/69-miscategorised-and-duplicated-findings.md) is the one to take
+first: it is the only one whose defects make the report actively misleading
+rather than incomplete, and it moves every count the other three would
+otherwise be measured against.
 
 ## Decisions so far
 
@@ -4506,6 +4538,7 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
+    U69["<b>69</b><br/>The biggest finding code<br/>is a recovery filed as<br/>data loss, and every age<br/>finding is emitted twice"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4647,9 +4680,10 @@ flowchart TB
   U16 -.->|spawned| U66
   U16 -.->|spawned| U67
   U16 -.->|spawned| U68
+  U16 -.->|spawned| U69
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68,U69 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
