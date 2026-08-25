@@ -12,6 +12,7 @@ from loguru import logger
 from a4d.clean.converters import safe_convert_column
 from a4d.clean.schema_product import apply_schema, get_product_data_schema
 from a4d.clean.validators import fix_patient_id
+from a4d.findings import Finding, findings_collected
 
 
 def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
@@ -33,7 +34,9 @@ def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
     return pl.concat(dfs, how="diagonal")
 
 
-def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Path:
+def create_table_product_data(
+    cleaned_files: list[Path], output_dir: Path
+) -> tuple[Path, list[Finding]]:
     """Build the final ``product_data`` table from cleaned tracker parquets.
 
     1. Concatenate every cleaned product parquet.
@@ -47,42 +50,48 @@ def create_table_product_data(cleaned_files: list[Path], output_dir: Path) -> Pa
         output_dir: Directory where ``product_data.parquet`` is written.
 
     Returns:
-        Path to the written ``product_data.parquet`` file.
+        The written ``product_data.parquet`` path, and the findings the stage
+        emitted -- returned rather than left in a context, because the caller
+        is what knows where the run's findings table is being assembled.
     """
     df = read_cleaned_product_data(cleaned_files)
 
-    df = df.with_columns(pl.col("product_released_to").alias("orig_product_released_to"))
+    # fix_patient_id and safe_convert_column below emit findings, but run at
+    # the table-aggregation stage: over a frame spanning every tracker, outside
+    # any one tracker's context. The context is opened here rather than by each
+    # caller because there are three of them (`run`, `run product`, `create
+    # tables`) and a caller that forgets gets no product table at all -- the
+    # emit raises, and run_product_pipeline logs and continues. Each finding
+    # names its own workbook from its row, so no default file_name is bound.
+    with findings_collected(arm="product") as collector:
+        df = df.with_columns(pl.col("product_released_to").alias("orig_product_released_to"))
 
-    df = fix_patient_id(
-        df=df,
-        patient_id_col="product_released_to",
-    )
+        df = fix_patient_id(
+            df=df,
+            patient_id_col="product_released_to",
+        )
 
-    # Adds any missing schema columns as typed nulls so the cast loop below
-    # has every target column available; safe_convert_column preserves order.
-    df = apply_schema(df)
+        # Adds any missing schema columns as typed nulls so the cast loop below
+        # has every target column available; safe_convert_column preserves order.
+        df = apply_schema(df)
 
-    schema = get_product_data_schema()
-    for col, dtype in schema.items():
-        if dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64, pl.Date):
-            df = safe_convert_column(
-                df=df,
-                column=col,
-                target_type=dtype,
-                patient_id_col="product_released_to",
-            )
+        schema = get_product_data_schema()
+        for col, dtype in schema.items():
+            if dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64, pl.Date):
+                df = safe_convert_column(
+                    df=df,
+                    column=col,
+                    target_type=dtype,
+                    patient_id_col="product_released_to",
+                )
 
-    # fix_patient_id and safe_convert_column above run at the table-aggregation
-    # stage, over a frame spanning every tracker rather than inside one
-    # tracker's context. Their findings carry the row's own file_name and are
-    # returned to the caller to reach the findings table with the rest.
     logger.info(f"Product data table dimensions: {df.shape}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "product_data.parquet"
     df.write_parquet(output_path)
 
-    return output_path
+    return output_path, collector.findings
 
 
 def link_product_patient(

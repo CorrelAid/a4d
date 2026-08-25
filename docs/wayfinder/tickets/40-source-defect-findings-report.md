@@ -1,6 +1,6 @@
 ---
 id: 40
-title: Produce one Excel of every source-tracker defect, so the trackers themselves can be corrected
+title: The findings table misses defects the triage catalogued, and cannot say which sheet a finding is on
 labels: [wayfinder:task]
 status: open
 blocked_by: []
@@ -384,3 +384,54 @@ actually reachable from the table. `run` now writes it once after both arms:
   `2024_Mandalay Children's` sheets is what makes R drop that tracker's first
   patient -- a clinician cannot see the difference between an empty cell and one
   holding a space, so it is worth knowing the shape exists.
+
+## Re-scoped (session-2026-08-25c)
+
+**The report itself is built and this ticket no longer owns it.** [The findings
+report](16-log-analyzer-drill-down.md) closed 2026-08-25 with `a4d report
+findings`, an Excel workbook over `table_findings` -- Summary ranked by the
+`fix_workbook` category, one autofiltered Findings sheet, a Glossary of every
+error code and what to do about it. The user decided the two tickets are one
+deliverable seen from two angles, which is this ticket's own Question point 4,
+answered: the `fix_workbook` rows **are** this report.
+
+So points 1, 3 and 4 of the Question are settled. **Source of truth**:
+`table_findings`, derived, never hand-collected -- and the channel is now
+single, so there is no second place for a finding to hide ([ticket
+66](66-unify-finding-channels.md)). **Where it lives**: `a4d report findings`,
+a CLI command that outlives R. **Whether it supersedes anything**: it and
+ticket 16 are one workbook.
+
+**What is left is the gap between this ticket's catalogue and what the table
+actually emits**, measured on the real 255-tracker run rather than assumed:
+
+1. **The record cannot locate the cell.** `sheet_name` is empty on **120,088 of
+   122,590** findings (98%) and `patient_id` on 54,027. This ticket's own
+   standing bar is that a person can "open the named workbook, find the named
+   cell" -- with twelve month sheets and no sheet name they cannot. There is no
+   row number in the schema at all, which the Question's stated shape ("tracker
+   file, sheet, `patient_id`, row") asks for. Decide what the record must carry
+   and fill it.
+2. **`blank_header_with_data` reaches a fraction of the population this ticket
+   catalogued.** It fires **217 times across 24 trackers, all 2022**, against
+   the catalogued **4,572 values across 26 trackers** -- and never on the
+   clearest example above, `2021_Kantha Bopha` `Mar21`/`Apr21` column Q, 194
+   lost insulin-regimen values. The catalogue's figure came from the comparison
+   tool's analysis; the runtime emitter is a different and far narrower
+   population. Establish which number is right and why they differ before
+   trusting either.
+3. **`tracker_year` and `tracker_month` are dead columns** -- populated on 0 of
+   122,590 rows, because both `tracker_context` call sites in
+   `pipeline/tracker.py` omit them. The Summary sheet drops `tracker_year`
+   rather than render a blank column. The year is a one-line fix from the
+   tracker name; the month is per-sheet and needs the sheet fix above first.
+4. **Catalogue entries no error code covers**, so they reach no row today: the
+   23 patients listed twice on one monthly sheet ([ticket
+   45](45-patient-row-alignment-duplicate-keys.md)), the rich-text
+   formatting-run cells, and the unaccented-province loss (`Thai Nguyen`), which
+   both pipelines drop silently. Decide for each whether it earns a code.
+
+Everything catalogued above this section stands as evidence and needs no
+re-deriving; what it does **not** establish is that each entry survives as a
+row in `table_findings`, and points 2 and 4 are the two places it demonstrably
+does not.

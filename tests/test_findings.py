@@ -15,6 +15,7 @@ from loguru import logger
 
 from a4d.findings import (
     FINDING_CATEGORY,
+    FINDING_GLOSSARY,
     ErrorCode,
     Finding,
     FindingCollector,
@@ -259,3 +260,30 @@ class TestCollector:
             _report(error_code="missing_column")
         df = collector.to_dataframe()
         assert df["category"].to_list() == ["fix_workbook"]
+
+
+class TestGlossary:
+    """The report's glossary sheet is generated from FINDING_GLOSSARY.
+
+    A glossary transcribed by hand drifts from the taxonomy the moment a code
+    is added, so these mirror the category tests: a new code cannot ship
+    without an explanation, and a deleted one cannot leave a stale entry.
+    """
+
+    def test_every_error_code_has_a_glossary_entry(self):
+        """A code with no entry would publish a blank glossary row."""
+        missing = sorted(set(get_args(ErrorCode)) - set(FINDING_GLOSSARY))
+        assert missing == [], f"error codes with no glossary entry: {missing}"
+
+    def test_no_glossary_entry_names_an_unknown_code(self):
+        stale = sorted(set(FINDING_GLOSSARY) - set(get_args(ErrorCode)))
+        assert stale == [], f"glossary entries for codes that no longer exist: {stale}"
+
+    @pytest.mark.parametrize("error_code", sorted(get_args(ErrorCode)))
+    def test_each_entry_says_what_to_do_not_just_what_happened(self, error_code):
+        """The reader is whoever opens the workbook, so an entry has to be long
+        enough to name an action rather than restate the code as a phrase."""
+        text = FINDING_GLOSSARY[error_code]
+        assert len(text) > 80, f"{error_code}: glossary entry too short to be actionable"
+        assert text[0].isupper(), f"{error_code}: glossary entry does not start a sentence"
+        assert text.rstrip().endswith("."), f"{error_code}: glossary entry has no full stop"

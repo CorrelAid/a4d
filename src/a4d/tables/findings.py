@@ -58,7 +58,9 @@ def create_table_findings(findings: list[Finding], output_dir: Path) -> Path:
     return output_file
 
 
-def rebuild_findings_from_logs(logs_dir: Path, output_dir: Path) -> Path:
+def rebuild_findings_from_logs(
+    logs_dir: Path, output_dir: Path, extra_findings: list[Finding] | None = None
+) -> Path:
     """Rebuild the findings table from a completed run's log files.
 
     ``a4d create tables`` re-derives every table from what is on disk, but
@@ -74,11 +76,14 @@ def rebuild_findings_from_logs(logs_dir: Path, output_dir: Path) -> Path:
     Args:
         logs_dir: Directory holding the run's per-tracker ``.log`` files
         output_dir: Directory to write the findings table parquet
+        extra_findings: Findings emitted in this process rather than read back
+            from the logs -- the product table stage's, which run under
+            ``findings_collected`` and so write to no per-tracker log file
 
     Returns:
         Path to the created findings table parquet file
     """
-    findings: list[Finding] = []
+    findings: list[Finding] = list(extra_findings or [])
     seen: set[tuple] = set()
 
     for log_file in sorted(logs_dir.glob("*.log")):

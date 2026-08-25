@@ -36,16 +36,15 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 6"]
+  subgraph FRONTIER["Frontier · 5"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T40["<b>40</b> · task<br/>Produce one Excel of every<br/>source-tracker defect, so<br/>the trackers themselves<br/>can be corrected"]
+    T40["<b>40</b> · task<br/>The findings table misses<br/>defects the triage<br/>catalogued, and cannot say<br/>which sheet a finding is<br/>on"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
   end
-  subgraph DECIDED["Decided · 58"]
+  subgraph DECIDED["Decided · 59"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -60,6 +59,7 @@ flowchart TD
     T13["<b>13</b> · task<br/>Audit and update all<br/>dependencies and library<br/>versions before rollout"]
     T14["<b>14</b> · task<br/>Fix product pipeline's<br/>unable to find column<br/>product failures on 4 real<br/>trackers"]
     T15["<b>15</b> · task<br/>Build and run the R/Python<br/>output comparison script,<br/>then triage every flagged<br/>difference"]
+    T16["<b>16</b> · grilling<br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific tracker<br/>file's errors/logs"]
     T17["<b>17</b> · task<br/>Fix the product<br/>comparison's row-alignment<br/>key, then triage every<br/>flagged R/Python<br/>difference"]
     T18["<b>18</b> · task<br/>Triage every flagged<br/>R/Python difference for<br/>both arms, and resolve the<br/>189-vs-155-tracker<br/>discrepancy"]
     T19["<b>19</b> · task<br/>Persist comparison run<br/>history and show run-over-<br/>run deltas"]
@@ -141,9 +141,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T16,T34,T35,T40,T41 frontier
+  class T9,T34,T35,T40,T41 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -2720,6 +2720,51 @@ tests](tickets/09-snapshot-regression-tests.md) joining now that its only
 blocker is closed — and none of the seven is on the route to the destination as
 written, except ticket 16 under the reading above.
 
+**[The findings report](tickets/16-log-analyzer-drill-down.md) is closed, and
+with it the destination's ninth and last clause is met: the pipeline is
+operable day to day.** `a4d report findings` writes one Excel workbook from
+`table_findings` — Summary ranked by how many workbook defects each tracker
+carries, an autofiltered Findings sheet, a Glossary generated from a new
+`FINDING_GLOSSARY` that tests keep exhaustive in both directions.
+`--tracker <substring>` is the drill-down this ticket was written for.
+
+**The user settled the overlap this ticket had with [the source-defect
+report](tickets/40-source-defect-findings-report.md) rather than letting both
+be built blind**: one workbook, both audiences. The `fix_workbook` rows *are*
+the staff-facing defect report; the other two categories are the operator's
+extra. That was ticket 40's own Question point 4, and it is now answered.
+
+**The session's sharpest finding was not in the report at all: `a4d run` was
+writing no product table, and saying it succeeded.** `create_table_product_data`
+calls `fix_patient_id` and `safe_convert_column` at the table-aggregation
+stage, outside any tracker's context, so [ticket
+66](tickets/66-unify-finding-channels.md)'s `report_finding` raised and
+`run_product_pipeline` swallowed the exception. **The test suite could not have
+caught it** — `tests/conftest.py` binds a findings context around every test,
+so the path only fails in production. A second defect sat beside it:
+`findings_collected(arm=...)` was ignored unless a `file_name` came with it, so
+the product table stage's findings were filed under `patient`. Fixed together:
+`product_data.parquet` **absent → 75,169 rows**, findings **119,588 →
+122,590**.
+
+**Ticket 40 was measured against the table rather than closed on the strength
+of the overlap, and it does not close.** Three gaps, all executed against the
+real 255-tracker run: `sheet_name` is empty on **98%** of findings (and there
+is no row number at all), so a reader cannot locate the cell in a
+twelve-sheet workbook; `blank_header_with_data` fires **217 times over 24
+trackers against a catalogued 4,572 over 26**, never on the catalogue's
+clearest example; and `tracker_year`/`tracker_month` are populated on **zero**
+rows. It is retitled to what it now asks and stays on the frontier.
+
+**The frontier is five** — ticket 16 leaving it, nothing joining — and **no
+ticket on it is on the route, because the route is finished**. All nine
+clauses of the destination are met. What remains is standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and the
+data-quality residue (ticket 40).
+
 ## Decisions so far
 
 - [Two values published into the logs table still name R
@@ -3850,6 +3895,17 @@ written, except ticket 16 under the reading above.
   to operational-only. Ticket 65 folded in and discharged. Seven duplicate
   emissions collapsed and three latent bugs fixed along the way.
 
+- [Build a drill-down log analyzer for admins to inspect a specific tracker
+  file's errors/logs](tickets/16-log-analyzer-drill-down.md) — one Excel
+  workbook, one command (`a4d report findings`, `--tracker` to drill into one
+  file, `--from-bigquery` for a deployed run): Summary ranked by
+  `fix_workbook`, an autofiltered Findings sheet, a Glossary generated from a
+  new `FINDING_GLOSSARY` kept exhaustive by tests. The user chose one artifact
+  over two, so it is also the source-defect report. Found and fixed a
+  regression that left `a4d run` writing **no product table at all** while
+  reporting success (absent → 75,169 rows), and an `arm` argument silently
+  ignored; together they recovered 3,002 lost findings (119,588 → 122,590).
+
 ## Assumptions in force
 
 - **A date whose year is past 2400 and which decodes to no later than its
@@ -4400,6 +4456,10 @@ flowchart TB
     U65["<b>65</b><br/>Two values published<br/>into the logs table<br/>still name R scripts"]
     U66["<b>66</b><br/>Unify the two separate<br/>channels that report<br/>data-quality findings"]
   end
+  subgraph S2026_08_25c["Session 2026-08-25c"]
+    direction LR
+    U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4407,10 +4467,9 @@ flowchart TB
   subgraph Sopen["Not yet worked"]
     direction LR
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U16["<b>16</b><br/>Build a drill-down log<br/>analyzer for admins to<br/>inspect a specific<br/>tracker file's<br/>errors/logs"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U40["<b>40</b><br/>Produce one Excel of<br/>every source-tracker<br/>defect, so the trackers<br/>themselves can be<br/>corrected"]
+    U40["<b>40</b><br/>The findings table<br/>misses defects the<br/>triage catalogued, and<br/>cannot say which sheet a<br/>finding is on"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
   end
 
@@ -4465,7 +4524,8 @@ flowchart TB
   S2026_08_24f ~~~ S2026_08_24g
   S2026_08_24g ~~~ S2026_08_24h
   S2026_08_24h ~~~ S2026_08_25b
-  S2026_08_25b ~~~ Sunworked
+  S2026_08_25b ~~~ S2026_08_25c
+  S2026_08_25c ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4552,9 +4612,9 @@ flowchart TB
   U16 -.->|spawned| U66
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U16,U34,U35,U40,U41 tfrontier
+  class U9,U34,U35,U40,U41 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```

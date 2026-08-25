@@ -124,6 +124,113 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
     "implausible_era_date": "data_lost",
 }
 
+# What each code means and what to do about it, written for whoever opens the
+# workbook -- an A4D staff member correcting a tracker, not a Python developer.
+# It is a dict rather than the comments above because the report's glossary
+# sheet is generated from it; a glossary transcribed by hand drifts from the
+# taxonomy the moment a code is added. Kept exhaustive in both directions by a
+# test, exactly as FINDING_CATEGORY is.
+FINDING_GLOSSARY: dict[ErrorCode, str] = {
+    "blank_header_with_data": (
+        "A column holds values but its header cell is empty, so nothing says what "
+        "the values mean and they are dropped. Type the column's name into the "
+        "header row."
+    ),
+    "tracker_layout_changed": (
+        "A month sheet's columns do not match the rest of the workbook. One "
+        "tracker covers one clinic-year and should keep one layout throughout; "
+        "restore the missing or renamed columns to match the other sheets."
+    ),
+    "duplicate_source_columns": (
+        "Two columns in the same sheet map to the same field, so only one can be "
+        "kept. Delete the duplicate, or rename it if the two hold different data."
+    ),
+    "missing_column": (
+        "A column the tracker template defines is absent from this workbook. Add "
+        "it from the current template if the clinic records that measurement."
+    ),
+    "invalid_tracker": (
+        "The workbook could not be read as a tracker at all -- an unreadable sheet "
+        "or a missing section. It needs opening in Excel and checking against the "
+        "current template."
+    ),
+    "empty_product_data": (
+        "A stock/inventory sheet exists but holds no rows. Either the month's "
+        "stock movements were never entered, or the sheet was added by mistake."
+    ),
+    "excel_error_patient_id": (
+        "The patient ID cell holds a broken formula (#REF!), so the row cannot be "
+        "attributed to anyone and its measurements are discarded. Repoint the "
+        "formula, or type the ID in directly."
+    ),
+    "missing_required_field": (
+        "A field every row must have (patient ID, status) is empty, so the row is "
+        "excluded. Fill it in, or delete the row if it was started by accident."
+    ),
+    "source_formula_error": (
+        "The workbook's own formula returned an error (#NUM!, #DIV/0!) because a "
+        "cell it depends on was never filled in. Fill the input cell; the formula "
+        "will then compute."
+    ),
+    "glucose_unit_swapped": (
+        "A whole column labelled mg/dL holds readings in mmol/L. The pipeline has "
+        "moved and rescaled them, but the column header should be corrected so it "
+        "stops disagreeing with its own values. Reported once per column."
+    ),
+    "glucose_unit_suspect": (
+        "A single reading sits in the range the other unit's values occupy. It is "
+        "published as recorded, because a genuinely severe reading looks the same "
+        "-- check the patient's record and confirm the number."
+    ),
+    "balance_reconciliation": (
+        "The stock movements recorded for this product do not add up to the "
+        "closing balance the tracker itself states. Either a receipt/release row "
+        "is missing or the balance was typed over."
+    ),
+    "typo_rescued": (
+        "A known misspelling was substituted before the value was read, so nothing "
+        "was lost. Correcting the spelling in the workbook removes the guess."
+    ),
+    "date_recovered_from_text": (
+        "A date was read out of a free-text note rather than from a date cell. The "
+        "note is kept alongside it so the reading can be checked; entering the date "
+        "in its own cell removes the inference."
+    ),
+    "date_multiple_in_cell": (
+        "The cell named more than one date and the first was published. If a "
+        "different one was meant, split them into separate rows or cells."
+    ),
+    "date_year_inferred": (
+        "The cell gave a day and month but no year, so the tracker's own year was "
+        "used. That is the one part of the published date the workbook does not "
+        "state -- write the year out to be sure it is right."
+    ),
+    "buddhist_era_converted": (
+        "A Buddhist-era year (BE = CE + 543) was converted to Gregorian. This is "
+        "the calendar the clinic uses, not a mistake; no action needed unless the "
+        "converted date looks wrong."
+    ),
+    "type_conversion": (
+        "The cell's contents could not be read as the kind of value the column "
+        "holds -- text where a number belongs, or a date in a count column -- so "
+        "the value is lost. Retype it in the column's own format."
+    ),
+    "invalid_value": (
+        "The value is outside the range the column allows, or is not one of its "
+        "permitted entries, so it is not published. Check it against the patient's "
+        "record: it is often a reading typed into the wrong column."
+    ),
+    "missing_value": (
+        "A value the column requires is absent, so nothing is published for this "
+        "cell. Fill it in if the measurement was taken."
+    ),
+    "implausible_era_date": (
+        "The date cell holds a year that is neither Gregorian nor this tracker's "
+        "Buddhist-era year -- usually a corrupted Excel serial. The day and month "
+        "are normally right; retype the whole date."
+    ),
+}
+
 # A recovery is not a problem, so it does not deserve an operator's attention
 # at the same level as a workbook defect.
 _LEVEL_BY_CATEGORY: dict[FindingCategory, str] = {
@@ -322,17 +429,19 @@ def findings_collected(
     """
     collector = FindingCollector()
     token = _current.set(collector)
-    context_token = None
-    if file_name is not None:
-        context_token = _current_tracker.set(
-            {"file_name": file_name, "arm": arm, "tracker_year": None, "tracker_month": None}
-        )
+    # Bound even when file_name is None, so `arm` takes effect on its own. It
+    # used to be bound only alongside a file name, which silently filed every
+    # finding from a caller that named its own workbooks -- the product table
+    # stage -- under the default arm instead of the one it asked for.
+    # A None file_name still raises at emit time if the call does not carry one.
+    context_token = _current_tracker.set(
+        {"file_name": file_name, "arm": arm, "tracker_year": None, "tracker_month": None}
+    )
     try:
         yield collector
     finally:
         _current.reset(token)
-        if context_token is not None:
-            _current_tracker.reset(context_token)
+        _current_tracker.reset(context_token)
 
 
 @contextmanager

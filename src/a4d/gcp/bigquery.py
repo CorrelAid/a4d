@@ -12,6 +12,7 @@ from google.cloud import bigquery
 from loguru import logger
 
 from a4d.config import settings
+from a4d.findings import FINDINGS_SCHEMA
 
 # Clustering fields per table. These are the columns consumers filter on
 # most, and clustering on them is what keeps a full-corpus query cheap.
@@ -298,3 +299,52 @@ def select_tracker_metadata(
     except Exception as e:
         logger.warning(f"Unexpected error querying {table_ref}: {e}")
         return None
+
+
+def select_findings(
+    client: bigquery.Client | None = None,
+    dataset: str | None = None,
+    project_id: str | None = None,
+) -> pl.DataFrame | None:
+    """Read the published ``findings`` table, for reporting on a deployed run.
+
+    Returns ``None`` rather than raising on an unavailable client, a missing
+    table or any API error, so ``a4d report findings --from-bigquery`` can say
+    what went wrong instead of dying with a traceback. The local parquet is the
+    default source precisely because this path needs credentials.
+
+    Args:
+        client: An existing BigQuery client, or None to build one
+        dataset: Dataset holding the table (default: from config)
+        project_id: GCP project (default: from config)
+
+    Returns:
+        The findings table, or None if it could not be read
+    """
+    project_id = project_id or settings.project_id
+    dataset = dataset or settings.dataset
+
+    if client is None:
+        try:
+            client = get_bigquery_client(project_id)
+        except Exception as e:
+            logger.warning(f"BigQuery client unavailable, cannot read findings: {e}")
+            return None
+
+    table_ref = f"{project_id}.{dataset}.findings"
+    columns = list(FINDINGS_SCHEMA)
+
+    try:
+        rows = list(client.query(f"SELECT {', '.join(columns)} FROM `{table_ref}`").result())
+    except NotFound:
+        logger.warning(f"BigQuery table not found: {table_ref}")
+        return None
+    except GoogleAPIError as e:
+        logger.warning(f"BigQuery query failed for {table_ref}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error querying {table_ref}: {e}")
+        return None
+
+    data = {column: [row[column] for row in rows] for column in columns}
+    return pl.DataFrame(data, schema=FINDINGS_SCHEMA)

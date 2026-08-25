@@ -50,9 +50,10 @@ class TestProcessProductTables:
         cleaned_dir.mkdir()
         output_dir = tmp_path / "tables"
 
-        result = process_product_tables(cleaned_dir, output_dir)
+        result, findings = process_product_tables(cleaned_dir, output_dir)
 
         assert result == {}
+        assert findings == []
 
     def test_creates_product_data_table(self, tmp_path: Path):
         cleaned_dir = tmp_path / "product_data_cleaned"
@@ -60,7 +61,7 @@ class TestProcessProductTables:
         _write_cleaned_product_parquet(cleaned_dir / "tracker_a_product_cleaned.parquet")
         output_dir = tmp_path / "tables"
 
-        result = process_product_tables(cleaned_dir, output_dir)
+        result, _ = process_product_tables(cleaned_dir, output_dir)
 
         assert "product_data" in result
         assert result["product_data"].exists()
