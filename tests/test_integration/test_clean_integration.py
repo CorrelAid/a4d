@@ -11,7 +11,6 @@ import pytest
 
 from a4d.clean.patient import clean_patient_data
 from a4d.clean.product import clean_product_data
-from a4d.errors import ErrorCollector
 from a4d.extract.patient import read_all_patient_sheets
 from a4d.extract.product import read_all_product_sheets
 
@@ -28,8 +27,7 @@ class TestClean2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS
 
@@ -38,8 +36,7 @@ class TestClean2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         assert len(df_clean) == len(df_raw)
 
@@ -48,8 +45,7 @@ class TestClean2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # Check derived columns exist
         assert "insulin_type" in df_clean.columns
@@ -57,13 +53,12 @@ class TestClean2024Penang:
         assert "blood_pressure_sys_mmhg" in df_clean.columns
         assert "blood_pressure_dias_mmhg" in df_clean.columns
 
-    def test_clean_tracks_errors(self, tracker_2024_penang):
+    def test_clean_tracks_errors(self, tracker_2024_penang, collector):
         """Should track data quality errors in ErrorCollector."""
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        clean_patient_data(df_raw, collector)
+        clean_patient_data(df_raw)
 
         # Should have some errors (type conversions, invalid values, etc.)
         # Exact count varies, but should be non-zero for this tracker
@@ -74,8 +69,7 @@ class TestClean2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # Check key columns exist
         required_columns = [
@@ -99,8 +93,7 @@ class TestClean2023Sibu:
         skip_if_missing(tracker_2023_sibu)
 
         df_raw = read_all_patient_sheets(tracker_2023_sibu)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS
         assert len(df_clean) == 14
@@ -114,8 +107,7 @@ class TestClean2022PenangLegacy:
         skip_if_missing(tracker_2022_penang)
 
         df_raw = read_all_patient_sheets(tracker_2022_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # Should produce same schema regardless of input format
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS
@@ -126,8 +118,7 @@ class TestClean2022PenangLegacy:
         skip_if_missing(tracker_2022_penang)
 
         df_raw = read_all_patient_sheets(tracker_2022_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # Patient List columns should be preserved
         assert "dob" in df_clean.columns
@@ -143,8 +134,7 @@ class TestCleanProduct2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
 
@@ -153,8 +143,7 @@ class TestCleanProduct2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert len(df_clean) == 244
         assert len(df_clean) < len(df_raw)
@@ -164,20 +153,18 @@ class TestCleanProduct2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert "product_balance_status" in df_clean.columns
         assert "product_category" in df_clean.columns
         assert "product_unit_capacity" in df_clean.columns
 
-    def test_clean_tracks_errors(self, tracker_2024_penang):
+    def test_clean_tracks_errors(self, tracker_2024_penang, collector):
         """Should track data quality errors in ErrorCollector."""
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        clean_product_data(df_raw, collector)
+        clean_product_data(df_raw)
 
         assert len(collector) >= 0
 
@@ -186,8 +173,7 @@ class TestCleanProduct2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         required_columns = [
             "product",
@@ -208,8 +194,7 @@ class TestCleanProduct2023Sibu:
         skip_if_missing(tracker_2023_sibu)
 
         df_raw = read_all_product_sheets(tracker_2023_sibu)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
         assert len(df_clean) == 67
@@ -222,8 +207,7 @@ class TestCleanProduct2022PenangLegacy:
         skip_if_missing(tracker_2022_penang)
 
         df_raw = read_all_product_sheets(tracker_2022_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
         assert len(df_clean) == 237

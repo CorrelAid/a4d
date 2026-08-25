@@ -16,13 +16,13 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.utils.datetime import to_excel
 
-from a4d.errors import ErrorCollector
 from a4d.extract.common import (
     extract_tracker_month,
     find_month_sheets,
     get_tracker_year,
     normalize_patient_id_expr,
 )
+from a4d.findings import report_finding
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
 __all__ = [
@@ -797,8 +797,12 @@ def extract_patient_data(
     if not valid_cols:
         if close_wb:
             workbook.close()
-        logger.bind(error_code="invalid_tracker").warning(
-            f"No valid headers found in sheet '{sheet_name}'"
+        report_finding(
+            error_code="invalid_tracker",
+            message=(f"No valid headers found in sheet '{sheet_name}'"),
+            sheet_name=sheet_name,
+            stage="extract",
+            function_name="extract_patient_data",
         )
         return pl.DataFrame()
 
@@ -818,10 +822,16 @@ def extract_patient_data(
         headers = recovered
 
     for column_index, value_count in find_dropped_data_columns(headers, data):
-        logger.bind(error_code="blank_header_with_data").warning(
-            f"Sheet '{sheet_name}': column {get_column_letter(column_index + 1)} holds "
-            f"{value_count} values but its header cell is empty and no other sheet names "
-            "it, so the column is dropped. Fix the header in the source tracker to recover it."
+        report_finding(
+            error_code="blank_header_with_data",
+            message=(
+                f"Sheet '{sheet_name}': column {get_column_letter(column_index + 1)} holds "
+                f"{value_count} values but its header cell is empty and no other sheet names "
+                "it, so the column is dropped. Fix the header in the source tracker to recover it."
+            ),
+            sheet_name=sheet_name,
+            stage="extract",
+            function_name="extract_patient_data",
         )
 
     valid_headers, filtered_data = filter_valid_columns(headers, data)
@@ -928,9 +938,15 @@ def join_static_sheet(
     # first entry rather than let the join multiply rows.
     deduped = static.unique(subset=[key], keep="first", maintain_order=True)
     if deduped.height != static.height:
-        logger.bind(error_code="invalid_tracker").warning(
-            f"'{sheet_name}' has {static.height - deduped.height} entries whose IDs "
-            "differ only by hyphen or transfer-clinic suffix; keeping the first of each"
+        report_finding(
+            error_code="invalid_tracker",
+            message=(
+                f"'{sheet_name}' has {static.height - deduped.height} entries whose IDs "
+                "differ only by hyphen or transfer-clinic suffix; keeping the first of each"
+            ),
+            sheet_name=sheet_name,
+            stage="extract",
+            function_name="join_static_sheet",
         )
 
     return (
@@ -943,7 +959,6 @@ def join_static_sheet(
 def read_all_patient_sheets(
     tracker_file: Path,
     mapper: ColumnMapper | None = None,
-    error_collector: ErrorCollector | None = None,
 ) -> pl.DataFrame:
     """Read patient data from all month sheets in a tracker file.
 
@@ -961,7 +976,6 @@ def read_all_patient_sheets(
     Args:
         tracker_file: Path to the tracker Excel file
         mapper: ColumnMapper to use (if None, loads default patient mapper)
-        error_collector: ErrorCollector for tracking data quality issues (optional)
 
     Returns:
         Combined DataFrame with all patient data from all month sheets
@@ -1012,10 +1026,15 @@ def read_all_patient_sheets(
                 f"({', '.join(change.headers)}); all map to '{change.canonical[0]}'."
             )
         else:
-            logger.bind(error_code="tracker_layout_changed").warning(
-                f"Column {column} does not mean the same thing in every month sheet: "
-                f"{', '.join(change.headers)} -> {', '.join(change.canonical)}. "
-                "A tracker should keep one layout for the whole year; check the workbook."
+            report_finding(
+                error_code="tracker_layout_changed",
+                message=(
+                    f"Column {column} does not mean the same thing in every month sheet: "
+                    f"{', '.join(change.headers)} -> {', '.join(change.canonical)}. "
+                    "A tracker should keep one layout for the whole year; check the workbook."
+                ),
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
 
     for sheet_name in month_sheets:
@@ -1033,24 +1052,38 @@ def read_all_patient_sheets(
         )
 
         if df_sheet.is_empty():
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Sheet '{sheet_name}' has no data, skipping"
+            report_finding(
+                error_code="invalid_tracker",
+                message=(f"Sheet '{sheet_name}' has no data, skipping"),
+                sheet_name=sheet_name,
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
             continue
 
         df_sheet = harmonize_patient_data_columns(df_sheet, mapper=mapper, strict=False)
 
         if "patient_id" not in df_sheet.columns:
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
+            report_finding(
+                error_code="invalid_tracker",
+                message=(
+                    f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
+                ),
+                sheet_name=sheet_name,
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
             continue
 
         try:
             month_num = extract_tracker_month(sheet_name)
         except ValueError as e:
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Could not extract month from '{sheet_name}': {e}, skipping"
+            report_finding(
+                error_code="invalid_tracker",
+                message=(f"Could not extract month from '{sheet_name}': {e}, skipping"),
+                sheet_name=sheet_name,
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
             continue
 
@@ -1085,28 +1118,31 @@ def read_all_patient_sheets(
     missing_count = len(missing_patient_id_rows)
 
     if missing_count > 0:
-        logger.bind(error_code="invalid_value").error(
-            f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
-            f"these rows will be excluded from processing"
+        report_finding(
+            error_code="invalid_value",
+            message=(
+                f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
+                f"these rows will be excluded from processing"
+            ),
+            stage="extract",
+            function_name="read_all_patient_sheets",
         )
 
         # Log to ErrorCollector if available
-        if error_collector is not None:
-            for row in missing_patient_id_rows.iter_rows(named=True):
-                sheet_name = row.get("sheet_name", "unknown")
-                name_value = row.get("name", "")
-                error_collector.add_error(
-                    file_name=tracker_file.stem,
-                    patient_id="MISSING",
-                    column="patient_id",
-                    original_value=None,
-                    error_message=(
-                        f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})"
-                    ),
-                    error_code="missing_required_field",
-                    script="extract",
-                    function_name="read_all_patient_sheets",
-                )
+        for row in missing_patient_id_rows.iter_rows(named=True):
+            sheet_name = row.get("sheet_name", "unknown")
+            name_value = row.get("name", "")
+            report_finding(
+                patient_id="MISSING",
+                column="patient_id",
+                original_value=None,
+                message=(
+                    f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})"
+                ),
+                error_code="missing_required_field",
+                stage="extract",
+                function_name="read_all_patient_sheets",
+            )
 
     # Filter out ALL rows with missing patient_id
     df_combined = df_combined.filter(pl.col("patient_id").is_not_null())
@@ -1140,27 +1176,20 @@ def read_all_patient_sheets(
     # instead of vanishing into the "filtered N invalid rows" count.
     excel_error_id_rows = df_combined.filter(pl.col("patient_id").str.starts_with("#"))
     if len(excel_error_id_rows) > 0:
-        logger.bind(error_code="excel_error_patient_id").error(
-            f"Dropped {len(excel_error_id_rows)} rows from {tracker_file.name} whose patient ID "
-            "cell holds an Excel formula error - the patient cannot be identified, so their "
-            "measurements are discarded; the workbook needs correcting"
-        )
-        if error_collector is not None:
-            for row in excel_error_id_rows.iter_rows(named=True):
-                error_collector.add_error(
-                    file_name=tracker_file.stem,
-                    patient_id="MISSING",
-                    column="patient_id",
-                    original_value=row["patient_id"],
-                    error_message=(
-                        f"Row in sheet '{row.get('sheet_name', 'unknown')}' has an Excel formula "
-                        f"error ({row['patient_id']}) where its patient ID should be; the row is "
-                        "dropped because the patient cannot be identified"
-                    ),
-                    error_code="excel_error_patient_id",
-                    script="extract",
-                    function_name="read_all_patient_sheets",
-                )
+        for row in excel_error_id_rows.iter_rows(named=True):
+            report_finding(
+                patient_id="MISSING",
+                column="patient_id",
+                original_value=row["patient_id"],
+                message=(
+                    f"Row in sheet '{row.get('sheet_name', 'unknown')}' has an Excel formula "
+                    f"error ({row['patient_id']}) where its patient ID should be; the row is "
+                    "dropped because the patient cannot be identified"
+                ),
+                error_code="excel_error_patient_id",
+                stage="extract",
+                function_name="read_all_patient_sheets",
+            )
 
     df_combined = df_combined.filter(~pl.col("patient_id").str.starts_with("#"))
 
@@ -1221,14 +1250,28 @@ def read_all_patient_sheets(
                     )
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
-                    logger.bind(error_code="invalid_tracker").warning(
-                        "Patient List sheet has no 'patient_id' column after harmonization"
+                    report_finding(
+                        error_code="invalid_tracker",
+                        message=(
+                            "Patient List sheet has no 'patient_id' column after harmonization"
+                        ),
+                        stage="extract",
+                        function_name="read_all_patient_sheets",
                     )
             else:
-                logger.bind(error_code="invalid_tracker").warning("Patient List sheet is empty")
+                report_finding(
+                    error_code="invalid_tracker",
+                    message="Patient List sheet is empty",
+                    sheet_name="Patient List",
+                    stage="extract",
+                    function_name="read_patient_list_sheet",
+                )
         except Exception as e:
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Could not process Patient List sheet: {e}"
+            report_finding(
+                error_code="invalid_tracker",
+                message=(f"Could not process Patient List sheet: {e}"),
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
 
     # Process Annual sheet if it exists
@@ -1269,14 +1312,26 @@ def read_all_patient_sheets(
                     )
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:
-                    logger.bind(error_code="invalid_tracker").warning(
-                        "Annual sheet has no 'patient_id' column after harmonization"
+                    report_finding(
+                        error_code="invalid_tracker",
+                        message=("Annual sheet has no 'patient_id' column after harmonization"),
+                        stage="extract",
+                        function_name="read_all_patient_sheets",
                     )
             else:
-                logger.bind(error_code="invalid_tracker").warning("Annual sheet is empty")
+                report_finding(
+                    error_code="invalid_tracker",
+                    message="Annual sheet is empty",
+                    sheet_name="Annual",
+                    stage="extract",
+                    function_name="read_annual_sheet",
+                )
         except Exception as e:
-            logger.bind(error_code="invalid_tracker").warning(
-                f"Could not process Annual sheet: {e}"
+            report_finding(
+                error_code="invalid_tracker",
+                message=(f"Could not process Annual sheet: {e}"),
+                stage="extract",
+                function_name="read_all_patient_sheets",
             )
 
     # Close workbook after all processing

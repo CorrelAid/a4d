@@ -268,9 +268,11 @@ def parse_date_detailed(
     if result is not None and result.year >= _MIN_PLAUSIBLE_YEAR:
         return result, recovery
 
-    logger.bind(error_code="invalid_value").warning(
-        f"Could not parse date '{date_str}'. Returning error value {error_val}"
-    )
+    # Not a finding: parse_date_detailed's only caller, parse_date_column,
+    # reports every failure it sees with the column, patient and file this
+    # function has no view of. Reporting here too filed the same unparseable
+    # cell twice, once with attribution and once without.
+    logger.debug(f"Could not parse date '{date_str}'. Returning error value {error_val}")
     try:
         return datetime.strptime(error_val, "%Y-%m-%d").date(), recovery
     except ValueError:

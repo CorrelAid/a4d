@@ -14,3 +14,38 @@ fixture.
 import os
 
 os.environ.setdefault("_TYPER_FORCE_DISABLE_TERMINAL", "1")
+
+import pytest  # noqa: E402
+
+from a4d.findings import findings_collected  # noqa: E402
+
+
+@pytest.fixture
+def collector():
+    """A findings collector bound for the duration of one test.
+
+    The pipeline reports findings into whatever context is open, so a test that
+    exercises a cleaning step needs one bound. Autouse below, and also
+    requestable by name where the test asserts on what was reported.
+    """
+    with findings_collected(file_name="test_tracker") as c:
+        yield c
+
+
+@pytest.fixture(autouse=True)
+def _findings_context(request):
+    """Bind a findings context around every test that does not manage its own.
+
+    report_finding raises outside a context by design, so without this every
+    test touching a cleaning step would fail on attribution rather than on the
+    behaviour it is checking. Tests of the context machinery itself opt out
+    with the ``no_findings_context`` marker.
+    """
+    if request.node.get_closest_marker("no_findings_context"):
+        yield
+        return
+    if "collector" in request.fixturenames:
+        yield
+        return
+    with findings_collected(file_name="test_tracker"):
+        yield

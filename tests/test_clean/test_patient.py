@@ -18,7 +18,6 @@ from a4d.clean.patient import (
     clean_patient_data,
 )
 from a4d.config import settings
-from a4d.errors import ErrorCollector
 
 
 class TestPatientIdNormalization:
@@ -233,9 +232,8 @@ class TestFixAgeFromDob:
                 "tracker_month": [1],
             }
         )
-        collector = ErrorCollector()
 
-        result = _fix_age_from_dob(df, collector)
+        result = _fix_age_from_dob(df)
 
         # 2025 - 2010 = 15, but Jan < June so 15 - 1 = 14
         assert result["age"][0] == 14
@@ -251,9 +249,8 @@ class TestFixAgeFromDob:
                 "tracker_month": [6],
             }
         )
-        collector = ErrorCollector()
 
-        result = _fix_age_from_dob(df, collector)
+        result = _fix_age_from_dob(df)
 
         # 2025 - 2010 = 15, June > March so no adjustment
         assert result["age"][0] == 15
@@ -269,9 +266,8 @@ class TestFixAgeFromDob:
                 "tracker_month": [1],
             }
         )
-        collector = ErrorCollector()
 
-        result = _fix_age_from_dob(df, collector)
+        result = _fix_age_from_dob(df)
 
         assert result["age"][0] is None
 
@@ -287,9 +283,8 @@ class TestFixAgeFromDob:
                 "tracker_month": [1],
             }
         )
-        collector = ErrorCollector()
 
-        result = _fix_age_from_dob(df, collector)
+        result = _fix_age_from_dob(df)
 
         assert result["age"][0] is None
 
@@ -304,9 +299,8 @@ class TestFixAgeFromDob:
                 "tracker_month": [8],
             }
         )
-        collector = ErrorCollector()
 
-        result = _fix_age_from_dob(df, collector)
+        result = _fix_age_from_dob(df)
 
         # Should be corrected to 15
         assert result["age"][0] == 15
@@ -500,7 +494,7 @@ class TestStripStringWhitespace:
             }
         )
 
-        result = clean_patient_data(df_raw, ErrorCollector())
+        result = clean_patient_data(df_raw)
 
         assert result["file_name"].to_list() == ["2024_Some Hospital A4D Tracker - final"]
         assert result["sheet_name"].to_list() == ["Dec24"]
@@ -508,7 +502,7 @@ class TestStripStringWhitespace:
     def test_whitespace_does_not_defeat_allowed_value_validation(self):
         df_raw = pl.DataFrame({"patient_id": ["MY_QA001"], "sheet_name": ["Jan24"], "sex": ["F "]})
 
-        result = clean_patient_data(df_raw, ErrorCollector())
+        result = clean_patient_data(df_raw)
 
         assert result["sex"].to_list() == ["F"]
 
@@ -528,7 +522,7 @@ def test_apply_type_conversions_keeps_the_year_of_a_space_separated_date():
         }
     )
 
-    result = _apply_type_conversions(df, ErrorCollector())
+    result = _apply_type_conversions(df)
 
     assert result["t1d_diagnosis_date"].to_list() == [date(2006, 6, 1), date(2009, 4, 17)]
 
@@ -544,7 +538,7 @@ class TestHeightRangeValidation:
     """
 
     def _validate(self, df: pl.DataFrame) -> pl.DataFrame:
-        return _apply_range_validation(df, ErrorCollector())
+        return _apply_range_validation(df)
 
     def test_centimetre_height_is_converted_to_metres(self):
         df = pl.DataFrame({"height": [135.5], "file_name": ["f"], "patient_id": ["p"]})
@@ -708,69 +702,59 @@ class TestBuddhistEraConversion:
             },
         )
 
-    def test_converts_a_buddhist_year_to_gregorian(self):
-        collector = ErrorCollector()
+    def test_converts_a_buddhist_year_to_gregorian(self, collector):
 
-        result = _convert_buddhist_era_dates(self._df([date(2567, 11, 11)]), collector)
+        result = _convert_buddhist_era_dates(self._df([date(2567, 11, 11)]))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2024, 11, 11)]
         assert len(collector) == 1
-        err = collector.errors[0]
+        err = collector.findings[0]
         assert err.error_code == "buddhist_era_converted"
         assert err.column == "t1d_diagnosis_date"
         assert err.original_value == "2567-11-11"
 
-    def test_leaves_a_gregorian_date_untouched(self):
-        collector = ErrorCollector()
+    def test_leaves_a_gregorian_date_untouched(self, collector):
 
-        result = _convert_buddhist_era_dates(self._df([date(2024, 3, 1), None]), collector)
+        result = _convert_buddhist_era_dates(self._df([date(2024, 3, 1), None]))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2024, 3, 1), None]
         assert len(collector) == 0
 
-    def test_converts_a_year_that_predates_its_tracker(self):
+    def test_converts_a_year_that_predates_its_tracker(self, collector):
         """A diagnosis or screening date legitimately predates its tracker, so
         patient needs no lower band at all -- 2022 Hat Yai's 2560-01-01 becomes
         2017-01-01, which ticket 40 independently derived from that patient's
         own D.O.B., recruitment and age at diagnosis."""
-        collector = ErrorCollector()
 
-        result = _convert_buddhist_era_dates(
-            self._df([date(2560, 1, 1)], tracker_year=2022), collector
-        )
+        result = _convert_buddhist_era_dates(self._df([date(2560, 1, 1)], tracker_year=2022))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2017, 1, 1)]
 
-    def test_leaves_a_year_that_still_lands_in_the_future(self):
+    def test_leaves_a_year_that_still_lands_in_the_future(self, collector):
         """3035 and 5025 (2025 CDA, 2025 Surat Thani) decode to 2492 and 4482 --
         no calendar makes those a recorded date, so they stay for _validate_dates
         to sentinel and become source-defect findings instead."""
-        collector = ErrorCollector()
 
         result = _convert_buddhist_era_dates(
-            self._df([date(3035, 3, 1), date(5025, 5, 19)], tracker_year=2025), collector
+            self._df([date(3035, 3, 1), date(5025, 5, 19)], tracker_year=2025)
         )
 
         assert result["t1d_diagnosis_date"].to_list() == [date(3035, 3, 1), date(5025, 5, 19)]
         assert len(collector) == 0
 
-    def test_leaves_a_leap_day_that_does_not_exist_once_shifted(self):
+    def test_leaves_a_leap_day_that_does_not_exist_once_shifted(self, collector):
         """543 is not a multiple of 4, so a BE leap day can land on a non-leap
         Gregorian year. Converting would have to invent a date, so the cell is
         left for the ordinary implausible-date handling."""
-        collector = ErrorCollector()
 
-        result = _convert_buddhist_era_dates(
-            self._df([date(2568, 2, 29)], tracker_year=2025), collector
-        )
+        result = _convert_buddhist_era_dates(self._df([date(2568, 2, 29)], tracker_year=2025))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2568, 2, 29)]
         assert len(collector) == 0
 
-    def test_leaves_the_parse_failure_sentinel_alone(self):
-        collector = ErrorCollector()
+    def test_leaves_the_parse_failure_sentinel_alone(self, collector):
 
-        result = _convert_buddhist_era_dates(self._df([date(9999, 9, 9)]), collector)
+        result = _convert_buddhist_era_dates(self._df([date(9999, 9, 9)]))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(9999, 9, 9)]
         assert len(collector) == 0
@@ -778,9 +762,8 @@ class TestBuddhistEraConversion:
     def test_conversion_runs_before_the_future_date_sentinel(self):
         """The whole point: end to end, a Buddhist-era cell must reach output as
         a date rather than as 9999-09-09."""
-        collector = ErrorCollector()
         df = self._df([date(2567, 11, 11)])
 
-        result = _validate_dates(_convert_buddhist_era_dates(df, collector), collector)
+        result = _validate_dates(_convert_buddhist_era_dates(df))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2024, 11, 11)]

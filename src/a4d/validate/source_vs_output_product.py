@@ -13,7 +13,7 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
-from a4d.errors import ErrorCollector
+from a4d.findings import FindingCollector, findings_collected
 from a4d.validate.common import emit_finding
 
 GROUP_KEY = ["file_name", "product_sheet_name", "product"]
@@ -56,9 +56,7 @@ def _load_cleaned(run_dir: Path) -> pl.DataFrame | None:
     return pl.read_parquet(path)
 
 
-def check_missing_groups(
-    raw_exploded: pl.DataFrame, cleaned: pl.DataFrame, collector: ErrorCollector
-) -> None:
+def check_missing_groups(raw_exploded: pl.DataFrame, cleaned: pl.DataFrame) -> None:
     """MISSING_GROUP + PHANTOM_GROUP: anti-joins on (file, sheet, product)."""
     raw_keys = raw_exploded.filter(pl.col("product").is_not_null()).select(GROUP_KEY).unique()
     cleaned_keys = cleaned.filter(pl.col("product").is_not_null()).select(GROUP_KEY).unique()
@@ -66,7 +64,7 @@ def check_missing_groups(
     missing = raw_keys.join(cleaned_keys, on=GROUP_KEY, how="anti")
     for row in missing.iter_rows(named=True):
         emit_finding(
-            collector,
+            arm="product",
             file_name=row["file_name"] or "",
             patient_id="",
             column="__group__",
@@ -82,7 +80,7 @@ def check_missing_groups(
     phantom = cleaned_keys.join(raw_keys, on=GROUP_KEY, how="anti")
     for row in phantom.iter_rows(named=True):
         emit_finding(
-            collector,
+            arm="product",
             file_name=row["file_name"] or "",
             patient_id="",
             column="__group__",
@@ -96,9 +94,7 @@ def check_missing_groups(
         )
 
 
-def check_row_count_delta(
-    raw_exploded: pl.DataFrame, cleaned: pl.DataFrame, collector: ErrorCollector
-) -> None:
+def check_row_count_delta(raw_exploded: pl.DataFrame, cleaned: pl.DataFrame) -> None:
     """ROW_COUNT_DELTA: per-group row counts raw vs cleaned.
 
     Reported as a magnitude with no judgment about right/wrong — the cleaner
@@ -122,7 +118,7 @@ def check_row_count_delta(
     for row in deltas.iter_rows(named=True):
         delta = row["cleaned_count"] - row["raw_count"]
         emit_finding(
-            collector,
+            arm="product",
             file_name=row["file_name"] or "",
             patient_id="",
             column="__group__",
@@ -137,9 +133,7 @@ def check_row_count_delta(
         )
 
 
-def check_column_null_rate_delta(
-    raw: pl.DataFrame, cleaned: pl.DataFrame, collector: ErrorCollector
-) -> None:
+def check_column_null_rate_delta(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
     """COLUMN_NULL_RATE_DELTA: per-column null rate raw vs cleaned across the run.
 
     Emit one finding per column where cleaned null rate exceeds raw null rate
@@ -156,24 +150,18 @@ def check_column_null_rate_delta(
         cleaned_null_rate = cleaned[col].null_count() / cleaned_total
         delta = cleaned_null_rate - raw_null_rate
         if delta > NULL_RATE_DELTA_THRESHOLD:
-            emit_finding(
-                collector,
-                file_name="",
-                patient_id="",
-                column=col,
-                original_value=f"raw_null_rate={raw_null_rate:.3f}",
-                error_message=(
-                    f"COLUMN_NULL_RATE_DELTA: column={col!r} "
-                    f"raw_null_rate={raw_null_rate:.3f} "
-                    f"cleaned_null_rate={cleaned_null_rate:.3f} "
-                    f"delta={delta:+.3f}"
-                ),
-                error_code="invalid_value",
-                function_name="check_column_null_rate_delta",
+            # A null-rate delta is a property of the run as a whole, not of
+            # any one workbook, so it is a diagnostic line rather than a
+            # finding -- every finding names the tracker it is about.
+            logger.warning(
+                f"COLUMN_NULL_RATE_DELTA: column={col!r} "
+                f"raw_null_rate={raw_null_rate:.3f} "
+                f"cleaned_null_rate={cleaned_null_rate:.3f} "
+                f"delta={delta:+.3f}"
             )
 
 
-def validate_product_run(run_dir: Path) -> ErrorCollector | None:
+def validate_product_run(run_dir: Path) -> FindingCollector | None:
     """Run the four product checks. Returns None if no product output exists."""
     raw = _load_raw(run_dir)
     cleaned = _load_cleaned(run_dir)
@@ -181,16 +169,16 @@ def validate_product_run(run_dir: Path) -> ErrorCollector | None:
         logger.info(f"Product pipeline outputs not found in {run_dir}; skipping.")
         return None
 
-    collector = ErrorCollector()
     raw_exploded = _explode_multi_product_cells(raw)
     logger.info(
         f"Product validation: raw={raw.shape} (exploded={raw_exploded.shape}), "
         f"cleaned={cleaned.shape}"
     )
 
-    check_missing_groups(raw_exploded, cleaned, collector)
-    check_row_count_delta(raw_exploded, cleaned, collector)
-    check_column_null_rate_delta(raw, cleaned, collector)
+    with findings_collected() as collector:
+        check_missing_groups(raw_exploded, cleaned)
+        check_row_count_delta(raw_exploded, cleaned)
+        check_column_null_rate_delta(raw, cleaned)
 
     logger.info(f"Product validation: {len(collector)} findings")
     return collector

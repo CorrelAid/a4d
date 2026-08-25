@@ -185,7 +185,6 @@ def create_table_logs(logs_dir: Path, output_dir: Path) -> Path:
                 "timestamp": pl.Datetime,
                 "level": pl.Categorical,
                 "message": pl.Utf8,
-                "error_code": pl.Utf8,
                 "log_file": pl.Categorical,
                 "file_name": pl.Utf8,
                 "tracker_year": pl.Int32,
@@ -216,10 +215,24 @@ def create_table_logs(logs_dir: Path, output_dir: Path) -> Path:
 
     logs_table = pl.concat(all_logs, how="vertical")
 
+    # Two artifacts, two jobs (ticket 66). A line carrying an error_code is a
+    # data-quality finding about a workbook, and it lives in table_findings
+    # with the column, patient and category that make it actionable. Keeping
+    # it here too triples its row count -- loguru writes every line to the
+    # per-tracker handler and to the worker's own file, so on the 254-tracker
+    # run 236,350 of 451,527 log rows were findings already published
+    # elsewhere. What stays is what a developer debugging a run needs:
+    # timings, progress, exceptions and tracebacks.
+    findings_rows = logs_table.filter(pl.col("error_code").is_not_null()).height
+    logs_table = logs_table.filter(pl.col("error_code").is_null()).drop("error_code")
+
     # Sort by timestamp for chronological analysis
     logs_table = logs_table.sort("timestamp")
 
-    logger.info(f"Created logs table with {len(logs_table)} records")
+    logger.info(
+        f"Created logs table with {len(logs_table)} operational records "
+        f"({findings_rows:,} finding lines excluded; they are in table_findings)"
+    )
     logger.info(f"Date range: {logs_table['timestamp'].min()} to {logs_table['timestamp'].max()}")
 
     # Log summary by level

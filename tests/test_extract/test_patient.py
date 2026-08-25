@@ -676,7 +676,7 @@ def _tracker_with_broken_id_formula(tmp_path: Path) -> Path:
     return tracker_path
 
 
-def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path):
+def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path, collector):
     """A row whose ID is a broken formula is dropped, but never silently.
 
     #REF! is not a malformed identifier a clinic could reconcile -- the cell's
@@ -685,12 +685,10 @@ def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path):
     it with every other unidentified patient. It is dropped, and the discard is
     reported so the source workbook can be corrected.
     """
-    from a4d.errors import ErrorCollector
 
     tracker_path = _tracker_with_broken_id_formula(tmp_path)
-    collector = ErrorCollector()
 
-    df = read_all_patient_sheets(tracker_path, error_collector=collector)
+    df = read_all_patient_sheets(tracker_path)
 
     assert df["patient_id"].to_list() == ["TS_QA001"]
 
@@ -698,4 +696,4 @@ def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path):
     dropped = errors.filter(pl.col("error_code") == "excel_error_patient_id")
     assert len(dropped) == 1
     assert dropped["original_value"][0] == "#REF!"
-    assert "Jan24" in dropped["error_message"][0]
+    assert "Jan24" in dropped["message"][0]

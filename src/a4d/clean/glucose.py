@@ -17,9 +17,8 @@ multiply the clinically most important readings in the file by 18 and hide them.
 """
 
 import polars as pl
-from loguru import logger
 
-from a4d.errors import ErrorCollector
+from a4d.findings import report_finding
 
 # mmol/L * 18 = mg/dL. The pipeline's existing cross-derivation uses the same
 # rounded factor, so unit resolution stays consistent with it.
@@ -81,9 +80,7 @@ def _blank_zero_readings(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _swap_column_to_mmol(
-    df: pl.DataFrame, mg_col: str, mmol_col: str, error_collector: ErrorCollector
-) -> pl.DataFrame:
+def _swap_column_to_mmol(df: pl.DataFrame, mg_col: str, mmol_col: str) -> pl.DataFrame:
     """Move a wholly mmol-recorded column into its mmol sibling and rescale."""
     recorded = pl.col(mg_col)
     df = df.with_columns(
@@ -99,36 +96,30 @@ def _swap_column_to_mmol(
     # The defect is the column's label, so the correction the source workbook
     # needs is file-level; a row-level record here would be the same finding
     # repeated hundreds of times.
-    file_name = df["file_name"][0] if "file_name" in df.columns and len(df) else "unknown"
     readings = int(df[mmol_col].drop_nulls().len())
-    error_collector.add_error(
-        file_name=file_name or "unknown",
+    report_finding(
         patient_id="all",
         column=mg_col,
         original_value=None,
-        error_message=(
+        message=(
             f"Column is labelled mg/dL but {UNIT_SWAP_COLUMN_SHARE:.0%}+ of its "
             f"{readings} readings are in mmol/L range; values moved to {mmol_col} "
             f"and rescaled by {MMOL_TO_MG_FACTOR:g}. Correct the header in the source workbook."
         ),
         error_code="glucose_unit_swapped",
-        function_name="resolve_glucose_units",
-    )
-    logger.bind(error_code="glucose_unit_swapped").warning(
-        f"{file_name}: {mg_col} is recorded in mmol/L; moved to {mmol_col}"
+        function_name="_swap_column_to_mmol",
     )
     return df
 
 
-def _flag_suspect_readings(df: pl.DataFrame, mg_col: str, error_collector: ErrorCollector) -> None:
+def _flag_suspect_readings(df: pl.DataFrame, mg_col: str) -> None:
     suspect = df.filter(pl.col(mg_col).is_not_null() & (pl.col(mg_col) < MMOL_MG_BOUNDARY))
     for row in suspect.iter_rows(named=True):
-        error_collector.add_error(
-            file_name=row.get("file_name") or "unknown",
+        report_finding(
             patient_id=row.get("patient_id") or "unknown",
             column=mg_col,
             original_value=row[mg_col],
-            error_message=(
+            message=(
                 f"Reading {row[mg_col]} in an mg/dL column is below "
                 f"{MMOL_MG_BOUNDARY:g} mg/dL, where a mmol/L value lands. Kept as "
                 "recorded -- a severe hypoglycaemic reading looks the same. "
@@ -139,7 +130,7 @@ def _flag_suspect_readings(df: pl.DataFrame, mg_col: str, error_collector: Error
         )
 
 
-def resolve_glucose_units(df: pl.DataFrame, error_collector: ErrorCollector) -> pl.DataFrame:
+def resolve_glucose_units(df: pl.DataFrame) -> pl.DataFrame:
     """Correct whole columns recorded in the wrong unit; flag stray readings.
 
     Runs before range validation so the analytical limits are applied to
@@ -152,8 +143,8 @@ def resolve_glucose_units(df: pl.DataFrame, error_collector: ErrorCollector) -> 
         if mg_col not in df.columns or mmol_col not in df.columns:
             continue
         if column_is_recorded_in_mmol(df[mg_col]):
-            df = _swap_column_to_mmol(df, mg_col, mmol_col, error_collector)
+            df = _swap_column_to_mmol(df, mg_col, mmol_col)
         else:
-            _flag_suspect_readings(df, mg_col, error_collector)
+            _flag_suspect_readings(df, mg_col)
 
     return df

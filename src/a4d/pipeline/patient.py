@@ -13,7 +13,7 @@ from a4d.config import settings
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
 from a4d.pipeline.tracker import process_tracker_patient
-from a4d.tables.errors import create_table_errors
+from a4d.tables.findings import create_table_findings
 from a4d.tables.patient import (
     create_table_patient_data_annual,
     create_table_patient_data_monthly,
@@ -305,12 +305,15 @@ def run_patient_pipeline(
 
             tables = process_patient_tables(cleaned_dir, tables_dir)
 
-            # Aggregate all data quality errors from every tracker into one table
-            all_data_errors = [e for r in tracker_results for e in r.data_errors]
-            logger.info(f"Creating errors table ({len(all_data_errors)} total data quality errors)")
-            errors_table_path = create_table_errors(all_data_errors, tables_dir)
-            tables["errors"] = errors_table_path
-            logger.info(f"Errors table created: {errors_table_path}")
+            # The findings table covers both arms, so `run` builds it in
+            # run_all_cmd after the product arm rather than here (ticket 66:
+            # building a both-arms table inside one arm is what published a
+            # patient-only logs table for the whole life of the pipeline).
+            # A patient-only run still gets one, from its own findings.
+            all_findings = [f for r in tracker_results for f in r.findings]
+            logger.info(f"Creating findings table ({len(all_findings)} findings)")
+            findings_table_path = create_table_findings(all_findings, tables_dir)
+            tables["findings"] = findings_table_path
 
             logger.info(f"Created {len(tables)} tables total")
         except Exception:

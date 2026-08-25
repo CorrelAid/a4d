@@ -11,6 +11,7 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
+from a4d.findings import report_finding
 from a4d.reference.loaders import get_reference_data_path, load_yaml
 
 
@@ -125,7 +126,7 @@ class ColumnMapper:
                 sanitized_key = sanitize_str(synonym)
 
                 if sanitized_key in lookup:
-                    logger.bind(error_code="invalid_tracker").warning(
+                    logger.warning(
                         f"Duplicate sanitized synonym '{sanitized_key}' "
                         f"(from '{synonym}') found for both "
                         f"'{lookup[sanitized_key]}' and '{standard_name}'. "
@@ -217,8 +218,15 @@ class ColumnMapper:
                     "These columns do not appear in the synonym file."
                 )
             else:
-                logger.bind(error_code="missing_column").warning(
-                    f"Keeping {len(unmapped_columns)} unmapped columns as-is: {unmapped_columns}"
+                report_finding(
+                    error_code="missing_column",
+                    message=(
+                        f"Keeping {len(unmapped_columns)} unmapped columns as-is: "
+                        f"{unmapped_columns}"
+                    ),
+                    original_value=", ".join(sorted(unmapped_columns)),
+                    stage="extract",
+                    function_name="rename_columns",
                 )
 
         # Several source columns can map to one canonical name: the 2023 template
@@ -234,9 +242,15 @@ class ColumnMapper:
         merge_groups = {t: cols for t, cols in sources_by_target.items() if len(cols) > 1}
 
         if merge_groups:
-            logger.bind(error_code="duplicate_source_columns").warning(
-                f"Merging source columns that share a target name: {merge_groups}. "
-                "Values are comma-joined in column order; empty cells are skipped."
+            report_finding(
+                error_code="duplicate_source_columns",
+                message=(
+                    f"Merging source columns that share a target name: {merge_groups}. "
+                    "Values are comma-joined in column order; empty cells are skipped."
+                ),
+                original_value=", ".join(sorted(merge_groups)),
+                stage="extract",
+                function_name="rename_columns",
             )
 
             for source_cols in merge_groups.values():

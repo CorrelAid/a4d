@@ -18,7 +18,7 @@ from a4d.pipeline.patient import (
 )
 from a4d.pipeline.product import process_product_tables, run_product_pipeline
 from a4d.state import filter_unchanged_trackers, load_previous_manifest
-from a4d.tables.errors import create_table_errors
+from a4d.tables.findings import create_table_findings, rebuild_findings_from_logs
 from a4d.tables.logs import create_table_logs
 
 # google-crc32c has no pre-built C wheel for Python 3.14 yet; the pure-Python
@@ -273,7 +273,7 @@ _KNOWN_TABLE_FILES = [
     "product_data.parquet",
     "clinic_data_static.parquet",
     "table_logs.parquet",
-    "table_errors.parquet",
+    "table_findings.parquet",
     "tracker_metadata.parquet",
 ]
 
@@ -595,23 +595,23 @@ def run_patient_cmd(
             except Exception as e:
                 console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
 
-        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        console.print("[bold]Step 4/4:[/bold] Creating findings table...")
         try:
-            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
-            errors_table_path = create_table_errors(all_data_errors, tables_dir)
-            tables["errors"] = errors_table_path
+            all_findings = [f for r in result.tracker_results for f in r.findings]
+            findings_table_path = create_table_findings(all_findings, tables_dir)
+            tables["findings"] = findings_table_path
         except Exception as e:
-            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
+            console.print(f"[bold red]Error creating findings table: {e}[/bold red]")
     elif skip_tables:
         console.print("[dim]Steps 2–3: Skipped (--skip-tables)[/dim]")
-        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        console.print("[bold]Step 4/4:[/bold] Creating findings table...")
         try:
             tables_dir = _output_root / "tables"
-            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
-            errors_table_path = create_table_errors(all_data_errors, tables_dir)
-            tables["errors"] = errors_table_path
+            all_findings = [f for r in result.tracker_results for f in r.findings]
+            findings_table_path = create_table_findings(all_findings, tables_dir)
+            tables["findings"] = findings_table_path
         except Exception as e:
-            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
+            console.print(f"[bold red]Error creating findings table: {e}[/bold red]")
 
     # Display results
     console.print("\n[bold]Pipeline Results[/bold]\n")
@@ -715,6 +715,12 @@ def create_tables_cmd(
         if logs_dir.exists():
             console.print("  • Creating logs table...")
             tables["logs"] = create_table_logs(logs_dir, tables_dir)
+            # Findings are not in the cleaned parquets -- they are collected
+            # during a run. Rebuilt from the log files so this command cannot
+            # refresh every other table and leave a stale findings table behind
+            # for `upload tables` to publish.
+            console.print("  • Creating findings table...")
+            tables["findings"] = rebuild_findings_from_logs(logs_dir, tables_dir)
         else:
             console.print(f"  [yellow]Warning: Logs directory not found at {logs_dir}[/yellow]")
 
@@ -921,23 +927,23 @@ def run_product_cmd(
             except Exception as e:
                 console.print(f"[bold red]Error creating logs table: {e}[/bold red]")
 
-        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        console.print("[bold]Step 4/4:[/bold] Creating findings table...")
         try:
-            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
-            errors_table_path = create_table_errors(all_data_errors, tables_dir)
-            tables["errors"] = errors_table_path
+            all_findings = [f for r in result.tracker_results for f in r.findings]
+            findings_table_path = create_table_findings(all_findings, tables_dir)
+            tables["findings"] = findings_table_path
         except Exception as e:
-            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
+            console.print(f"[bold red]Error creating findings table: {e}[/bold red]")
     elif skip_tables:
         console.print("[dim]Steps 2-3: Skipped (--skip-tables)[/dim]")
-        console.print("[bold]Step 4/4:[/bold] Creating errors table...")
+        console.print("[bold]Step 4/4:[/bold] Creating findings table...")
         try:
             tables_dir = _output_root / "tables"
-            all_data_errors = [e for r in result.tracker_results for e in r.data_errors]
-            errors_table_path = create_table_errors(all_data_errors, tables_dir)
-            tables["errors"] = errors_table_path
+            all_findings = [f for r in result.tracker_results for f in r.findings]
+            findings_table_path = create_table_findings(all_findings, tables_dir)
+            tables["findings"] = findings_table_path
         except Exception as e:
-            console.print(f"[bold red]Error creating errors table: {e}[/bold red]")
+            console.print(f"[bold red]Error creating findings table: {e}[/bold red]")
 
     console.print("\n[bold]Pipeline Results[/bold]\n")
 
@@ -1468,24 +1474,24 @@ def run_all_cmd(
 
     # Errors table — written here, after both arms, rather than by either arm.
     # The patient arm writes it from inside run_patient_pipeline and the product
-    # arm never wrote it at all, so `run` published a patient-only errors table
+    # arm never wrote it at all, so `run` published a patient-only findings table
     # (ticket 32, measured: 63,295 patient records, 0 product). The
     # source-defect report derives from this table, so a missing arm is a
     # missing half of the findings.
-    arm_errors = [
-        error
+    arm_findings = [
+        finding
         for arm_result in (result, product_result)
         if arm_result is not None
         for tracker in arm_result.tracker_results
-        for error in tracker.data_errors
+        for finding in tracker.findings
     ]
-    if arm_errors:
-        console.print("[bold]Step 3e/5:[/bold] Creating errors table (both arms)...")
+    if arm_findings:
+        console.print("[bold]Step 3e/5:[/bold] Creating findings table (both arms)...")
         try:
-            create_table_errors(arm_errors, tables_dir)
-            console.print(f"  ✓ Errors table created ({len(arm_errors):,} records)\n")
+            create_table_findings(arm_findings, tables_dir)
+            console.print(f"  ✓ Findings table created ({len(arm_findings):,} findings)\n")
         except Exception as e:
-            console.print(f"  [bold yellow]Warning: errors table failed: {e}[/bold yellow]\n")
+            console.print(f"  [bold yellow]Warning: findings table failed: {e}[/bold yellow]\n")
 
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.

@@ -77,6 +77,7 @@ markers = [
     "slow: marks tests as slow (deselected by default)",
     "integration: marks tests as integration tests requiring real tracker files",
     "e2e: marks tests as end-to-end tests (extraction + cleaning)",
+    "no_findings_context: test manages its own findings context (or asserts its absence)",
 ]
 addopts = ["--cov=src/a4d", "--cov-report=term-missing", "--cov-report=html"]
 filterwarnings = [

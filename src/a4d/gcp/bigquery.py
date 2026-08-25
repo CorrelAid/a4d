@@ -26,8 +26,8 @@ TABLE_CONFIGS: dict[str, list[str]] = {
         "product_table_month",
     ],
     "clinic_data_static": ["clinic_id"],
-    "logs": ["level", "error_code", "file_name", "function"],
-    "errors": ["file_name", "error_code", "patient_id", "column"],
+    "logs": ["level", "file_name", "function", "module"],
+    "findings": ["file_name", "category", "error_code", "patient_id", "column"],
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
@@ -37,7 +37,7 @@ TABLE_GROUPS: dict[str, set[str]] = {
     "product": {"product_data"},
     "clinic": {"clinic_data_static"},
     "logs": {"logs"},
-    "errors": {"errors"},
+    "findings": {"findings"},
     "metadata": {"tracker_metadata"},
 }
 
@@ -50,7 +50,7 @@ PARQUET_TO_TABLE: dict[str, str] = {
     "product_data.parquet": "product_data",
     "clinic_data_static.parquet": "clinic_data_static",
     "table_logs.parquet": "logs",
-    "table_errors.parquet": "errors",
+    "table_findings.parquet": "findings",
     "tracker_metadata.parquet": "tracker_metadata",
 }
 

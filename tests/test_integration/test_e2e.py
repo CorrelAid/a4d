@@ -10,7 +10,6 @@ import pytest
 
 from a4d.clean.patient import clean_patient_data
 from a4d.clean.product import clean_product_data
-from a4d.errors import ErrorCollector
 from a4d.extract.patient import read_all_patient_sheets
 from a4d.extract.product import read_all_product_sheets
 
@@ -45,8 +44,7 @@ def test_e2e_pipeline(tracker_fixture, expected_rows, expected_year, description
     assert len(df_raw) == expected_rows, f"Extraction failed for {description}"
 
     # Step 2: Clean
-    collector = ErrorCollector()
-    df_clean = clean_patient_data(df_raw, collector)
+    df_clean = clean_patient_data(df_raw)
 
     # Validate final output
     assert len(df_clean) == expected_rows, f"Cleaning changed row count for {description}"
@@ -68,8 +66,7 @@ class TestE2E2024Penang:
         assert len(df_raw) == 174
 
         # Clean
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # Validate schema
         assert len(df_clean.columns) == 83
@@ -93,8 +90,7 @@ class TestE2E2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_patient_data(df_raw, collector)
+        df_clean = clean_patient_data(df_raw)
 
         # These columns must be 100% populated for every row
         required_full = [
@@ -136,8 +132,7 @@ class TestE2ECrosYearConsistency:
 
             # Full pipeline
             df_raw = read_all_patient_sheets(tracker_path)
-            collector = ErrorCollector()
-            df_clean = clean_patient_data(df_raw, collector)
+            df_clean = clean_patient_data(df_raw)
 
             # Collect column names
             column_names_per_tracker[name] = set(df_clean.columns)
@@ -172,8 +167,7 @@ def test_e2e_pipeline_product(
     df_raw = read_all_product_sheets(tracker_path)
     assert len(df_raw) > 0, f"Extraction failed for {description}"
 
-    collector = ErrorCollector()
-    df_clean = clean_product_data(df_raw, collector)
+    df_clean = clean_product_data(df_raw)
 
     assert len(df_clean) == expected_clean_rows, f"Cleaning row count wrong for {description}"
     assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT, (
@@ -193,8 +187,7 @@ class TestE2EProduct2024Penang:
         df_raw = read_all_product_sheets(tracker_2024_penang)
         assert len(df_raw) == 696
 
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS_PRODUCT
         assert len(df_clean) == 244
@@ -211,8 +204,7 @@ class TestE2EProduct2024Penang:
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_product_sheets(tracker_2024_penang)
-        collector = ErrorCollector()
-        df_clean = clean_product_data(df_raw, collector)
+        df_clean = clean_product_data(df_raw)
 
         required_full = ["product", "product_table_year", "product_table_month", "clinic_id"]
         for col in required_full:
@@ -239,8 +231,7 @@ class TestE2EProductCrossYearConsistency:
                 pytest.skip(f"Tracker file not found: {tracker_path}")
 
             df_raw = read_all_product_sheets(tracker_path)
-            collector = ErrorCollector()
-            df_clean = clean_product_data(df_raw, collector)
+            df_clean = clean_product_data(df_raw)
 
             column_names_per_tracker[name] = set(df_clean.columns)
 

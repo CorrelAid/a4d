@@ -5,14 +5,14 @@ the pipeline execution. Logs are exported to BigQuery for dashboard analysis
 (success rates, error counts, processing times, etc.).
 
 For data quality errors (conversion failures, validation errors),
-use the ErrorCollector class from a4d.errors instead.
+use report_finding from a4d.findings instead.
 
 Usage:
     The loguru logger is a singleton. Once configured with setup_logging(),
     all imports of 'from loguru import logger' will use the same configuration.
 
     >>> from a4d.logging import setup_logging, file_logger
-    >>> setup_logging(output_root=Path("output"), log_name="script1")
+    >>> setup_logging(output_root=Path("output"), log_name="main_pipeline")
     >>>
     >>> # In processing code:
     >>> from loguru import logger

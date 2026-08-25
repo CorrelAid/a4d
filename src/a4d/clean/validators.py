@@ -19,7 +19,7 @@ from typing import Any
 import polars as pl
 
 from a4d.config import settings
-from a4d.errors import ErrorCollector
+from a4d.findings import report_finding
 from a4d.reference.loaders import get_reference_data_path, load_yaml
 
 
@@ -81,7 +81,6 @@ def validate_allowed_values(
     df: pl.DataFrame,
     column: str,
     allowed_values: list[str],
-    error_collector: ErrorCollector,
     replace_invalid: bool = True,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
@@ -105,7 +104,6 @@ def validate_allowed_values(
         df: Input DataFrame
         column: Column name to validate
         allowed_values: List of canonical allowed values (e.g., ["Active", "Inactive"])
-        error_collector: ErrorCollector instance to track violations
         replace_invalid: If True, replace invalid values with error value
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
@@ -122,7 +120,7 @@ def validate_allowed_values(
         ...     df=df,
         ...     column="status",
         ...     allowed_values=["Active", "Inactive"],  # Canonical forms
-        ...     error_collector=collector,
+        ...,
         ... )
         >>> # "active", "ACTIVE", "Active" all become "Active"
     """
@@ -194,12 +192,11 @@ def validate_allowed_values(
                 value_replacements[original_val] = ",".join(canonical_parts)
                 continue
             # Fall through to the invalid branch below.
-            error_collector.add_error(
-                file_name="unknown",
+            report_finding(
                 patient_id="unknown",
                 column=column,
                 original_value=original_val,
-                error_message=(
+                message=(
                     f"Value '{original_val}' not in allowed values "
                     f"(CSV-subset check): {allowed_values}"
                 ),
@@ -211,12 +208,11 @@ def validate_allowed_values(
             )
         else:
             # Invalid - log error
-            error_collector.add_error(
-                file_name="unknown",  # Will be filled in bulk operations
+            report_finding(
                 patient_id="unknown",
                 column=column,
                 original_value=original_val,
-                error_message=f"Value '{original_val}' not in allowed values: {allowed_values}",
+                message=f"Value '{original_val}' not in allowed values: {allowed_values}",
                 error_code="invalid_value",
                 function_name="validate_allowed_values",
             )
@@ -242,7 +238,6 @@ def validate_column_from_rules(
     df: pl.DataFrame,
     column: str,
     rules: dict[str, Any],
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -253,7 +248,6 @@ def validate_column_from_rules(
         column: Column name to validate
         rules: Validation rules for this column (from validation_rules.yaml)
                 Structure: {allowed_values: [...], replace_invalid: bool}
-        error_collector: ErrorCollector instance
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
@@ -267,7 +261,7 @@ def validate_column_from_rules(
         ...     df=df,
         ...     column="status",
         ...     rules=rules["status"],
-        ...     error_collector=collector,
+        ...,
         ... )
     """
     if column not in df.columns:
@@ -283,7 +277,6 @@ def validate_column_from_rules(
         df=df,
         column=column,
         allowed_values=allowed_values,
-        error_collector=error_collector,
         replace_invalid=replace_invalid,
         file_name_col=file_name_col,
         patient_id_col=patient_id_col,
@@ -296,7 +289,6 @@ def validate_column_from_rules(
 
 def validate_province(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -311,7 +303,6 @@ def validate_province(
 
     Args:
         df: Input DataFrame
-        error_collector: ErrorCollector instance
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
@@ -335,7 +326,6 @@ def validate_province(
         df=df,
         column="province",
         allowed_values=allowed_provinces,
-        error_collector=error_collector,
         replace_invalid=True,
         file_name_col=file_name_col,
         patient_id_col=patient_id_col,
@@ -346,7 +336,6 @@ def validate_province(
 
 def validate_all_columns(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
     file_name_col: str = "file_name",
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
@@ -354,7 +343,6 @@ def validate_all_columns(
 
     Args:
         df: Input DataFrame
-        error_collector: ErrorCollector instance
         file_name_col: Column containing file name for error tracking
         patient_id_col: Column containing patient ID for error tracking
 
@@ -374,7 +362,6 @@ def validate_all_columns(
                 df=df,
                 column=column,
                 rules=column_rules,
-                error_collector=error_collector,
                 file_name_col=file_name_col,
                 patient_id_col=patient_id_col,
             )
@@ -382,7 +369,6 @@ def validate_all_columns(
     # Validate province separately (not in validation_rules.yaml)
     df = validate_province(
         df=df,
-        error_collector=error_collector,
         file_name_col=file_name_col,
         patient_id_col=patient_id_col,
     )
@@ -390,7 +376,6 @@ def validate_all_columns(
     # Fix patient_id LAST (other functions use it for logging)
     df = fix_patient_id(
         df=df,
-        error_collector=error_collector,
         patient_id_col=patient_id_col,
     )
 
@@ -448,7 +433,6 @@ def recover_patient_id(malformed: str, known_ids: set[str]) -> str | None:
 
 def fix_patient_id(
     df: pl.DataFrame,
-    error_collector: ErrorCollector,
     patient_id_col: str = "patient_id",
 ) -> pl.DataFrame:
     """Validate and fix patient ID format.
@@ -477,14 +461,13 @@ def fix_patient_id(
 
     Args:
         df: Input DataFrame
-        error_collector: ErrorCollector for tracking validation errors
         patient_id_col: Column name for patient ID (default: "patient_id")
 
     Returns:
         DataFrame with validated/fixed patient IDs
 
     Example:
-        >>> df = fix_patient_id(df, error_collector)
+        >>> df = fix_patient_id(df)
         >>> # "KD_QB004" → "KD_QB004" (valid)
         >>> # "KD-QB004" → "KD_QB004" (normalized)
         >>> # "KH_QEH026" → "KH_QE026" (recovered, if the tracker has one)
@@ -537,10 +520,13 @@ def fix_patient_id(
         .alias(patient_id_col)
     )
 
-    # Now collect errors for changed values
+    # Now collect findings for changed values
     for row in df.iter_rows(named=True):
         original = row[original_col]
         fixed = row[patient_id_col]
+        # Runs at the table stage too, over a frame spanning every tracker, so
+        # the row's own name wins over the context's where the frame carries one.
+        row_file_name = row.get("file_name") or None
 
         if original != fixed and original is not None:
             # Normalize original to check if it's just hyphen replacement
@@ -548,29 +534,31 @@ def fix_patient_id(
 
             if normalized != fixed:
                 if fixed != settings.error_val_character:
-                    error_collector.add_error(
-                        file_name="",
+                    report_finding(
+                        file_name=row_file_name,
                         patient_id=fixed,
                         column=patient_id_col,
                         original_value=original,
-                        error_message=(
+                        message=(
                             f"Patient ID {original!r} is malformed; recovered as {fixed!r} "
                             f"from this tracker's own spelling. The source workbook "
                             f"needs correcting."
                         ),
                         error_code="invalid_value",
+                        function_name="fix_patient_id",
                     )
                 else:
-                    error_collector.add_error(
-                        file_name="",
+                    report_finding(
+                        file_name=row_file_name,
                         patient_id=original,
                         column=patient_id_col,
                         original_value=original,
-                        error_message=(
+                        message=(
                             "Invalid patient ID format (expected XX_YY###) and no "
                             "unambiguous match in this tracker"
                         ),
                         error_code="invalid_value",
+                        function_name="fix_patient_id",
                     )
 
     # Drop the temporary column

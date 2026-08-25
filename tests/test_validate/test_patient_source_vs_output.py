@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import polars as pl
 
-from a4d.errors import ErrorCollector
 from a4d.validate.common import normalize_patient_id
 from a4d.validate.source_vs_output_patient import (
     _join_for_cell_checks,
@@ -49,7 +48,7 @@ def _make_clean(rows: list[dict]) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=CLEAN_SCHEMA)
 
 
-def test_normalize_patient_id_strips_transfer_suffix() -> None:
+def test_normalize_patient_id_strips_transfer_suffix(collector) -> None:
     df = pl.DataFrame(
         {"patient_id": ["MY_QH003_SB", "LA-QA093_LF", "TH_QF001", "SOLO"]},
         schema={"patient_id": pl.Utf8},
@@ -58,7 +57,7 @@ def test_normalize_patient_id_strips_transfer_suffix() -> None:
     assert out["n"].to_list() == ["MY_QH003", "LA_QA093", "TH_QF001", "SOLO"]
 
 
-def test_missing_patient_does_not_fire_for_transferred_id() -> None:
+def test_missing_patient_does_not_fire_for_transferred_id(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -87,12 +86,11 @@ def test_missing_patient_does_not_fire_for_transferred_id() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_missing_patients(raw, cleaned, coll)
-    assert len(coll) == 0
+    check_missing_patients(raw, cleaned)
+    assert len(collector) == 0
 
 
-def test_missing_patient_fires_when_truly_absent() -> None:
+def test_missing_patient_fires_when_truly_absent(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -131,14 +129,13 @@ def test_missing_patient_fires_when_truly_absent() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_missing_patients(raw, cleaned, coll)
-    msgs = [e.error_message for e in coll.errors]
+    check_missing_patients(raw, cleaned)
+    msgs = [e.message for e in collector.findings]
     assert any("MY_QH999" in m and "MISSING_ROW" in m for m in msgs)
     assert not any("PHANTOM_ROW" in m for m in msgs)
 
 
-def test_value_shift_skips_height_unit_conversion() -> None:
+def test_value_shift_skips_height_unit_conversion(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -167,15 +164,14 @@ def test_value_shift_skips_height_unit_conversion() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
     joined = _join_for_cell_checks(raw, cleaned)
-    check_value_shifts(joined, coll)
+    check_value_shifts(joined)
     # Should be zero shifts: weight matches, hba1c matches, height is skipped.
-    shift_msgs = [e.error_message for e in coll.errors if "VALUE_SHIFT" in e.error_message]
+    shift_msgs = [e.message for e in collector.findings if "VALUE_SHIFT" in e.message]
     assert shift_msgs == []
 
 
-def test_value_shift_fires_on_genuine_mismatch() -> None:
+def test_value_shift_fires_on_genuine_mismatch(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -204,13 +200,12 @@ def test_value_shift_fires_on_genuine_mismatch() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
     joined = _join_for_cell_checks(raw, cleaned)
-    check_value_shifts(joined, coll)
-    assert any("VALUE_SHIFT" in e.error_message and e.column == "weight" for e in coll.errors)
+    check_value_shifts(joined)
+    assert any("VALUE_SHIFT" in e.message and e.column == "weight" for e in collector.findings)
 
 
-def test_unexpected_null_fires_when_raw_has_value_cleaned_does_not() -> None:
+def test_unexpected_null_fires_when_raw_has_value_cleaned_does_not(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -239,16 +234,15 @@ def test_unexpected_null_fires_when_raw_has_value_cleaned_does_not() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
     joined = _join_for_cell_checks(raw, cleaned)
-    check_unexpected_nulls(joined, coll)
-    msgs = [e.error_message for e in coll.errors if e.column == "hba1c_updated"]
+    check_unexpected_nulls(joined)
+    msgs = [e.message for e in collector.findings if e.column == "hba1c_updated"]
     assert msgs
     assert "UNEXPECTED_NULL" in msgs[0]
     assert "was_parseable=True" in msgs[0]
 
 
-def test_out_of_range_height_skips_cm_value() -> None:
+def test_out_of_range_height_skips_cm_value(collector) -> None:
     """170 cm raw should NOT fire after the cm->m auto-conversion."""
     raw = _make_raw(
         [
@@ -264,13 +258,12 @@ def test_out_of_range_height_skips_cm_value() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_out_of_range(raw, coll)
-    height_findings = [e for e in coll.errors if e.column == "height"]
+    check_out_of_range(raw)
+    height_findings = [e for e in collector.findings if e.column == "height"]
     assert height_findings == []
 
 
-def test_out_of_range_height_fires_after_auto_conversion() -> None:
+def test_out_of_range_height_fires_after_auto_conversion(collector) -> None:
     """height=250 (cm) -> auto-converts to 2.5 m -> still exceeds max 2.3."""
     raw = _make_raw(
         [
@@ -286,12 +279,11 @@ def test_out_of_range_height_fires_after_auto_conversion() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_out_of_range(raw, coll)
-    assert any(e.column == "height" and "OUT_OF_RANGE_RAW" in e.error_message for e in coll.errors)
+    check_out_of_range(raw)
+    assert any(e.column == "height" and "OUT_OF_RANGE_RAW" in e.message for e in collector.findings)
 
 
-def test_out_of_range_weight_fires_for_obvious_outlier() -> None:
+def test_out_of_range_weight_fires_for_obvious_outlier(collector) -> None:
     raw = _make_raw(
         [
             {
@@ -306,6 +298,5 @@ def test_out_of_range_weight_fires_for_obvious_outlier() -> None:
             }
         ]
     )
-    coll = ErrorCollector()
-    check_out_of_range(raw, coll)
-    assert any(e.column == "weight" for e in coll.errors)
+    check_out_of_range(raw)
+    assert any(e.column == "weight" for e in collector.findings)

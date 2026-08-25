@@ -7,7 +7,7 @@ import polars as pl
 from typer.testing import CliRunner
 
 from a4d.cli import app
-from a4d.errors import DataError
+from a4d.findings import Finding
 from a4d.pipeline.models import PipelineResult, TrackerResult
 
 runner = CliRunner(env={"NO_COLOR": "1", "COLUMNS": "200"})
@@ -91,7 +91,7 @@ class TestRunPipeline:
     @patch("a4d.cli.run_product_pipeline")
     @patch("a4d.cli.run_patient_pipeline")
     @patch("a4d.config.settings")
-    def test_errors_table_holds_both_arms(
+    def test_findings_table_holds_both_arms(
         self, mock_settings, mock_run_patient, mock_run_product, tmp_path
     ):
         """`run` is the production entry point, and until ticket 32 it published
@@ -108,14 +108,15 @@ class TestRunPipeline:
         (tmp_path / "output").mkdir()
 
         def _result(arm: str) -> PipelineResult:
-            error = DataError(
+            finding = Finding(
                 file_name=f"{arm}.xlsx",
+                arm=arm,
                 patient_id="P1",
                 column="c",
                 original_value="v",
-                error_message=f"{arm} problem",
+                message=f"{arm} problem",
                 error_code="invalid_value",
-                script="clean",
+                stage="clean",
                 function_name="f",
             )
             return PipelineResult(
@@ -125,7 +126,7 @@ class TestRunPipeline:
                         tracker_name=arm,
                         success=True,
                         cleaning_errors=1,
-                        data_errors=[error],
+                        findings=[finding],
                     )
                 ],
                 tables={},
@@ -143,7 +144,7 @@ class TestRunPipeline:
         )
 
         assert result.exit_code == 0
-        errors = pl.read_parquet(tmp_path / "output" / "tables" / "table_errors.parquet")
+        errors = pl.read_parquet(tmp_path / "output" / "tables" / "table_findings.parquet")
         assert set(errors["file_name"].to_list()) == {"patient.xlsx", "product.xlsx"}
 
     @patch("a4d.cli.run_product_pipeline")
@@ -510,8 +511,8 @@ class TestProcessPatientE2E:
         ]
         for name in skipped_names:
             assert not (tables_dir / name).exists(), f"{name} should not exist with --skip-tables"
-        assert (tables_dir / "table_errors.parquet").exists(), (
-            "errors table should always be written"
+        assert (tables_dir / "table_findings.parquet").exists(), (
+            "findings table should always be written"
         )
 
     def test_process_missing_file_exits_nonzero(self, tmp_path):
@@ -587,8 +588,8 @@ class TestProcessProductE2E:
         assert (tables_dir / "table_logs.parquet").exists(), (
             "logs table should be created (parity with run patient)"
         )
-        assert (tables_dir / "table_errors.parquet").exists(), (
-            "errors table should be created (parity with run patient)"
+        assert (tables_dir / "table_findings.parquet").exists(), (
+            "findings table should be created (parity with run patient)"
         )
 
     def test_skip_tables_flag(self, dummy_product_tracker, tmp_path):
@@ -613,8 +614,8 @@ class TestProcessProductE2E:
         tables_dir = output_dir / "tables"
         assert not (tables_dir / "product_data.parquet").exists()
         assert not (tables_dir / "table_logs.parquet").exists()
-        assert (tables_dir / "table_errors.parquet").exists(), (
-            "errors table should always be written"
+        assert (tables_dir / "table_findings.parquet").exists(), (
+            "findings table should always be written"
         )
 
     def test_process_missing_file_exits_nonzero(self, tmp_path):
