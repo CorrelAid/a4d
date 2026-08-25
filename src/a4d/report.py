@@ -13,10 +13,10 @@ Four sheets:
   about them.
 - **Trackers**, one row per tracker, joining the processing record from
   ``tracker_metadata`` (did each arm's extract and clean stage succeed?) to the
-  finding counts. Ranked with the trackers that did not process fully first,
-  then by ``fix_workbook`` count. Every tracker appears, including the clean
-  ones -- a tracker missing from a findings-only view looks identical whether
-  it was perfect or never processed.
+  finding counts. Ordered newest year first, clinics alphabetical within a
+  year, because the latest trackers are the ones a clinic can still correct.
+  Every tracker appears, including the clean ones -- a tracker missing from a
+  findings-only view looks identical whether it was perfect or never processed.
 - **Findings**, every finding with an autofilter. Deliberately not one sheet
   per tracker: 254 tabs is unnavigable, and filtering ``file_name`` gives the
   same view while still allowing questions a per-tracker tab cannot answer
@@ -153,6 +153,47 @@ _COLUMN_WIDTHS = {
 }
 
 
+def _recency_keys() -> list[pl.Expr]:
+    """Sort keys putting the newest tracker year first, then clinic A-Z.
+
+    The findings table declares a ``tracker_year`` column but nothing
+    populates it (0 of 122,590 rows on the 2026-08-25 run), so the year is
+    read off ``file_name``, which carries it in all 255 real trackers.
+    254 are written ``2021_Kantha Bopha Hospital A4D Tracker``; one is
+    ``2023 Kantha Bopha Hospital A4D Tracker``, with a space, which is why the
+    separator is a character class rather than an underscore.
+
+    A name with no leading year sorts last rather than first: an unparseable
+    name is not evidence of recency.
+    """
+    year = pl.col("file_name").str.extract(r"^(\d{4})[ _]", 1).cast(pl.Int32, strict=False)
+    clinic = pl.col("file_name").str.replace(r"^\d{4}[ _]", "")
+    return [year, clinic]
+
+
+def order_by_recency(frame: pl.DataFrame) -> pl.DataFrame:
+    """Newest tracker year first, clinics alphabetical within a year.
+
+    Latest trackers are the ones still being filled in, so a defect in one can
+    still be corrected at the clinic; a 2017 workbook is history. Row order
+    within a single tracker is preserved -- that is extraction order, which is
+    the order the rows appear in the source sheet.
+
+    Args:
+        frame: Any frame carrying a ``file_name`` column
+
+    Returns:
+        The same rows, ordered newest-first
+
+    Example:
+        >>> order_by_recency(findings)["file_name"][0]
+        '2026_CDA A4D Tracker'
+    """
+    return frame.sort(
+        _recency_keys(), descending=[True, False], nulls_last=True, maintain_order=True
+    )
+
+
 def summarise_by_tracker(
     findings: pl.DataFrame, metadata: pl.DataFrame | None = None
 ) -> pl.DataFrame:
@@ -164,8 +205,11 @@ def summarise_by_tracker(
     here so a tracker that failed extraction outright is not silently absent --
     it produces few findings precisely because it produced little of anything.
 
-    Ranked so the workbooks needing a human come first: trackers that did not
-    process completely, then by ``fix_workbook`` count.
+    Ordered newest first (see :func:`order_by_recency`): a defect in a 2026
+    tracker can still be corrected at the clinic, where a 2017 one is history.
+    ``processed_completely`` and the category counts are columns on the sheet,
+    so a reader wanting the old "who needs a human" ranking sorts on them with
+    the autofilter.
 
     Args:
         findings: The findings table, as written by ``create_table_findings``
@@ -206,7 +250,7 @@ def summarise_by_tracker(
         )
 
     if metadata is None:
-        return per_tracker.sort(["fix_workbook", "data_lost", "total"], descending=True)
+        return order_by_recency(per_tracker)
 
     status = _tracker_status(metadata)
     # Left from the metadata, not from the findings: a tracker that produced no
@@ -217,10 +261,7 @@ def summarise_by_tracker(
         *[pl.col(category).fill_null(0).cast(pl.UInt32) for category in _CATEGORY_RANK],
         pl.col("total").fill_null(0).cast(pl.UInt32),
     )
-    return joined.sort(
-        ["processed_completely", "fix_workbook", "data_lost", "total"],
-        descending=[False, True, True, True],
-    )
+    return order_by_recency(joined)
 
 
 def _tracker_status(metadata: pl.DataFrame) -> pl.DataFrame:
@@ -406,7 +447,7 @@ def build_findings_report(
         >>> build_findings_report(findings, Path("findings.xlsx"))
         Path('findings.xlsx')
     """
-    findings = _ordered(findings)
+    findings = order_by_recency(_ordered(findings))
     # The glossary describes the whole run even when the sheets are filtered to
     # one tracker: its point is how widespread each problem is, and "1 of 1
     # trackers" answers nothing.
