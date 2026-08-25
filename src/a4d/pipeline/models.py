@@ -48,6 +48,8 @@ class PipelineResult:
         successful_trackers: Number of successfully processed trackers
         failed_trackers: Number of failed trackers
         success: Whether entire pipeline completed successfully
+        table_findings: Findings emitted by the table-aggregation stage, which
+            runs over every tracker at once and so belongs to no TrackerResult
     """
 
     tracker_results: list[TrackerResult]
@@ -56,16 +58,21 @@ class PipelineResult:
     successful_trackers: int
     failed_trackers: int
     success: bool
+    table_findings: list[Finding] = field(default_factory=list)
 
     @classmethod
     def from_tracker_results(
-        cls, tracker_results: list[TrackerResult], tables: dict[str, Path] | None = None
+        cls,
+        tracker_results: list[TrackerResult],
+        tables: dict[str, Path] | None = None,
+        table_findings: list[Finding] | None = None,
     ) -> PipelineResult:
         """Create PipelineResult from tracker results.
 
         Args:
             tracker_results: List of tracker processing results
             tables: Dictionary of created tables (empty if table creation skipped)
+            table_findings: Findings from the table-aggregation stage
 
         Returns:
             PipelineResult with computed statistics
@@ -76,6 +83,7 @@ class PipelineResult:
         return cls(
             tracker_results=tracker_results,
             tables=tables or {},
+            table_findings=table_findings or [],
             total_trackers=len(tracker_results),
             successful_trackers=successful,
             failed_trackers=failed,

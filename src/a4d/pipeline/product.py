@@ -15,6 +15,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from a4d.config import settings
+from a4d.findings import Finding
 from a4d.logging import setup_logging
 from a4d.pipeline.models import PipelineResult, TrackerResult
 from a4d.pipeline.patient import discover_tracker_files
@@ -33,12 +34,19 @@ def _init_worker_logging(output_root: Path) -> None:
     )
 
 
-def process_product_tables(cleaned_dir: Path, output_dir: Path) -> dict[str, Path]:
+def process_product_tables(
+    cleaned_dir: Path, output_dir: Path
+) -> tuple[dict[str, Path], list[Finding]]:
     """Create the final product table from cleaned parquets.
 
     Thin wrapper around ``tables.product.create_table_product_data``.
     Unlike the patient pipeline (static/monthly/annual) the product pipeline
     emits a single ``product_data`` table.
+
+    Returns:
+        The tables created, and the findings the table stage emitted -- the
+        stage runs outside any tracker's context, so its findings reach the
+        run's findings table only by being handed back.
     """
     logger.info("Creating final product table from cleaned data")
 
@@ -47,10 +55,10 @@ def process_product_tables(cleaned_dir: Path, output_dir: Path) -> dict[str, Pat
 
     if not cleaned_files:
         logger.warning("No cleaned product files found, skipping table creation")
-        return {}
+        return {}, []
 
-    product_data_path = create_table_product_data(cleaned_files, output_dir)
-    return {"product_data": product_data_path}
+    product_data_path, findings = create_table_product_data(cleaned_files, output_dir)
+    return {"product_data": product_data_path}, findings
 
 
 def run_product_pipeline(
@@ -192,18 +200,19 @@ def run_product_pipeline(
     logger.info(f"Tracker processing complete: {successful} successful, {failed} failed")
 
     tables: dict[str, Path] = {}
+    table_findings: list[Finding] = []
     if not skip_tables:
         try:
             cleaned_dir = output_root / "product_data_cleaned"
             tables_dir = output_root / "tables"
-            tables = process_product_tables(cleaned_dir, tables_dir)
+            tables, table_findings = process_product_tables(cleaned_dir, tables_dir)
             logger.info(f"Created {len(tables)} product tables total")
         except Exception:
             logger.exception("Failed to create product tables")
     else:
         logger.info("Skipping product table creation (skip_tables=True)")
 
-    result = PipelineResult.from_tracker_results(tracker_results, tables)
+    result = PipelineResult.from_tracker_results(tracker_results, tables, table_findings)
 
     if result.success:
         logger.info("✓ Product pipeline completed successfully")

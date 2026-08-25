@@ -59,6 +59,8 @@ uv run a4d upload output          # Upload output directory to GCS
 
 uv run a4d download trackers      # Download tracker files from GCS
 uv run a4d download clinic-data   # Download clinic_data.xlsx from Google Drive into reference_data/
+
+uv run a4d report findings        # Excel of every data-quality finding (--tracker NAME to drill into one, --from-bigquery for a deployed run)
 ```
 
 Key options: `--file` (single tracker), `--workers N`, `--skip-tables`, `--skip-download`, `--skip-upload`, `--skip-drive-download`, `--skip-product`, `--incremental` (skip trackers matching previous run's manifest).

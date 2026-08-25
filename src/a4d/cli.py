@@ -11,6 +11,7 @@ import typer.core
 from rich.console import Console
 from rich.table import Table
 
+from a4d.findings import Finding
 from a4d.pipeline.patient import (
     discover_tracker_files,
     process_patient_tables,
@@ -56,10 +57,14 @@ run_app = typer.Typer(
     invoke_without_command=True,
     cls=_SortedTyperGroup,
 )
+report_app = typer.Typer(
+    help="Turn a run's output into a report someone can act on.", cls=_SortedTyperGroup
+)
 upload_app = typer.Typer(help="Upload pipeline output (tables, files).", cls=_SortedTyperGroup)
 
 app.add_typer(create_app, name="create")
 app.add_typer(download_app, name="download")
+app.add_typer(report_app, name="report")
 app.add_typer(run_app, name="run")
 app.add_typer(upload_app, name="upload")
 
@@ -703,9 +708,13 @@ def create_tables_cmd(
                 "skipping patient tables[/yellow]"
             )
 
+        product_table_findings: list[Finding] = []
         if product_cleaned_dir.exists():
             console.print("  • Creating product table...")
-            tables.update(process_product_tables(product_cleaned_dir, tables_dir))
+            product_tables, product_table_findings = process_product_tables(
+                product_cleaned_dir, tables_dir
+            )
+            tables.update(product_tables)
         else:
             console.print(
                 f"  [yellow]Warning: {product_cleaned_dir} not found, "
@@ -720,7 +729,9 @@ def create_tables_cmd(
             # refresh every other table and leave a stale findings table behind
             # for `upload tables` to publish.
             console.print("  • Creating findings table...")
-            tables["findings"] = rebuild_findings_from_logs(logs_dir, tables_dir)
+            tables["findings"] = rebuild_findings_from_logs(
+                logs_dir, tables_dir, extra_findings=product_table_findings
+            )
         else:
             console.print(f"  [yellow]Warning: Logs directory not found at {logs_dir}[/yellow]")
 
@@ -915,8 +926,9 @@ def run_product_cmd(
 
         console.print("[bold]Step 2/4:[/bold] Creating product table...")
         try:
-            tables = process_product_tables(cleaned_dir, tables_dir)
+            tables, table_findings = process_product_tables(cleaned_dir, tables_dir)
         except Exception as e:
+            table_findings = []
             console.print(f"[bold red]Error creating tables: {e}[/bold red]")
 
         if logs_dir.exists():
@@ -929,7 +941,10 @@ def run_product_cmd(
 
         console.print("[bold]Step 4/4:[/bold] Creating findings table...")
         try:
-            all_findings = [f for r in result.tracker_results for f in r.findings]
+            all_findings = [
+                *(f for r in result.tracker_results for f in r.findings),
+                *table_findings,
+            ]
             findings_table_path = create_table_findings(all_findings, tables_dir)
             tables["findings"] = findings_table_path
         except Exception as e:
@@ -1478,12 +1493,17 @@ def run_all_cmd(
     # (ticket 32, measured: 63,295 patient records, 0 product). The
     # source-defect report derives from this table, so a missing arm is a
     # missing half of the findings.
+    # `table_findings` is the other half: the product table stage runs over
+    # every tracker at once, so its findings belong to no TrackerResult and
+    # would be dropped by the comprehension below on its own.
     arm_findings = [
         finding
         for arm_result in (result, product_result)
         if arm_result is not None
-        for tracker in arm_result.tracker_results
-        for finding in tracker.findings
+        for finding in (
+            *(f for tracker in arm_result.tracker_results for f in tracker.findings),
+            *arm_result.table_findings,
+        )
     ]
     if arm_findings:
         console.print("[bold]Step 3e/5:[/bold] Creating findings table (both arms)...")
@@ -1581,6 +1601,90 @@ def run_all_cmd(
     _render_combined_run_summary(result, product_result, tables_dir)
 
     console.print("[bold green]✓ Full pipeline completed successfully![/bold green]\n")
+
+
+@report_app.command("findings")
+def report_findings_cmd(
+    output_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Pipeline output root directory (default: from config)"
+        ),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Where to write the .xlsx (default: <output>/findings.xlsx)"),
+    ] = None,
+    tracker: Annotated[
+        str | None,
+        typer.Option(
+            "--tracker",
+            "-t",
+            help="Drill down into one tracker (substring of its file name)",
+        ),
+    ] = None,
+    from_bigquery: Annotated[
+        bool,
+        typer.Option(
+            "--from-bigquery",
+            help="Read the findings from BigQuery instead of the local parquet",
+        ),
+    ] = False,
+):
+    """Write one Excel workbook of every data-quality finding in a run.
+
+    Answers the two questions the findings table exists for: which trackers
+    does A4D need a human to correct, and what exactly went wrong in this one
+    file. The workbook has a Summary sheet ranked by how many workbook defects
+    each tracker carries, a filterable Findings sheet, and a Glossary of every
+    error code and what to do about it.
+
+    Reads the local `tables/table_findings.parquet` by default, so a developer
+    debugging a local run needs no GCP credentials. `--from-bigquery` reads the
+    published table instead, for reporting on a deployed run.
+
+    \\b
+    Examples:
+        # Every finding from the last local run
+        uv run a4d report findings
+
+        # Just one tracker, for a drill-down
+        uv run a4d report findings --tracker "2024_Mahosot"
+
+        # From the deployed run's published table
+        uv run a4d report findings --from-bigquery --out findings.xlsx
+    """
+    from a4d.config import settings as _settings
+    from a4d.report import build_findings_report, load_findings
+
+    console.print("\n[bold blue]A4D Findings Report[/bold blue]\n")
+
+    _output_root = output_root or _settings.output_root
+    output_path = out or _output_root / "findings.xlsx"
+
+    try:
+        if from_bigquery:
+            from a4d.gcp.bigquery import select_findings
+
+            console.print(f"Source: BigQuery `{_settings.project_id}.{_settings.dataset}.findings`")
+            findings = select_findings()
+            if findings is None:
+                console.print(
+                    "[bold red]Error: could not read the findings table from "
+                    "BigQuery — see the log above for why[/bold red]\n"
+                )
+                raise typer.Exit(1)
+        else:
+            source = _output_root / "tables" / "table_findings.parquet"
+            console.print(f"Source: {source}")
+            findings = load_findings(source)
+
+        build_findings_report(findings, output_path, tracker=tracker)
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"\n[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+    console.print(f"\n[bold green]✓ Report written: {output_path}[/bold green]\n")
 
 
 def main():
