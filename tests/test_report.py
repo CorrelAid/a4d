@@ -19,6 +19,7 @@ from a4d.report import (
     build_findings_report,
     glossary_frame,
     load_findings,
+    order_by_recency,
     overview_frame,
     summarise_by_tracker,
 )
@@ -379,3 +380,113 @@ def test_the_workbook_orders_sheets_overview_first(tmp_path):
     out = build_findings_report(_findings([{}]), tmp_path / "f.xlsx", metadata=_metadata([{}]))
 
     assert [sheet.title for sheet in _sheets(out)][0] == "Overview"
+
+
+class TestRecencyOrdering:
+    """Latest trackers first: a 2026 workbook is still being filled in, so its
+    defects can still be corrected, while a 2017 one is history. All 255 real
+    trackers start with their year -- 254 as ``2021_Kantha Bopha ...`` and one
+    as ``2023 Kantha Bopha Hospital A4D Tracker``, with a space -- so both
+    separators are recognised.
+    """
+
+    def test_the_trackers_sheet_puts_the_newest_year_first(self):
+        summary = summarise_by_tracker(
+            _findings(
+                [
+                    {"file_name": "2017_Mahosot Hospital A4D Tracker"},
+                    {"file_name": "2024_CDA A4D Tracker"},
+                    {"file_name": "2019_Yangon Children's Hospital A4D Tracker"},
+                ]
+            )
+        )
+
+        assert summary["file_name"].to_list() == [
+            "2024_CDA A4D Tracker",
+            "2019_Yangon Children's Hospital A4D Tracker",
+            "2017_Mahosot Hospital A4D Tracker",
+        ]
+
+    def test_within_one_year_clinics_read_alphabetically(self):
+        summary = summarise_by_tracker(
+            _findings(
+                [
+                    {"file_name": "2024_Yangon Children's Hospital A4D Tracker"},
+                    {"file_name": "2024_CDA A4D Tracker"},
+                ]
+            )
+        )
+
+        assert summary["file_name"].to_list() == [
+            "2024_CDA A4D Tracker",
+            "2024_Yangon Children's Hospital A4D Tracker",
+        ]
+
+    def test_a_space_separated_year_sorts_with_the_underscored_ones(self):
+        """The one real tracker written ``2023 Kantha Bopha ...`` must not fall
+        to the bottom as an unparseable name."""
+        summary = summarise_by_tracker(
+            _findings(
+                [
+                    {"file_name": "2024_CDA A4D Tracker"},
+                    {"file_name": "2019_CDA A4D Tracker"},
+                    {"file_name": "2023 Kantha Bopha Hospital A4D Tracker"},
+                ]
+            )
+        )
+
+        assert summary["file_name"].to_list() == [
+            "2024_CDA A4D Tracker",
+            "2023 Kantha Bopha Hospital A4D Tracker",
+            "2019_CDA A4D Tracker",
+        ]
+
+    def test_a_name_without_a_year_sinks_rather_than_leading(self):
+        summary = summarise_by_tracker(
+            _findings([{"file_name": "unnamed backup"}, {"file_name": "2017_CDA A4D Tracker"}])
+        )
+
+        assert summary["file_name"].to_list() == ["2017_CDA A4D Tracker", "unnamed backup"]
+
+    def test_the_trackers_sheet_orders_by_recency_even_with_metadata(self):
+        summary = summarise_by_tracker(
+            _findings([{"file_name": "2019_CDA A4D Tracker", "category": "fix_workbook"}] * 50),
+            _metadata(
+                [
+                    {"file_name": "2019_CDA A4D Tracker"},
+                    {"file_name": "2024_CDA A4D Tracker", "complete": False},
+                ]
+            ),
+        )
+
+        assert summary["file_name"].to_list() == ["2024_CDA A4D Tracker", "2019_CDA A4D Tracker"]
+
+    def test_the_findings_sheet_is_ordered_by_recency_too(self, tmp_path):
+        findings = _findings(
+            [
+                {"file_name": "2017_CDA A4D Tracker"},
+                {"file_name": "2024_CDA A4D Tracker"},
+                {"file_name": "2019_CDA A4D Tracker"},
+            ]
+        )
+
+        out = build_findings_report(findings, tmp_path / "findings.xlsx")
+
+        assert _column(out, "Findings", "file_name") == [
+            "2024_CDA A4D Tracker",
+            "2019_CDA A4D Tracker",
+            "2017_CDA A4D Tracker",
+        ]
+
+    def test_rows_for_one_tracker_keep_the_order_they_arrived_in(self):
+        """Recency reorders trackers, not the findings within a tracker: those
+        arrive in extraction order, which is the reading order of the sheet."""
+        findings = _findings(
+            [
+                {"file_name": "2024_CDA A4D Tracker", "sheet_name": "Jan24"},
+                {"file_name": "2024_CDA A4D Tracker", "sheet_name": "Feb24"},
+                {"file_name": "2024_CDA A4D Tracker", "sheet_name": "Mar24"},
+            ]
+        )
+
+        assert order_by_recency(findings)["sheet_name"].to_list() == ["Jan24", "Feb24", "Mar24"]
