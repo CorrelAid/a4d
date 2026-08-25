@@ -56,16 +56,20 @@ Arm = Literal["patient", "product"]
 # log and are deliberately absent here.
 ErrorCode = Literal[
     # --- the workbook is wrong ---
-    "blank_header_with_data",  # A column holds data under an empty header cell, so the
-    # pipeline cannot know what the values mean
-    "tracker_layout_changed",  # Sheet structure differs from the template the pipeline reads
-    "duplicate_source_columns",  # Two columns in the sheet map to the same field
-    "missing_column",  # A column the template defines is absent from this tracker
-    "invalid_tracker",  # Tracker-level defect: unreadable sheet, missing section
-    "empty_product_data",  # A product sheet exists but holds no stock rows
+    "blank_header_with_data",  # A column holds data under an empty header cell and no
+    # sibling sheet labels it, so recovery fails and the column is dropped
+    "tracker_layout_changed",  # One column means different things in different month
+    # sheets of the same workbook
+    "duplicate_source_columns",  # Several columns map to one field; values are comma-
+    # joined in column order rather than dropped
+    "missing_column",  # A column in the tracker matches nothing in the reference list, so
+    # it is kept unmapped. Misnamed: it is unrecognised, not absent
+    "invalid_tracker",  # A sheet or a section of it could not be read and is skipped; the
+    # rest of the workbook still processes. Not a whole-tracker failure
+    "empty_product_data",  # No product section in any sheet of the workbook
     "excel_error_patient_id",  # A row's patient ID cell holds a broken formula (#REF!), so the
     # patient cannot be identified and the row's measurements are dropped
-    "missing_required_field",  # Critical field (patient_id, status) missing, row excluded
+    "missing_required_field",  # A row has no patient_id, so it is excluded
     "source_formula_error",  # The tracker's own formula errored (#NUM!, #DIV/0!) -- an input
     # it depended on was never recorded, so no value could be computed
     "glucose_unit_swapped",  # A whole column labelled mg/dL holds mmol/L readings; values
@@ -75,7 +79,7 @@ ErrorCode = Literal[
     "balance_reconciliation",  # Recomputed closing stock disagrees with the balance the
     # tracker itself recorded -- the transactions and the recorded total do not add up
     # --- the pipeline recovered it, informational ---
-    "typo_rescued",  # Known source-data typo substituted before parsing
+    "typo_rescued",  # Known date typo substituted before parsing
     "date_recovered_from_text",  # A date was read out of a clinical note rather than from a
     # date-shaped cell -- carries the note, so the extraction stays auditable
     "date_multiple_in_cell",  # The cell named several dates and the first was published
@@ -85,8 +89,11 @@ ErrorCode = Literal[
     # Gregorian -- the calendar the clinic uses, not an error it made
     # --- a cell was unusable, data lost ---
     "type_conversion",  # Failed to convert type (e.g., "abc" -> int)
-    "invalid_value",  # Value outside allowed range or not in allowed list
-    "missing_value",  # Required value is missing/NA
+    "invalid_value",  # Value not acceptable as recorded: out of range or list, date beyond
+    # the tracker year, age contradicting the DOB, malformed patient ID. Some are
+    # corrected and some dropped -- the message says which
+    "missing_value",  # The age cell was empty, so age was derived from the DOB. Misfiled
+    # as data_lost: nothing is lost
     "implausible_era_date",  # A date past the Buddhist-era threshold that is not this
     # tracker's own BE year -- a corrupt Excel serial, so the cell is sentinelled
 ]
@@ -132,31 +139,39 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
 # test, exactly as FINDING_CATEGORY is.
 FINDING_GLOSSARY: dict[ErrorCode, str] = {
     "blank_header_with_data": (
-        "A column holds values but its header cell is empty, so nothing says what "
-        "the values mean and they are dropped. Type the column's name into the "
-        "header row."
+        "A column holds values but its header cell is empty, and no other month "
+        "sheet labels the same column, so nothing says what the values mean and "
+        "the column is dropped. Type the column's name into the header row."
     ),
     "tracker_layout_changed": (
-        "A month sheet's columns do not match the rest of the workbook. One "
-        "tracker covers one clinic-year and should keep one layout throughout; "
-        "restore the missing or renamed columns to match the other sheets."
+        "A column means different things in different month sheets of this "
+        "workbook. A tracker covers one clinic-year and should keep one layout "
+        "throughout; make the header match the other sheets."
     ),
     "duplicate_source_columns": (
-        "Two columns in the same sheet map to the same field, so only one can be "
-        "kept. Delete the duplicate, or rename it if the two hold different data."
+        "Several columns in the sheet map to the same field, so their values are "
+        "comma-joined in column order (empty cells skipped) rather than dropped. "
+        "Sometimes intended, as with the five complication-screening columns; "
+        "check the joined value is what the column should hold."
     ),
     "missing_column": (
-        "A column the tracker template defines is absent from this workbook. Add "
-        "it from the current template if the clinic records that measurement."
+        "A column in this tracker matches nothing in the reference column list, "
+        "so it is kept under its own name and reaches no mapped field. Either it "
+        "is a new column the reference data should learn, or its header is "
+        "misspelled. Despite the code's name this is an unrecognised column, not "
+        "an absent one."
     ),
     "invalid_tracker": (
-        "The workbook could not be read as a tracker at all -- an unreadable sheet "
-        "or a missing section. It needs opening in Excel and checking against the "
-        "current template."
+        "A sheet or a section of it could not be read, so that part is skipped "
+        "and the rest of the workbook still processes -- a sheet with no headers "
+        "or no data, a month that cannot be parsed from the sheet name, a Patient "
+        "List or Annual sheet that is empty, or a product column the reference "
+        "list does not know. The named sheet is where to look."
     ),
     "empty_product_data": (
-        "A stock/inventory sheet exists but holds no rows. Either the month's "
-        "stock movements were never entered, or the sheet was added by mistake."
+        "No product/stock section was found in any sheet of this workbook, so the "
+        "tracker contributes no stock data at all. Expected for trackers that "
+        "predate stock tracking; otherwise the INV section is missing."
     ),
     "excel_error_patient_id": (
         "The patient ID cell holds a broken formula (#REF!), so the row cannot be "
@@ -164,8 +179,9 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "formula, or type the ID in directly."
     ),
     "missing_required_field": (
-        "A field every row must have (patient ID, status) is empty, so the row is "
-        "excluded. Fill it in, or delete the row if it was started by accident."
+        "A row has no patient ID, so it cannot be attributed to anyone and is "
+        "excluded. Fill the ID in, or delete the row if it was started by "
+        "accident."
     ),
     "source_formula_error": (
         "The workbook's own formula returned an error (#NUM!, #DIV/0!) because a "
@@ -188,8 +204,9 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "is missing or the balance was typed over."
     ),
     "typo_rescued": (
-        "A known misspelling was substituted before the value was read, so nothing "
-        "was lost. Correcting the spelling in the workbook removes the guess."
+        "A date was written with a known misspelling and the correction was "
+        "applied before reading it, so nothing was lost. Correcting the spelling "
+        "in the workbook removes the guess."
     ),
     "date_recovered_from_text": (
         "A date was read out of a free-text note rather than from a date cell. The "
@@ -212,17 +229,21 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
     ),
     "type_conversion": (
         "The cell's contents could not be read as the kind of value the column "
-        "holds -- text where a number belongs, or a date in a count column -- so "
-        "the value is lost. Retype it in the column's own format."
+        "holds -- text where a number belongs, an unparseable date -- so the "
+        "value is lost. Retype it in the column's own format."
     ),
     "invalid_value": (
-        "The value is outside the range the column allows, or is not one of its "
-        "permitted entries, so it is not published. Check it against the patient's "
-        "record: it is often a reading typed into the wrong column."
+        "The value could not be accepted as recorded: outside the column's "
+        "allowed range or list, a date beyond the tracker's own year, an age that "
+        "contradicts the date of birth, or a patient ID that does not match the "
+        "template. Some of these are replaced with a corrected value and some are "
+        "dropped -- the message says which. Check the cell against the patient's "
+        "record; it is often a reading typed into the wrong column."
     ),
     "missing_value": (
-        "A value the column requires is absent, so nothing is published for this "
-        "cell. Fill it in if the measurement was taken."
+        "The patient's age cell was empty, so the age was calculated from their "
+        "date of birth and published. Nothing is lost, but the workbook should "
+        "carry the age so the pipeline does not have to derive it."
     ),
     "implausible_era_date": (
         "The date cell holds a year that is neither Gregorian nor this tracker's "

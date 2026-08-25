@@ -1679,7 +1679,26 @@ def report_findings_cmd(
             console.print(f"Source: {source}")
             findings = load_findings(source)
 
-        build_findings_report(findings, output_path, tracker=tracker)
+        # The per-tracker processing record: which arm's extract and clean
+        # stage succeeded for each file. It is what lets the report say "this
+        # tracker reported nothing because it never processed" rather than
+        # leaving it silently absent, and it supplies the glossary's "X of Y
+        # trackers" denominator.
+        metadata_path = _output_root / "tables" / "tracker_metadata.parquet"
+        metadata = pl.read_parquet(metadata_path) if metadata_path.exists() else None
+        if metadata is None:
+            console.print(
+                f"[yellow]No tracker metadata at {metadata_path}; the report will cover "
+                "only trackers that reported a finding[/yellow]"
+            )
+
+        build_findings_report(
+            findings,
+            output_path,
+            tracker=tracker,
+            total_trackers=None if metadata is None else metadata.height,
+            metadata=metadata,
+        )
     except (FileNotFoundError, ValueError) as e:
         console.print(f"\n[bold red]Error: {e}[/bold red]\n")
         raise typer.Exit(1) from e
