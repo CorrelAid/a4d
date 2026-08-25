@@ -299,7 +299,7 @@ def _count_orphan_released_units(
             f"Sheet '{sheet_name}' has {count} rows where product_released_to "
             f"is missing next to product_units_released."
         ),
-        error_code="invalid_tracker",
+        error_code="released_units_without_recipient",
         sheet_name=sheet_name,
         stage="extract",
         function_name="_count_orphan_released_units",
@@ -323,7 +323,7 @@ def _harmonize(
                 column=col,
                 original_value=col,
                 message=f"Sheet {sheet_name}: unknown column '{col}'",
-                error_code="invalid_tracker",
+                error_code="unrecognised_column",
                 stage="extract",
                 function_name="harmonize_input_data_columns",
             )
@@ -360,21 +360,14 @@ def read_all_product_sheets(
         try:
             start, end = find_product_section(ws)
         except ProductSectionNotFoundError as exc:
+            # One finding per skipped sheet. A second copy under
+            # function_name="find_product_section" said the same thing.
             report_finding(
-                error_code="invalid_tracker",
-                message=(f"Sheet {sheet_name}: {exc}. Skipping."),
+                message=f"Sheet {sheet_name}: {exc}. Skipping.",
+                error_code="product_section_not_found",
                 sheet_name=sheet_name,
                 stage="extract",
                 function_name="read_all_product_sheets",
-            )
-            report_finding(
-                patient_id="unknown",
-                column="",
-                original_value="",
-                message=f"Sheet {sheet_name}: {exc}",
-                error_code="invalid_tracker",
-                stage="extract",
-                function_name="find_product_section",
             )
             continue
 

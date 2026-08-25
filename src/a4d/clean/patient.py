@@ -763,55 +763,36 @@ def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
         excel_age = row["age"]
         calc_age = row["_calc_age"]
 
-        if excel_age is None or (excel_age == settings.error_val_numeric):
+        # One finding per event, naming the patient and the column. An earlier
+        # stage-level copy carrying only the message was dropped: it said the
+        # same thing without the two fields that let a reader find the cell.
+        #
+        # The negative check comes first because a date of birth after the
+        # visit is a workbook defect either way. Testing the empty-age branch
+        # first published "Age missing, calculated from DOB as -1" as a
+        # recovery -- the age cell being blank says nothing about whether the
+        # date of birth it was derived from is sound.
+        if calc_age < 0:
             report_finding(
-                error_code="missing_value",
-                message=(
-                    f"Patient {patient_id}: age is missing. "
-                    f"Using calculated age {calc_age} instead of original age."
-                ),
-                stage="clean",
+                patient_id=patient_id,
+                column="age",
+                original_value="NULL" if excel_age is None else str(excel_age),
+                message=f"Calculated age is negative ({calc_age}), check DOB",
+                error_code="age_negative_from_dob",
                 function_name="_fix_age_from_dob",
             )
+            ages_negative += 1
+        elif excel_age is None or (excel_age == settings.error_val_numeric):
             report_finding(
                 patient_id=patient_id,
                 column="age",
                 original_value=excel_age if excel_age is not None else "NULL",
                 message=f"Age missing, calculated from DOB as {calc_age}",
-                error_code="missing_value",
+                error_code="age_derived_from_dob",
                 function_name="_fix_age_from_dob",
             )
             ages_missing += 1
-        elif calc_age < 0:
-            report_finding(
-                error_code="invalid_value",
-                message=(
-                    f"Patient {patient_id}: calculated age is negative ({calc_age}). "
-                    f"Please check this manually. Using error value instead."
-                ),
-                stage="clean",
-                function_name="_fix_age_from_dob",
-            )
-            report_finding(
-                patient_id=patient_id,
-                column="age",
-                original_value=str(excel_age),
-                message=f"Calculated age is negative ({calc_age}), check DOB",
-                error_code="invalid_value",
-                function_name="_fix_age_from_dob",
-            )
-            ages_negative += 1
         else:
-            report_finding(
-                error_code="invalid_value",
-                message=(
-                    f"Patient {patient_id}: age {excel_age} is different "
-                    f"from calculated age {calc_age}. "
-                    f"Using calculated age instead of original age."
-                ),
-                stage="clean",
-                function_name="_fix_age_from_dob",
-            )
             report_finding(
                 patient_id=patient_id,
                 column="age",
@@ -819,7 +800,7 @@ def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
                 message=(
                     f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age."
                 ),
-                error_code="invalid_value",
+                error_code="age_corrected_from_dob",
                 function_name="_fix_age_from_dob",
             )
             ages_fixed += 1
@@ -1023,21 +1004,11 @@ def _validate_dates(df: pl.DataFrame) -> pl.DataFrame:
             file_name = file_name if file_name is not None else "UNKNOWN"
 
             report_finding(
-                error_code="invalid_value",
-                message=(
-                    f"Patient {patient_id}: {col} = {original_date} "
-                    f"is beyond tracker year {tracker_year}. "
-                    f"Replacing with error date."
-                ),
-                stage="clean",
-                function_name="_validate_dates",
-            )
-            report_finding(
                 patient_id=patient_id,
                 column=col,
                 original_value=str(original_date),
                 message=f"Date {original_date} is beyond tracker year {tracker_year}",
-                error_code="invalid_value",
+                error_code="date_beyond_tracker_year",
                 function_name="_validate_dates",
             )
             dates_fixed += 1

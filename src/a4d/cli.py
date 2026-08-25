@@ -11,9 +11,9 @@ import typer.core
 from rich.console import Console
 from rich.table import Table
 
+from a4d.discovery import discover_tracker_files
 from a4d.findings import Finding
 from a4d.pipeline.patient import (
-    discover_tracker_files,
     process_patient_tables,
     run_patient_pipeline,
 )

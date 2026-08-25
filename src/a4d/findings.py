@@ -55,47 +55,48 @@ Arm = Literal["patient", "product"]
 # which is any unhandled exception with a traceback -- stay in the operational
 # log and are deliberately absent here.
 ErrorCode = Literal[
-    # --- the workbook is wrong ---
-    "blank_header_with_data",  # A column holds data under an empty header cell and no
-    # sibling sheet labels it, so recovery fails and the column is dropped
-    "tracker_layout_changed",  # One column means different things in different month
-    # sheets of the same workbook
-    "duplicate_source_columns",  # Several columns map to one field; values are comma-
-    # joined in column order rather than dropped
-    "missing_column",  # A column in the tracker matches nothing in the reference list, so
-    # it is kept unmapped. Misnamed: it is unrecognised, not absent
-    "invalid_tracker",  # A sheet or a section of it could not be read and is skipped; the
-    # rest of the workbook still processes. Not a whole-tracker failure
-    "empty_product_data",  # No product section in any sheet of the workbook
-    "excel_error_patient_id",  # A row's patient ID cell holds a broken formula (#REF!), so the
-    # patient cannot be identified and the row's measurements are dropped
-    "missing_required_field",  # A row has no patient_id, so it is excluded
-    "source_formula_error",  # The tracker's own formula errored (#NUM!, #DIV/0!) -- an input
-    # it depended on was never recorded, so no value could be computed
-    "glucose_unit_swapped",  # A whole column labelled mg/dL holds mmol/L readings; values
-    # moved to the mmol column and rescaled. Reported once per column, not per row
-    "glucose_unit_suspect",  # A single reading sits where the other unit's values land;
-    # kept as recorded, because a severe hypoglycaemic reading is indistinguishable
-    "balance_reconciliation",  # Recomputed closing stock disagrees with the balance the
-    # tracker itself recorded -- the transactions and the recorded total do not add up
-    # --- the pipeline recovered it, informational ---
-    "typo_rescued",  # Known date typo substituted before parsing
-    "date_recovered_from_text",  # A date was read out of a clinical note rather than from a
-    # date-shaped cell -- carries the note, so the extraction stays auditable
-    "date_multiple_in_cell",  # The cell named several dates and the first was published
-    "date_year_inferred",  # The cell named a day and a month but no year, so the tracker's
-    # own year was used -- the one component published that the source does not state
-    "buddhist_era_converted",  # A Thai clinic's Buddhist-era date (BE = CE + 543) shifted to
-    # Gregorian -- the calendar the clinic uses, not an error it made
-    # --- a cell was unusable, data lost ---
-    "type_conversion",  # Failed to convert type (e.g., "abc" -> int)
-    "invalid_value",  # Value not acceptable as recorded: out of range or list, date beyond
-    # the tracker year, age contradicting the DOB, malformed patient ID. Some are
-    # corrected and some dropped -- the message says which
-    "missing_value",  # The age cell was empty, so age was derived from the DOB. Misfiled
-    # as data_lost: nothing is lost
-    "implausible_era_date",  # A date past the Buddhist-era threshold that is not this
-    # tracker's own BE year -- a corrupt Excel serial, so the cell is sentinelled
+    # --- the workbook's structure is wrong ---
+    "blank_header_with_data",
+    "tracker_layout_changed",
+    "duplicate_source_columns",
+    "unrecognised_column",
+    "sheet_skipped",
+    "static_sheet_duplicate_id",
+    "empty_product_data",
+    "product_section_not_found",
+    # --- the patient cannot be identified ---
+    "excel_error_patient_id",
+    "missing_required_field",
+    "patient_id_unrepairable",
+    # --- a recorded value contradicts the workbook itself ---
+    "source_formula_error",
+    "glucose_unit_swapped",
+    "glucose_unit_suspect",
+    "balance_reconciliation",
+    "negative_stock_balance",
+    "released_units_without_recipient",
+    "product_not_in_catalogue",
+    "entry_date_outside_sheet_month",
+    "entry_date_outside_tracker_year",
+    "age_negative_from_dob",
+    # --- the pipeline published a value the workbook did not state ---
+    "typo_rescued",
+    "date_recovered_from_text",
+    "date_multiple_in_cell",
+    "date_year_inferred",
+    "buddhist_era_converted",
+    "age_derived_from_dob",
+    "age_corrected_from_dob",
+    "patient_id_recovered",
+    "testing_frequency_averaged",
+    # --- the cell was unusable and its value is gone ---
+    "type_conversion",
+    "implausible_era_date",
+    "date_beyond_tracker_year",
+    "value_out_of_range",
+    "value_not_in_allowed_list",
+    "blood_pressure_unparseable",
+    "source_row_not_in_output",
 ]
 
 FindingCategory = Literal["fix_workbook", "recovered", "data_lost"]
@@ -103,40 +104,61 @@ FindingCategory = Literal["fix_workbook", "recovered", "data_lost"]
 # What the operator can do about a finding. Derived from the error code rather
 # than passed at each call site, so the same code cannot be filed two ways in
 # two modules. Kept exhaustive over ErrorCode by a test.
+#
+# Where a value is both lost and correctable at the clinic, ``fix_workbook``
+# wins: the workbook exists to tell A4D staff which files to correct, and
+# filing a repairable defect as "gone" buries the ones that matter most. So
+# ``data_lost`` means specifically that nobody can get the value back --
+# unreadable contents, not a wrong entry someone could retype.
 FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
-    # The workbook is wrong and a human must fix it.
     "blank_header_with_data": "fix_workbook",
     "tracker_layout_changed": "fix_workbook",
     "duplicate_source_columns": "fix_workbook",
-    "missing_column": "fix_workbook",
-    "invalid_tracker": "fix_workbook",
+    "unrecognised_column": "fix_workbook",
+    "sheet_skipped": "fix_workbook",
+    "static_sheet_duplicate_id": "fix_workbook",
     "empty_product_data": "fix_workbook",
+    "product_section_not_found": "fix_workbook",
     "excel_error_patient_id": "fix_workbook",
     "missing_required_field": "fix_workbook",
+    "patient_id_unrepairable": "fix_workbook",
     "source_formula_error": "fix_workbook",
     "glucose_unit_swapped": "fix_workbook",
     "glucose_unit_suspect": "fix_workbook",
     "balance_reconciliation": "fix_workbook",
-    # The pipeline recovered the value; nothing to do, but the record stays
-    # auditable because a recovery is still an inference.
+    "negative_stock_balance": "fix_workbook",
+    "released_units_without_recipient": "fix_workbook",
+    "product_not_in_catalogue": "fix_workbook",
+    "entry_date_outside_sheet_month": "fix_workbook",
+    "entry_date_outside_tracker_year": "fix_workbook",
+    "age_negative_from_dob": "fix_workbook",
+    # The pipeline published a value the workbook did not state. Nothing to do,
+    # but the record stays auditable because a recovery is still an inference.
     "typo_rescued": "recovered",
     "date_recovered_from_text": "recovered",
     "date_multiple_in_cell": "recovered",
     "date_year_inferred": "recovered",
     "buddhist_era_converted": "recovered",
-    # The cell could not be used and its value is gone from the output.
+    "age_derived_from_dob": "recovered",
+    "age_corrected_from_dob": "recovered",
+    "patient_id_recovered": "recovered",
+    "testing_frequency_averaged": "recovered",
+    # The cell could not be read and nobody can recover what it held.
     "type_conversion": "data_lost",
-    "invalid_value": "data_lost",
-    "missing_value": "data_lost",
     "implausible_era_date": "data_lost",
+    "date_beyond_tracker_year": "data_lost",
+    "value_out_of_range": "data_lost",
+    "value_not_in_allowed_list": "data_lost",
+    "blood_pressure_unparseable": "data_lost",
+    "source_row_not_in_output": "data_lost",
 }
 
 # What each code means and what to do about it, written for whoever opens the
 # workbook -- an A4D staff member correcting a tracker, not a Python developer.
-# It is a dict rather than the comments above because the report's glossary
-# sheet is generated from it; a glossary transcribed by hand drifts from the
-# taxonomy the moment a code is added. Kept exhaustive in both directions by a
-# test, exactly as FINDING_CATEGORY is.
+# It is a dict rather than comments beside ErrorCode because the report's
+# glossary sheet is generated from it; a glossary transcribed by hand drifts
+# from the taxonomy the moment a code is added. Kept exhaustive in both
+# directions by a test, exactly as FINDING_CATEGORY is.
 FINDING_GLOSSARY: dict[ErrorCode, str] = {
     "blank_header_with_data": (
         "A column holds values but its header cell is empty, and no other month "
@@ -154,24 +176,32 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "Sometimes intended, as with the five complication-screening columns; "
         "check the joined value is what the column should hold."
     ),
-    "missing_column": (
-        "A column in this tracker matches nothing in the reference column list, "
-        "so it is kept under its own name and reaches no mapped field. Either it "
-        "is a new column the reference data should learn, or its header is "
-        "misspelled. Despite the code's name this is an unrecognised column, not "
-        "an absent one."
+    "unrecognised_column": (
+        "A column header in this tracker matches nothing in the reference column "
+        "list, so the column is kept under its own name and reaches no mapped "
+        "field. Either it is a new column the reference data should learn, or "
+        "the header is misspelled."
     ),
-    "invalid_tracker": (
-        "A sheet or a section of it could not be read, so that part is skipped "
-        "and the rest of the workbook still processes -- a sheet with no headers "
-        "or no data, a month that cannot be parsed from the sheet name, a Patient "
-        "List or Annual sheet that is empty, or a product column the reference "
-        "list does not know. The named sheet is where to look."
+    "sheet_skipped": (
+        "A sheet, or one section of it, could not be read and was skipped; the "
+        "rest of the workbook still processed. Usually a sheet with no header "
+        "row, no data, no patient ID column, or a name no month can be read "
+        "from. The named sheet is where to look."
+    ),
+    "static_sheet_duplicate_id": (
+        "The Patient List or Annual sheet lists the same patient more than once "
+        "under IDs that differ only by a hyphen or a transfer-clinic suffix. The "
+        "first entry was kept; merge the rows so one patient has one entry."
     ),
     "empty_product_data": (
         "No product/stock section was found in any sheet of this workbook, so the "
         "tracker contributes no stock data at all. Expected for trackers that "
         "predate stock tracking; otherwise the INV section is missing."
+    ),
+    "product_section_not_found": (
+        "This sheet has a product/stock area in the other months but none here, "
+        "so the sheet's stock movements are skipped. Copy the INV block in from "
+        "a month that has it."
     ),
     "excel_error_patient_id": (
         "The patient ID cell holds a broken formula (#REF!), so the row cannot be "
@@ -182,6 +212,13 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "A row has no patient ID, so it cannot be attributed to anyone and is "
         "excluded. Fill the ID in, or delete the row if it was started by "
         "accident."
+    ),
+    "patient_id_unrepairable": (
+        "The patient ID does not match the XX_YY### template and no other row in "
+        "this tracker spells it closely enough to match, so the row publishes "
+        "under 'Undefined' and that patient's month is not attributed to them. "
+        "This is the costliest defect a tracker can carry -- correct the ID and "
+        "the whole history comes back."
     ),
     "source_formula_error": (
         "The workbook's own formula returned an error (#NUM!, #DIV/0!) because a "
@@ -202,6 +239,36 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "The stock movements recorded for this product do not add up to the "
         "closing balance the tracker itself states. Either a receipt/release row "
         "is missing or the balance was typed over."
+    ),
+    "negative_stock_balance": (
+        "The running stock balance for this product goes below zero, which no "
+        "physical stock can do. Usually a release recorded without its matching "
+        "receipt, or a quantity entered in the wrong column."
+    ),
+    "released_units_without_recipient": (
+        "Units were recorded as released but no recipient is named beside them, "
+        "so the stock left the clinic with no record of where it went. Fill in "
+        "the 'released to' cell."
+    ),
+    "product_not_in_catalogue": (
+        "The product name in this row matches nothing in the product reference "
+        "list, so the row cannot be grouped with the same product elsewhere. "
+        "Either a new product the reference data should learn, or a misspelling."
+    ),
+    "entry_date_outside_sheet_month": (
+        "The entry date on this stock row falls outside the month its own sheet "
+        "covers. Either the date is mistyped or the row was entered on the wrong "
+        "month's sheet."
+    ),
+    "entry_date_outside_tracker_year": (
+        "The entry date on this stock row falls outside the tracker's own year "
+        "-- either later than the year allows, or more than five years before "
+        "it, which is typically a placeholder Excel serial. Retype the date."
+    ),
+    "age_negative_from_dob": (
+        "The age calculated from this patient's date of birth is negative, so the "
+        "date of birth is after the visit. One of the two dates is wrong; check "
+        "them against the patient's record."
     ),
     "typo_rescued": (
         "A date was written with a known misspelling and the correction was "
@@ -227,28 +294,60 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "the calendar the clinic uses, not a mistake; no action needed unless the "
         "converted date looks wrong."
     ),
+    "age_derived_from_dob": (
+        "The patient's age cell was empty, so the age was calculated from their "
+        "date of birth and published. Nothing is lost, but the workbook should "
+        "carry the age so the pipeline does not have to derive it."
+    ),
+    "age_corrected_from_dob": (
+        "The age in the workbook disagrees with the age its own date of birth "
+        "gives, so the calculated age was published instead. Correct whichever of "
+        "the two is wrong."
+    ),
+    "patient_id_recovered": (
+        "The patient ID does not match the XX_YY### template, but another row in "
+        "this tracker spells the same ID correctly, so the row was attributed to "
+        "that patient. Correct the spelling so the match is not inferred."
+    ),
+    "testing_frequency_averaged": (
+        "The testing frequency was written as a range (for example '3-4') rather "
+        "than a single number, so the mean was published. Record one number."
+    ),
     "type_conversion": (
         "The cell's contents could not be read as the kind of value the column "
         "holds -- text where a number belongs, an unparseable date -- so the "
         "value is lost. Retype it in the column's own format."
     ),
-    "invalid_value": (
-        "The value could not be accepted as recorded: outside the column's "
-        "allowed range or list, a date beyond the tracker's own year, an age that "
-        "contradicts the date of birth, or a patient ID that does not match the "
-        "template. Some of these are replaced with a corrected value and some are "
-        "dropped -- the message says which. Check the cell against the patient's "
-        "record; it is often a reading typed into the wrong column."
-    ),
-    "missing_value": (
-        "The patient's age cell was empty, so the age was calculated from their "
-        "date of birth and published. Nothing is lost, but the workbook should "
-        "carry the age so the pipeline does not have to derive it."
-    ),
     "implausible_era_date": (
         "The date cell holds a year that is neither Gregorian nor this tracker's "
         "Buddhist-era year -- usually a corrupted Excel serial. The day and month "
         "are normally right; retype the whole date."
+    ),
+    "date_beyond_tracker_year": (
+        "The date is later than the tracker's own year allows, so it cannot be a "
+        "date this workbook recorded and the cell is dropped. Usually a mistyped "
+        "year."
+    ),
+    "value_out_of_range": (
+        "The value falls outside the range the column allows -- a height, weight "
+        "or glucose reading no patient could have -- so it is dropped. Often a "
+        "reading typed into the wrong column, or a unit mix-up."
+    ),
+    "value_not_in_allowed_list": (
+        "The cell holds something the column does not allow -- a free-text note "
+        "in a Y/N column, or a spelling not on the list -- so it is dropped. Use "
+        "one of the column's own values."
+    ),
+    "blood_pressure_unparseable": (
+        "The blood pressure cell is not in systolic/diastolic form (for example "
+        "'120/80'), so neither number could be read and both are lost. Retype it "
+        "with a slash."
+    ),
+    "source_row_not_in_output": (
+        "A row present in the source workbook reached no output row, or an "
+        "output row corresponds to no source row. Emitted only by the "
+        "source-vs-output validation tool, which is run by hand and is not part "
+        "of a pipeline run."
     ),
 }
 

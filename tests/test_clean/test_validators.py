@@ -87,7 +87,10 @@ def test_validate_allowed_values_with_invalid(collector):
     # Order is not guaranteed, so check using sets
     assert set(errors_df["original_value"].to_list()) == {"INVALID", "BAD_VALUE"}
     assert errors_df["column"].to_list() == ["status", "status"]
-    assert errors_df["error_code"].to_list() == ["invalid_value", "invalid_value"]
+    assert errors_df["error_code"].to_list() == [
+        "value_not_in_allowed_list",
+        "value_not_in_allowed_list",
+    ]
 
 
 def test_validate_allowed_values_preserves_nulls(collector):

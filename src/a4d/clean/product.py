@@ -449,7 +449,7 @@ def _check_entry_dates_match_sheet(df: pl.DataFrame) -> None:
                 f"product_entry_date {entry_date} does not match sheet "
                 f"'{sheet_name or 'unknown'}' (expected {ty}-{tm:02d})"
             ),
-            error_code="invalid_value",
+            error_code="entry_date_outside_sheet_month",
             function_name="check_entry_dates",
         )
 
@@ -587,7 +587,7 @@ def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
                 f"product_table_year {table_year_val} "
                 f"(sheet '{sheet_name or 'unknown'}')"
             ),
-            error_code="invalid_value",
+            error_code="entry_date_outside_tracker_year",
             function_name="_validate_entry_dates",
         )
 
@@ -604,7 +604,7 @@ def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
                 f"product_table_year {table_year_val} - {YEAR_FLOOR_DELTA} "
                 f"(sheet '{sheet_name or 'unknown'}')"
             ),
-            error_code="invalid_value",
+            error_code="entry_date_outside_tracker_year",
             function_name="_validate_entry_dates",
         )
 
@@ -1117,7 +1117,7 @@ def _validate_negative_balances(
                 f"'{product or 'unknown'}' in sheet "
                 f"'{sheet_name or 'unknown'}'"
             ),
-            error_code="invalid_value",
+            error_code="negative_stock_balance",
             function_name="_validate_negative_balances",
         )
     return df
@@ -1157,7 +1157,7 @@ def _report_unknown_products(
                 f"Unknown product '{row['product']}' in sheet "
                 f"'{row.get('product_sheet_name') or 'unknown'}'"
             ),
-            error_code="invalid_value",
+            error_code="product_not_in_catalogue",
             function_name="_report_unknown_products",
         )
     return df

@@ -18,6 +18,7 @@ from a4d.clean.patient import (
     clean_patient_data,
 )
 from a4d.config import settings
+from a4d.findings import tracker_context
 
 
 class TestPatientIdNormalization:
@@ -767,3 +768,48 @@ class TestBuddhistEraConversion:
         result = _validate_dates(_convert_buddhist_era_dates(df))
 
         assert result["t1d_diagnosis_date"].to_list() == [date(2024, 11, 11)]
+
+
+class TestAgeFromDobBranchOrder:
+    """A negative calculated age is a workbook defect whether or not the age
+    cell was filled in.
+
+    The empty-age branch used to be tested first, so a row with *both* an empty
+    age and a date of birth after the visit reported ``age_derived_from_dob``
+    -- a recovery -- and published the negative number. One such row exists in
+    the real data: "Age missing, calculated from DOB as -1".
+    """
+
+    def test_an_empty_age_with_a_bad_dob_is_a_defect_not_a_recovery(self, tmp_path):
+        df = pl.DataFrame(
+            {
+                "patient_id": ["KH_QD001"],
+                "file_name": ["2024_CDA A4D Tracker"],
+                "age": [None],
+                "dob": [date(2025, 6, 1)],
+                "tracker_year": [2024],
+                "tracker_month": [1],
+            }
+        )
+
+        with tracker_context("2024_CDA A4D Tracker", "patient", tmp_path) as collector:
+            _fix_age_from_dob(df)
+
+        assert [f.error_code for f in collector.findings] == ["age_negative_from_dob"]
+
+    def test_an_empty_age_with_a_sound_dob_is_still_a_recovery(self, tmp_path):
+        df = pl.DataFrame(
+            {
+                "patient_id": ["KH_QD001"],
+                "file_name": ["2024_CDA A4D Tracker"],
+                "age": [None],
+                "dob": [date(2010, 6, 1)],
+                "tracker_year": [2024],
+                "tracker_month": [1],
+            }
+        )
+
+        with tracker_context("2024_CDA A4D Tracker", "patient", tmp_path) as collector:
+            _fix_age_from_dob(df)
+
+        assert [f.error_code for f in collector.findings] == ["age_derived_from_dob"]

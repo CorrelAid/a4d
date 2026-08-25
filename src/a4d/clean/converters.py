@@ -496,7 +496,7 @@ def cut_numeric_value(
                 column=column,
                 original_value=row[column],
                 message=f"Value {row[column]} outside allowed range [{min_val}, {max_val}]",
-                error_code="invalid_value",
+                error_code="value_out_of_range",
                 function_name="cut_numeric_value",
             )
 

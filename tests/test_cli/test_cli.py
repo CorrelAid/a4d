@@ -115,7 +115,7 @@ class TestRunPipeline:
                 column="c",
                 original_value="v",
                 message=f"{arm} problem",
-                error_code="invalid_value",
+                error_code="value_out_of_range",
                 stage="clean",
                 function_name="f",
             )

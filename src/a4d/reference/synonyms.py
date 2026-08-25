@@ -219,7 +219,7 @@ class ColumnMapper:
                 )
             else:
                 report_finding(
-                    error_code="missing_column",
+                    error_code="unrecognised_column",
                     message=(
                         f"Keeping {len(unmapped_columns)} unmapped columns as-is: "
                         f"{unmapped_columns}"

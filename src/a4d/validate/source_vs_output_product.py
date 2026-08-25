@@ -73,7 +73,7 @@ def check_missing_groups(raw_exploded: pl.DataFrame, cleaned: pl.DataFrame) -> N
                 f"MISSING_GROUP: raw (sheet={row['product_sheet_name']}, "
                 f"product={row['product']!r}) absent in cleaned product_data"
             ),
-            error_code="missing_value",
+            error_code="source_row_not_in_output",
             function_name="check_missing_groups",
         )
 
@@ -89,7 +89,7 @@ def check_missing_groups(raw_exploded: pl.DataFrame, cleaned: pl.DataFrame) -> N
                 f"PHANTOM_GROUP: cleaned (sheet={row['product_sheet_name']}, "
                 f"product={row['product']!r}) has no matching raw source"
             ),
-            error_code="missing_value",
+            error_code="source_row_not_in_output",
             function_name="check_missing_groups",
         )
 
@@ -128,7 +128,7 @@ def check_row_count_delta(raw_exploded: pl.DataFrame, cleaned: pl.DataFrame) -> 
                 f"product={row['product']!r}) raw={row['raw_count']} "
                 f"cleaned={row['cleaned_count']} delta={delta:+d}"
             ),
-            error_code="invalid_value",
+            error_code="value_out_of_range",
             function_name="check_row_count_delta",
         )
 
