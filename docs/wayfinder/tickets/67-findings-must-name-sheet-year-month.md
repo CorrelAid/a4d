@@ -21,6 +21,28 @@ spawned_by: 16
 > (`invalid_value`, `missing_column`) have been split into specific ones,
 > which makes the per-code half of this question easier rather than harder.
 
+> **The scope question this ticket raises has a measured instance now
+> (2026-08-26), from [the taxonomy blind-spot audit](70-audit-the-finding-taxonomy-for-blind-spots.md).**
+> This ticket asks whether an error code should declare a **scope** (`tracker`
+> / `sheet` / `cell`). The audit found the same gap one level down: the table
+> mixes **units** with no field that says which, so two findings side by side
+> can mean "one cell" and "one distinct value across thousands of cells".
+>
+> `validate_allowed_values` iterates `col_values.unique()`, so it emits **one
+> finding per distinct bad value per tracker**: 1,502 findings, of which 1,170
+> name the `province` column across 124 trackers -- while **26,124 cleaned rows
+> across those same 124 trackers carry `province = 'Undefined'`**. A 22x gap,
+> and not a defect in the emitter: deduplicating is the right call for a column
+> where one misspelling repeats down a sheet. `type_conversion` is the
+> contrast, and it was checked rather than assumed: 3,579 findings against
+> 3,692 `hba1c_baseline` sentinels and 8,122 against 8,486 `fbg_baseline_mg`
+> ones -- per row, within a few percent.
+>
+> So the unit is per-emitter and invisible. The Summary sheet ranks trackers by
+> finding count, which silently weights a per-row emitter above a per-value one.
+> Whatever this ticket decides about scope should decide the unit in the same
+> move -- they are the same field.
+
 ## Premise
 
 Rests on [Unify the two separate channels that report data-quality

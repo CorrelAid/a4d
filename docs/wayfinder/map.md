@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 8"]
+  subgraph FRONTIER["Frontier · 9"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -45,9 +45,10 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
-    T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
+    T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
+    T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
   end
-  subgraph DECIDED["Decided · 61"]
+  subgraph DECIDED["Decided · 62"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -109,6 +110,7 @@ flowchart TD
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
     T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
+    T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
   end
   subgraph DROPPED["Out of scope · 2"]
@@ -146,9 +148,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68,T70 frontier
+  class T9,T34,T35,T40,T41,T67,T68,T72,T73 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T71 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -2919,7 +2921,95 @@ and [40](tickets/40-source-defect-findings-report.md).
 superseded.** Tickets 40, 67, 68 and 70 each carry a note saying which of their
 own figures moved; ticket 68's headline 217-vs-4,572 did **not** move.
 
+
+**[The taxonomy blind-spot audit](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md)
+is closed, and it moved the question rather than answering it in the shape it
+was asked.** The ticket assumed the gap would be a defect kind with no code.
+After [ticket 69](tickets/69-miscategorised-and-duplicated-findings.md) the
+codes are in decent shape -- 37 declared, 35 firing, none doing twelve jobs --
+and what is missing sits *upstream* of any code: the pipeline decides not to
+look at a sheet, replaces a value with a sentinel, or finds a mismatch and logs
+it, and none of those becomes a finding.
+
+**The sharpest single number is that `sheet_skipped` has ten call sites and
+fired zero times across 255 trackers.** Every one of them reports a sheet that
+was found and could not be used; a sheet the name matcher never selected emits
+nothing at all, because selection happens before a finding could be raised.
+517 sheets are never opened. Almost all are legitimately not tracker data, but
+one is: `Annual_2026` in the 2026 VNCH tracker holds **76 rows with `VN_VC###`
+patient IDs**, missed because the static-sheet test is the exact string
+`"Annual"`. That is [ticket 72](tickets/72-sheets-the-pipeline-never-opens.md).
+
+**Three more defects are detected, acted on, and reported to nobody** --
+[ticket 73](tickets/73-three-defects-detected-but-never-reported.md): a
+diagnosis date before the date of birth (8 patients, 7 trackers; `MY_PJ025` is
+diagnosed seven years before birth) where the *visit*-age version of the same
+contradiction got a code in ticket 69; stock released to a patient ID that
+tracker has never heard of (14 rows, 2 trackers), which
+`link_product_patient` counts and writes to DEBUG only; and one sex cell
+holding `§`, sentinelled to `Undefined` in silence.
+
+**A fourth gap is about counting, not coverage, and it reinforces two open
+tickets.** `validate_allowed_values` emits one finding per *distinct* bad
+value, so `province` shows 1,170 findings across 124 trackers while **26,124
+rows in those same trackers carry the `Undefined` province sentinel**;
+`type_conversion` by contrast is per row (3,579 findings against 3,692
+sentinels). Both emitters are right and the table cannot tell them apart --
+which is [ticket 67](tickets/67-findings-must-name-sheet-year-month.md)'s
+`scope` field one level down, and a plausible explanation for [ticket
+68](tickets/68-blank-header-emitter-vs-catalogue.md)'s 217-vs-4,572 that is
+recorded there as a hypothesis, not a finding.
+
+**Two hypotheses were killed by measuring, and both are recorded so nobody
+re-raises them.** The 112 `INV` and 133 `Inventory` sheets nobody opens are not
+lost stock -- every tracker holding one still produced product rows, and the
+four `empty_product_data` trackers have no such sheet, so that code's message
+is accurate. And the 760 static-sheet rows dropped for a missing ID all qualify
+down to sub-header and template rows: **zero carry real patient data**, so it
+is an assumption on this map rather than a ticket.
+
+**The frontier is nine** -- ticket 70 closing, tickets 72 and 73 opening -- and
+**none of the nine is on the route, because the route is finished**; all nine
+clauses of the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and five
+data-quality tickets. **Take [ticket 73](tickets/73-three-defects-detected-but-never-reported.md)
+next**: its three defects are measured, the decisions they need are small and
+independent, and one of them (the diagnosis-before-birth contradiction) is the
+only finding on this map where the pipeline publishes a value its own source
+data contradicts. [Ticket 67](tickets/67-findings-must-name-sheet-year-month.md)
+is the one that would change the most, since the unit question now rides on it
+and [68](tickets/68-blank-header-emitter-vs-catalogue.md) may fall out of it --
+but it is also the largest, and it should not be started without a session to
+spare. Ticket 70 did **not** subsume 68 or 40, as the previous session
+suggested it might: 40's four defect kinds are untouched by it, and 68 gained a
+hypothesis rather than an answer.
+
 ## Decisions so far
+
+- [What can go wrong in a tracker that the pipeline never reports at
+  all?](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md) -- decided.
+  **The taxonomy's blind spots are structural, not lexical**: what goes
+  unreported is not a defect kind the codes lack a word for, but a *decision
+  the pipeline makes silently* -- a sheet it never opens, a value it replaces,
+  a mismatch it logs instead of reporting. Two derived artifacts, neither
+  hand-written: `scripts/finding_inventory.py` (51 call sites -> 35 codes of 37
+  declared; `--silent` finds 60 value-losing discard/sentinel sites in
+  functions that emit nothing) and `scripts/finding_blind_spots.py` (five
+  probes, measured against the 255-tracker run). Four gaps named: **a sheet the
+  matcher does not recognise is skipped in total silence** (`sheet_skipped` has
+  ten call sites and fired **zero** times; `Annual_2026`'s 76 patient rows lost
+  to an exact-string test) -> [ticket 72](tickets/72-sheets-the-pipeline-never-opens.md);
+  **three defects detected, acted on and never reported** (diagnosis before
+  birth, 8 patients; stock released to an unknown ID, 14 rows; an unrecognised
+  sex value, 1 row) -> [ticket 73](tickets/73-three-defects-detected-but-never-reported.md);
+  **the table mixes units with no field saying which** (1,170 province findings
+  against 26,124 sentinelled rows, because `validate_allowed_values` counts
+  distinct values while `type_conversion` counts rows) -> recorded on [ticket
+  67](tickets/67-findings-must-name-sheet-year-month.md). "Complete" was
+  rejected as a goal for the value space and accepted for the structural one.
 
 - [The finding taxonomy mis-files recoveries as data loss, duplicates rows, and
   has no code for a malformed patient ID](tickets/69-miscategorised-and-duplicated-findings.md)
@@ -4100,6 +4190,19 @@ own figures moved; ticket 68's headline 217-vs-4,572 did **not** move.
 
 ## Assumptions in force
 
+- **The static sheets' silent ID filters have no current population.**
+  `read_all_patient_sheets` drops Patient List and Annual rows whose patient ID
+  is null or starts with `#`, while the month-sheet path reports the identical
+  defects as `missing_required_field` and `excel_error_patient_id`. Measured
+  during [ticket 70](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md):
+  760 rows are dropped, and every one of them qualifies down to a sub-header
+  row, an all-zero template row, or the Annual sheet's second header line --
+  **zero carry real patient data**. So the gap is real in the code and empty on
+  the data, which is why it is here and not ticketed. Overturned by one
+  static-sheet row with a name or a reading and no ID -- re-measure with
+  `scripts/finding_blind_spots.py --probe static-rows` after any template
+  change.
+
 - **A date whose year is past 2400 and which decodes to no later than its
   tracker's year is a Buddhist-era date.** That rule is what converts 375
   patient cells and 22 product rows, and it is an inference from the year
@@ -4657,6 +4760,10 @@ flowchart TB
     U69["<b>69</b><br/>The finding taxonomy<br/>mis-files recoveries as<br/>data loss, duplicates<br/>rows, and has no code<br/>for a malformed patient<br/>ID"]
     U71["<b>71</b><br/>The pipeline reads its<br/>own report, and Excel's<br/>lock files, as if they<br/>were trackers"]
   end
+  subgraph S2026_08_26["Session 2026-08-26"]
+    direction LR
+    U70["<b>70</b><br/>What can go wrong in a<br/>tracker that the<br/>pipeline never reports<br/>at all?"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4670,7 +4777,8 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
-    U70["<b>70</b><br/>What can go wrong in a<br/>tracker that the<br/>pipeline never reports<br/>at all?"]
+    U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
+    U73["<b>73</b><br/>Three workbook defects<br/>the pipeline detects,<br/>acts on, and never<br/>reports"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4726,7 +4834,8 @@ flowchart TB
   S2026_08_24h ~~~ S2026_08_25b
   S2026_08_25b ~~~ S2026_08_25c
   S2026_08_25c ~~~ S2026_08_25d
-  S2026_08_25d ~~~ Sunworked
+  S2026_08_25d ~~~ S2026_08_26
+  S2026_08_26 ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4817,11 +4926,13 @@ flowchart TB
   U16 -.->|spawned| U70
   U69 -.->|spawned| U71
   U69 ==>|closed| U71
+  U70 -.->|spawned| U72
+  U70 -.->|spawned| U73
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68,U70 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68,U72,U73 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U71 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```

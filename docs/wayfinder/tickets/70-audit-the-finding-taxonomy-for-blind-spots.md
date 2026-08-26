@@ -2,12 +2,12 @@
 id: 70
 title: What can go wrong in a tracker that the pipeline never reports at all?
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-26
+claimed_at: 2026-08-26
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 16
 ---
@@ -134,3 +134,132 @@ review of the code list. And per [ticket
 32](32-audit-classifiers-against-decision-bar.md)'s hard-won lesson: finding
 evidence that fits the existing frame is the most reliable way an audit gets
 abandoned halfway. A code that looks right is the one to check hardest.
+
+## Resolution (2026-08-26)
+
+**Decision. The taxonomy's blind spots are structural, not lexical: what the
+pipeline fails to report is not a defect kind it lacks a word for, but a
+*decision it makes silently* -- a sheet it does not open, a value it replaces,
+a mismatch it logs instead of reporting.** Four gaps are named and measured
+below. The audit did not redesign anything; each gap that needs a decision left
+as its own ticket.
+
+**Two derived artifacts, both kept, neither hand-written:**
+
+- [`scripts/finding_inventory.py`](../../../scripts/finding_inventory.py) --
+  walks the AST for every `report_finding` call site and prints its code,
+  category, glossary line, governing condition and stage, joined against a
+  run's measured counts. **51 call sites -> 35 codes, against 37 declared.**
+  `--silent` is the second mode: 86 discard/sentinel sites in functions that
+  emit nothing, narrowed to **60 that actually lose a value** by splitting
+  `otherwise(pl.col(x))` (the "everything else is fine" branch) from
+  `otherwise(pl.lit(...))` (a replacement). Without that split the survey is
+  noise and the real sites do not stand out.
+- [`scripts/finding_blind_spots.py`](../../../scripts/finding_blind_spots.py)
+  -- five probes, one per suspected gap, each printing its own evidence
+  against the real tracker set.
+
+### The four gaps
+
+**1. A sheet the name matcher does not recognise is skipped in total silence.**
+`sheet_skipped` has ten call sites and **fired zero times** on the 255-tracker
+run -- every one of them reports a sheet that was *found and unusable*, never
+one that was never considered. 517 sheets are never opened (16 distinct names,
+mostly `Lookup List` / `Inventory` / `INV`). One is a real loss: `Annual_2026`
+in the 2026 VNCH tracker, **76 rows with `VN_VC###` IDs**, missed because the
+static-sheet test is the exact string `"Annual"`. Now [ticket
+72](72-sheets-the-pipeline-never-opens.md).
+
+**2. Three defects the pipeline detects, acts on, and never reports.** A
+diagnosis date before the date of birth (**8 patients, 7 trackers, 58 rows** --
+`MY_PJ025` is diagnosed seven years before birth), stock released to a patient
+ID that tracker does not contain (**14 rows, 2 trackers**, DEBUG log only), and
+an unrecognised sex value sentinelled to `Undefined` (**1 row**, source cell
+`§`). Now [ticket 73](73-three-defects-detected-but-never-reported.md).
+
+**3. The table mixes units and no field says which.**
+`validate_allowed_values` iterates `col_values.unique()`, so it emits one
+finding per *distinct value* per tracker: 1,170 `province` findings across 124
+trackers against **26,124 rows carrying the `Undefined` province sentinel in
+those same trackers**. `type_conversion` is per *row* -- 3,579 findings against
+3,692 `hba1c_baseline` sentinels, 8,122 against 8,486 `fbg_baseline_mg`. Both
+are correct emitters; the table cannot tell them apart, and the Summary sheet
+ranks trackers by a count that silently weights one above the other. Recorded
+on [ticket 67](67-findings-must-name-sheet-year-month.md), whose `scope` field
+is the same field.
+
+**4. [Ticket 68](68-blank-header-emitter-vs-catalogue.md) is probably an
+instance of gap 3, but only half of it.** If `blank_header_with_data` counts
+columns where ticket 30 counted values, 217-vs-4,572 is ~21 values per column
+-- the right order for a sheet. That is a hypothesis recorded on 68, not a
+finding: it was not checked, and it does not explain why the code never fires
+on ticket 30's headline example or outside 2022.
+
+### Because
+
+The four instances the ticket was written on all pointed at codes. Deriving the
+inventory showed the codes are in reasonable shape after [ticket
+69](69-miscategorised-and-duplicated-findings.md) -- 37 codes, 35 firing, none
+doing twelve jobs any more, names that distinguish. What is *not* in reasonable
+shape is everything upstream of a code: selection, replacement and
+cross-checking all make decisions that never become findings. That is why
+"which defect kind is missing a word" was the wrong question to keep asking,
+and it is the answer to the ticket's point 5 (below).
+
+### Rejected
+
+- **Adding codes for the gaps in this session.** The ticket scoped itself to an
+  inventory and named gaps, and each gap turns out to carry a real decision --
+  what unit to report a skipped sheet in, whether a one-instance defect earns a
+  permanent glossary entry, whether to keep publishing an age the workbook's
+  own dates contradict. Deciding those inside an audit is how an audit becomes
+  a redesign nobody reviewed.
+- **"The taxonomy should be complete" (point 5).** Rejected for the value space
+  and accepted for the structural space. Clinic mistakes are open-ended -- no
+  finite code list covers what a person can type into a cell -- so chasing
+  exhaustiveness there buys a longer glossary and no more coverage; a catch-all
+  with good detail is the better trade, which is what `type_conversion` and
+  `value_not_in_allowed_list` already are. But the set of places the pipeline
+  *decides* something is finite, enumerable from the tree, and now enumerated:
+  **every point where the pipeline declines to look at data, or replaces a
+  value with a sentinel, should emit a finding or be able to say why not.**
+  That rule is testable the same way ticket 69's emitter map is -- the
+  `--silent` mode is the derivation, and a guard test over it would keep the
+  answer true rather than leaving it as this session's snapshot. Not built
+  here: it needs the three tickets' decisions first, or it pins today's
+  silences as correct.
+- **The `INV`/`Inventory` hypothesis.** 112 `INV` and 133 `Inventory` sheets
+  are never opened and the product arm reads month sheets only, so a tracker
+  keeping stock on a dedicated sheet would lose all of it silently. Measured
+  and killed: every tracker with such a sheet still produced product rows, and
+  the four `empty_product_data` trackers have no `INV` sheet at all, so that
+  code's message is accurate. Recorded because the next person will have the
+  same idea.
+- **"760 static-sheet rows are dropped without an ID."** The first measurement
+  said so; qualifying it killed it. All 760 resolve to sub-header rows (the
+  units row: `(dd-mmm-yyyy)`, `Y OR N`, `%`), all-zero template rows, or the
+  Annual sheet's second header row. **Zero carry real patient data on the
+  current set.** The code path is real -- `read_all_patient_sheets` filters
+  null and `#`-prefixed IDs out of the static sheets while the month-sheet path
+  reports the identical defects as `missing_required_field` and
+  `excel_error_patient_id` -- but it has no current population, so it is
+  recorded as an assumption on the map rather than ticketed.
+- **A per-site "what happens to the value" column in the inventory.** It is
+  judgement, not derivable, and a hand-annotated column keyed to call sites
+  drifts the first time one moves. The condition and the category are derived;
+  the judgement lives in this resolution and in the spawned tickets.
+
+### Evidence
+
+**Executed.** Every count above comes from the 255-tracker run on the data
+drive (`table_findings.parquet`, the per-tracker cleaned and raw parquets) or
+from opening the source workbooks with openpyxl -- the sheet census, the 76
+`Annual_2026` rows, the eight diagnosis-before-birth patients, the two
+unmatched product recipients, the `§` in `2019_Preah Kossamak`, the province
+and `type_conversion` unit comparisons, and the `INV` and static-row
+hypotheses that died. The one **read** claim is gap 4, explicitly flagged as a
+hypothesis on ticket 68.
+
+**Tense.** All counts describe **current behaviour** on the 2026-08-25 run.
+Nothing in this session changed the pipeline; the two scripts are new and read
+only. `uv run pytest -m "not slow"`: 1,198 passed, 1 skipped.

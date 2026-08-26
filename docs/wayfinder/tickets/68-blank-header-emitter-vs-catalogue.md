@@ -22,6 +22,26 @@ spawned_by: 16
 > `invalid_tracker` no longer exist and `missing_column` is now
 > `unrecognised_column`.
 
+> **A likely explanation arrived 2026-08-26, and it is not the one this ticket
+> assumes.** [The taxonomy blind-spot audit](70-audit-the-finding-taxonomy-for-blind-spots.md)
+> found a second code with the same shape of discrepancy and traced it to the
+> emitter's **unit**, not to a coverage gap: `value_not_in_allowed_list`
+> reports 1,170 `province` findings across 124 trackers where 26,124 rows in
+> those same trackers carry the `Undefined` province sentinel, because
+> `validate_allowed_values` iterates `col_values.unique()`. If
+> `blank_header_with_data` counts *columns* while ticket 30 counted *values*,
+> 217-vs-4,572 is one column carrying many values rather than a missed
+> population -- roughly 21 values per column, which is the right order for a
+> sheet.
+>
+> That is a hypothesis, not a finding: the audit did not open the emitter to
+> check, and it does **not** explain the other half of this ticket, that the
+> code never fires on ticket 30's headline example (`2021_Kantha Bopha` column
+> Q) or on any tracker outside 2022. Check the unit first -- it is one read of
+> `extract_patient_data` -- because if it holds, this ticket's question changes
+> from "why is the emitter missing 95% of them" to "why does it skip whole
+> trackers", and the second question is the real one.
+
 ## Premise
 
 Rests on [Triage the patient pipeline's raw-stage column-existence
