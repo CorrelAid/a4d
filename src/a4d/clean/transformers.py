@@ -78,7 +78,16 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
 
     - Female synonyms: female, girl, woman, fem, feminine, f → "F"
     - Male synonyms: male, boy, man, masculine, m → "M"
-    - Anything else → "Undefined" (error value)
+    - Anything else → "Undefined" (error value), reported as
+      ``value_not_in_allowed_list``
+
+    The rejection reuses the allowed-list code rather than taking one of its
+    own: the outcome is identical to every other value a column does not
+    allow, and this function only bypasses ``validate_allowed_values`` because
+    its synonym lists are hand-rolled. It used to sentinel in silence -- on the
+    255-tracker corpus that is one cell, ``§`` in 2019 Preah Kossamak, but
+    nothing would have said so if a clinic wrote ``F/M`` down a whole column
+    (ticket 73).
 
     Args:
         df: Input DataFrame
@@ -98,6 +107,26 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
 
     synonyms_female = ["female", "girl", "woman", "fem", "feminine", "f"]
     synonyms_male = ["male", "boy", "man", "masculine", "m"]
+
+    # Reported before the transformation below overwrites the cell, so the
+    # finding can carry what the workbook actually held. Several callers pass a
+    # bare column, so the patient is named only where the frame carries one.
+    recognised = set(synonyms_female) | set(synonyms_male)
+    unrecognised = df.filter(
+        pl.col(column).is_not_null()
+        & (pl.col(column) != "")
+        & ~pl.col(column).str.to_lowercase().is_in(list(recognised))
+    )
+    id_column = "patient_id" if "patient_id" in df.columns else None
+    for row in unrecognised.iter_rows(named=True):
+        report_finding(
+            patient_id=row[id_column] if id_column else "unknown",
+            column=column,
+            original_value=row[column],
+            message=f"Sex value '{row[column]}' is not a recognised spelling of male or female",
+            error_code="value_not_in_allowed_list",
+            function_name="fix_sex",
+        )
 
     # Build expression using pl.when().then().when().then()... chain
     # Start with null/empty handling

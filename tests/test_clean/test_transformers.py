@@ -886,3 +886,43 @@ def test_extract_regimen_preserves_case_of_unmatched_values():
         "Glargine",
         "Mix -bolus",
     ]
+
+
+class TestFixSexReportsUnrecognisedValues:
+    """A sex cell the synonym lists reject is replaced by the ``Undefined``
+    sentinel, and used to be replaced in silence.
+
+    On the real 255-tracker run that is one cell -- ``§`` in 2019 Preah
+    Kossamak -- which is not an argument for urgency but is an argument that
+    nothing would say so if a clinic wrote ``F/M`` down a whole column
+    (ticket 73). It reuses ``value_not_in_allowed_list`` rather than taking a
+    code of its own: the outcome is identical to every other allowed-list
+    rejection, and ``fix_sex`` only bypasses ``validate_allowed_values``
+    because it is hand-rolled.
+    """
+
+    def test_an_unrecognised_value_is_reported(self, collector):
+        df = pl.DataFrame({"patient_id": ["KH_PK001"], "sex": ["§"]})
+
+        result = fix_sex(df)
+
+        assert [f.error_code for f in collector.findings] == ["value_not_in_allowed_list"]
+        assert collector.findings[0].original_value == "§"
+        assert collector.findings[0].patient_id == "KH_PK001"
+        assert result["sex"].to_list() == [settings.error_val_character]
+
+    def test_recognised_values_and_blanks_report_nothing(self, collector):
+        df = pl.DataFrame({"patient_id": ["a", "b", "c", "d"], "sex": ["Female", "m", None, ""]})
+
+        fix_sex(df)
+
+        assert len(collector) == 0
+
+    def test_a_frame_without_patient_ids_still_reports(self, collector):
+        """Several callers hand ``fix_sex`` a bare column; a finding it cannot
+        attribute to a patient is still worth more than silence."""
+        df = pl.DataFrame({"sex": ["X"]})
+
+        fix_sex(df)
+
+        assert [f.patient_id for f in collector.findings] == ["unknown"]

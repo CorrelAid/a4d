@@ -75,10 +75,12 @@ ErrorCode = Literal[
     "balance_reconciliation",
     "negative_stock_balance",
     "released_units_without_recipient",
+    "released_units_to_unknown_patient",
     "product_not_in_catalogue",
     "entry_date_outside_sheet_month",
     "entry_date_outside_tracker_year",
     "age_negative_from_dob",
+    "diagnosis_age_negative_from_dob",
     # --- the pipeline published a value the workbook did not state ---
     "typo_rescued",
     "date_recovered_from_text",
@@ -128,10 +130,12 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
     "balance_reconciliation": "fix_workbook",
     "negative_stock_balance": "fix_workbook",
     "released_units_without_recipient": "fix_workbook",
+    "released_units_to_unknown_patient": "fix_workbook",
     "product_not_in_catalogue": "fix_workbook",
     "entry_date_outside_sheet_month": "fix_workbook",
     "entry_date_outside_tracker_year": "fix_workbook",
     "age_negative_from_dob": "fix_workbook",
+    "diagnosis_age_negative_from_dob": "fix_workbook",
     # The pipeline published a value the workbook did not state. Nothing to do,
     # but the record stays auditable because a recovery is still an inference.
     "typo_rescued": "recovered",
@@ -250,6 +254,13 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "so the stock left the clinic with no record of where it went. Fill in "
         "the 'released to' cell."
     ),
+    "released_units_to_unknown_patient": (
+        "Units were recorded as released to a patient ID that appears nowhere "
+        "in this tracker's own patient sheets, so the stock left the clinic "
+        "against a patient the workbook does not know. Either the ID is "
+        "mistyped on the stock row, or the patient is missing from the "
+        "Patient List."
+    ),
     "product_not_in_catalogue": (
         "The product name in this row matches nothing in the product reference "
         "list, so the row cannot be grouped with the same product elsewhere. "
@@ -269,6 +280,13 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "The age calculated from this patient's date of birth is negative, so the "
         "date of birth is after the visit. One of the two dates is wrong; check "
         "them against the patient's record."
+    ),
+    "diagnosis_age_negative_from_dob": (
+        "This patient's diagnosis date falls before their date of birth, so "
+        "the age at diagnosis cannot be calculated. One of the two dates is "
+        "wrong; check them against the patient's record. Any diagnosis age "
+        "already typed into the workbook is published unchanged -- it is the "
+        "two dates that contradict each other, not the age."
     ),
     "typo_rescued": (
         "A date was written with a known misspelling and the correction was "

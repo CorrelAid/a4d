@@ -880,14 +880,36 @@ def _fix_t1d_diagnosis_age(df: pl.DataFrame) -> pl.DataFrame:
         .otherwise(0)
     )
 
+    # A diagnosis recorded before the patient was born is a workbook defect,
+    # and it is reported whether or not the age cell was filled in -- the two
+    # dates contradict each other either way. Emitted before the calculation
+    # below, which has nothing to say about such a row and publishes null
+    # (ticket 52); a recorded age is left standing, because 3, 9 or 14 is a
+    # plausible clinic-entered number and the suspect evidence is the date
+    # pair, not the age. 8 patients across 7 trackers, 58 rows (ticket 73).
+    contradiction = valid_dob & valid_diagnosis & (calculated_age < 0)
+    for patient_id, dob, diagnosis_date, recorded_age in (
+        df.filter(contradiction)
+        .select("patient_id", "dob", "t1d_diagnosis_date", "t1d_diagnosis_age")
+        .unique(subset=["patient_id", "dob", "t1d_diagnosis_date"], maintain_order=True)
+        .iter_rows()
+    ):
+        report_finding(
+            patient_id=patient_id or "unknown",
+            column="t1d_diagnosis_age",
+            original_value="NULL" if recorded_age is None else str(recorded_age),
+            message=(
+                f"Diagnosis date {diagnosis_date} precedes date of birth {dob}, "
+                f"so the age at diagnosis cannot be calculated"
+            ),
+            error_code="diagnosis_age_negative_from_dob",
+            function_name="_fix_t1d_diagnosis_age",
+        )
+
     df = df.with_columns(
         pl.when(has_recorded_age)
         .then(pl.col("t1d_diagnosis_age"))
         .when(valid_dob & valid_diagnosis)
-        # A negative result means the tracker dates contradict each other --
-        # diagnosis recorded before birth (ticket 52). The derivation has
-        # nothing to say about such a row, and emitting the arithmetic put
-        # impossible ages into production output.
         .then(pl.when(calculated_age >= 0).then(calculated_age).otherwise(None))
         .otherwise(None)
         .cast(pl.Int32)

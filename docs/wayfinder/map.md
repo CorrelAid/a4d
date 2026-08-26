@@ -46,9 +46,9 @@ flowchart TD
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
     T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
-    T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
+    T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
   end
-  subgraph DECIDED["Decided · 62"]
+  subgraph DECIDED["Decided · 63"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -112,6 +112,7 @@ flowchart TD
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
+    T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
   end
   subgraph DROPPED["Out of scope · 2"]
     direction TB
@@ -148,9 +149,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68,T72,T73 frontier
+  class T9,T34,T35,T40,T41,T67,T68,T72,T74 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T73 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -2987,7 +2988,88 @@ spare. Ticket 70 did **not** subsume 68 or 40, as the previous session
 suggested it might: 40's four defect kinds are untouched by it, and 68 gained a
 hypothesis rather than an answer.
 
+
+**[The three silent defects](tickets/73-three-defects-detected-but-never-reported.md)
+are closed, and all three now reach the findings table.** The taxonomy went
+**35 codes firing -> 37** and findings **105,441 -> 105,464** -- the +23 is
+exactly the 8 diagnosis-before-birth patients, the 14 unmatched stock releases
+and the 1 unrecognised sex value, and nothing else moved.
+
+**Only two of the three needed a name.** `diagnosis_age_negative_from_dob` and
+`released_units_to_unknown_patient` are new; the sex value reuses
+`value_not_in_allowed_list`, because its outcome is indistinguishable from the
+other 1,502 rejections and a code with one instance would sit in the glossary
+forever. The two arms of that reuse are now a fog patch: the code is
+categorised `data_lost` while ticket 69's own tie-break argues for
+`fix_workbook`, and re-deciding it moves 1,503 findings.
+
+**The user's call on the recorded age was to keep it.** Four of the eight
+patients publish an age the clinic typed while their own dates say the
+diagnosis came before birth; the ages (3, 9, 3, 14) are plausible and the date
+pair is not, so the report flags the contradiction and the data keeps the
+number -- `glucose_unit_suspect`'s precedent. It is an assumption rather than a
+finding, and is recorded as one.
+
+**Two bugs surfaced from implementing rather than from looking.** The
+product-patient link check ran at CLI step **3g, after** the findings table was
+built at **3e**, so a finding emitted there would have been computed after the
+table meant to hold it -- invisible until something actually emitted. And the
+first attempt to run the check under `a4d create tables` double-counted
+(**28 for 14 rows**), because `report_finding` writes to the active loguru sink
+that `rebuild_findings_from_logs` also globs; it was measured, reverted, and
+the rebuild proved exact without it (105,464 both ways, row-for-row identical
+on thirteen fields).
+
+**A third defect was spawned rather than fixed**: both readers of
+`output/logs/` read every worker log file present, and those names carry a run
+timestamp and pid, so nothing overwrites the last run's. Two runs on disk made
+the rebuild return **213,921** for a run of 105,464, and `create_table_logs`
+**326,092** against a true 217,022. Production is unaffected (fresh container
+per run) but the local corpus is where every triage number on this map was
+measured. That is [ticket 74](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md),
+and every figure quoted above was measured with `logs/` cleared first.
+
+**The frontier is nine** -- ticket 73 closing, ticket 74 opening -- and **none
+of the nine is on the route, because the route is finished**; all nine clauses
+of the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and five
+data-quality tickets. **Take [ticket
+74](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md) next**: it is
+small, it is measured, and until it is fixed every local measurement this map
+takes has to remember to clear `logs/` first -- a trap the next session will
+fall into exactly once. After that, [ticket
+72](tickets/72-sheets-the-pipeline-never-opens.md) is the one with real data
+behind it (76 patient rows in `Annual_2026` that no code path opens). [Ticket
+67](tickets/67-findings-must-name-sheet-year-month.md) is still the one that
+would change the most and still should not be started without a session to
+spare -- and it gained weight here: the per-row-versus-per-patient split this
+ticket chose deliberately (14 one way, 8 the other) is exactly the distinction
+its `scope` field would make explicit, and right now nothing in the table says
+which counting rule a code follows.
+
 ## Decisions so far
+
+- [Three workbook defects the pipeline detects, acts on, and never
+  reports](tickets/73-three-defects-detected-but-never-reported.md) -- decided.
+  **All three are reported, but only two needed a name.**
+  `diagnosis_age_negative_from_dob` (8, `fix_workbook`) and
+  `released_units_to_unknown_patient` (14, `fix_workbook`) are new codes; an
+  unrecognised sex value reuses the existing `value_not_in_allowed_list`,
+  because its outcome is indistinguishable from the other 1,502 and a
+  one-instance name would sit in the glossary forever. **The recorded
+  diagnosis age is kept, not nulled** (user's call): 3, 9, 3 and 14 are
+  plausible clinician-typed numbers, and the suspect evidence is the date pair
+  -- `glucose_unit_suspect`'s precedent, publish as recorded and tell the
+  operator to check. Findings **105,441 -> 105,464**, codes firing **35 -> 37**;
+  the +23 is exactly 8 + 14 + 1 and nothing else moved. Fixed an ordering bug
+  found while implementing: the link check ran at CLI step 3g, **after** the
+  findings table was built at 3e, so its findings would have been computed too
+  late to reach the table. Ticket 66's rebuild guarantee re-proved exact
+  (105,464 both ways, row-for-row identical on thirteen fields). Spawned
+  [ticket 74](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md).
 
 - [What can go wrong in a tracker that the pipeline never reports at
   all?](tickets/70-audit-the-finding-taxonomy-for-blind-spots.md) -- decided.
@@ -4190,6 +4272,20 @@ hypothesis rather than an answer.
 
 ## Assumptions in force
 
+- **A diagnosis age the workbook records is more trustworthy than the two
+  dates that contradict it.** Four of the eight patients whose diagnosis date
+  precedes their date of birth publish the age the clinic typed (3, 9, 3, 14)
+  rather than null, on the reasoning that each is plausible on its own while
+  the date pair is not. Nothing establishes which of the three values is the
+  wrong one -- the ages are published because they look right, not because
+  anything checked them. Resting on [ticket
+  73](tickets/73-three-defects-detected-but-never-reported.md); overturned by
+  any of the four patients' records showing the recorded age is the error and
+  the dates are sound, which would make the published age a wrong number the
+  report merely flags rather than a good one it defends. `MY_LW004` is the
+  natural test: the 2022 tracker publishes 3 and the 2023 tracker publishes
+  null for the same patient and the same two dates.
+
 - **The static sheets' silent ID filters have no current population.**
   `read_all_patient_sheets` drops Patient List and Annual rows whose patient ID
   is null or starts with `#`, while the month-sheet path reports the identical
@@ -4420,6 +4516,18 @@ both are corrected on it. Under the reading that ticket 16 is the destination's
 ninth clause, it is the only frontier ticket on the route.
 
 ## Not yet specified
+
+- Whether **`value_not_in_allowed_list` is categorised correctly**. It is
+  `data_lost`, but ticket 69's own tie-break says `fix_workbook` wins wherever
+  a value is both lost and correctable at the clinic -- and a free-text note in
+  a Y/N column, a province spelled wrong, a sex written `F/M` are all
+  correctable by retyping. The code was left alone while [ticket
+  73](tickets/73-three-defects-detected-but-never-reported.md) routed a fourth
+  emitter (`fix_sex`) into it, because re-categorising moves 1,503 findings out
+  of `data_lost` and into the bucket A4D staff work from, and nobody has said
+  whether that is wanted. Not sharp enough to ticket until someone has looked
+  at what the 1,503 actually are -- the same question probably applies to
+  `value_out_of_range` and `blood_pressure_unparseable`.
 
 - Whether **R's inability to read a slash-separated month/year** deserves its
   own cause. One `bmi_date` cell (`0ct/19`, typo-rescued to `OCT/19`) is
@@ -4764,6 +4872,10 @@ flowchart TB
     direction LR
     U70["<b>70</b><br/>What can go wrong in a<br/>tracker that the<br/>pipeline never reports<br/>at all?"]
   end
+  subgraph S2026_08_26b["Session 2026-08-26b"]
+    direction LR
+    U73["<b>73</b><br/>Three workbook defects<br/>the pipeline detects,<br/>acts on, and never<br/>reports"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4778,7 +4890,7 @@ flowchart TB
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
     U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
-    U73["<b>73</b><br/>Three workbook defects<br/>the pipeline detects,<br/>acts on, and never<br/>reports"]
+    U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4835,7 +4947,8 @@ flowchart TB
   S2026_08_25b ~~~ S2026_08_25c
   S2026_08_25c ~~~ S2026_08_25d
   S2026_08_25d ~~~ S2026_08_26
-  S2026_08_26 ~~~ Sunworked
+  S2026_08_26 ~~~ S2026_08_26b
+  S2026_08_26b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -4928,11 +5041,12 @@ flowchart TB
   U69 ==>|closed| U71
   U70 -.->|spawned| U72
   U70 -.->|spawned| U73
+  U73 -.->|spawned| U74
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68,U72,U73 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68,U72,U74 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U73 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```
