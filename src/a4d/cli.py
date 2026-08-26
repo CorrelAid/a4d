@@ -1487,6 +1487,33 @@ def run_all_cmd(
         except Exception as e:
             console.print(f"  [bold yellow]Warning: logs table failed: {e}[/bold yellow]\n")
 
+    # Product-patient link validation. Runs *before* the findings table is
+    # built, because its unmatched recipients are findings and a table already
+    # written would not carry them — it sat after the build until ticket 73 and
+    # emitted nothing, so the ordering was invisible.
+    #
+    # Joins against patient_data_monthly (one row per patient per tracker
+    # file/month) — NOT patient_data_static, which collapses each patient to a
+    # single latest record and therefore only covers each patient's most recent
+    # file. That mismatch alone previously produced an 88% false-positive rate.
+    # Skips silently if either arm's table is missing (e.g. --skip-product), or
+    # when --skip-patient leaves a stale patient_data_monthly.parquet on disk
+    # whose contents don't match this run's product output. Production always
+    # runs both arms, so a stale patient table is a debugging case only.
+    link_findings: list[Finding] = []
+    product_table = tables_dir / "product_data.parquet"
+    patient_monthly = tables_dir / "patient_data_monthly.parquet"
+    if not skip_patient and product_table.exists() and patient_monthly.exists():
+        console.print("[bold]Step 3e/5:[/bold] Validating product-patient links...")
+        try:
+            from a4d.tables.product import link_product_patient
+
+            product_df = pl.read_parquet(product_table)
+            mismatched, link_findings = link_product_patient(product_df, patient_monthly)
+            console.print(f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n")
+        except Exception as e:
+            console.print(f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n")
+
     # Errors table — written here, after both arms, rather than by either arm.
     # The patient arm writes it from inside run_patient_pipeline and the product
     # arm never wrote it at all, so `run` published a patient-only findings table
@@ -1504,9 +1531,9 @@ def run_all_cmd(
             *(f for tracker in arm_result.tracker_results for f in tracker.findings),
             *arm_result.table_findings,
         )
-    ]
+    ] + link_findings
     if arm_findings:
-        console.print("[bold]Step 3e/5:[/bold] Creating findings table (both arms)...")
+        console.print("[bold]Step 3f/5:[/bold] Creating findings table (both arms)...")
         try:
             create_table_findings(arm_findings, tables_dir)
             console.print(f"  ✓ Findings table created ({len(arm_findings):,} findings)\n")
@@ -1516,7 +1543,7 @@ def run_all_cmd(
     # Tracker metadata table — MD5 + per-tracker output presence.
     # Not a skip-gated step; it's cheap and summarises the run's final state.
     if settings.data_root.exists():
-        console.print("[bold]Step 3f/5:[/bold] Creating tracker metadata table...\n")
+        console.print("[bold]Step 3g/5:[/bold] Creating tracker metadata table...\n")
         try:
             from a4d.tables.metadata import create_table_tracker_metadata
 
@@ -1524,28 +1551,6 @@ def run_all_cmd(
             console.print("  ✓ Tracker metadata table created\n")
         except Exception as e:
             console.print(f"  [bold yellow]Warning: tracker metadata failed: {e}[/bold yellow]\n")
-
-    # Step 3g – Product-patient link validation (logging-only, post-tables).
-    # Joins against patient_data_monthly (one row per patient per tracker
-    # file/month) — NOT
-    # patient_data_static, which collapses each patient to a single latest
-    # record and therefore only covers each patient's most recent file. That
-    # mismatch alone previously produced an 88% false-positive mismatch rate.
-    # Skips silently if either arm's table is missing (e.g. --skip-product), or
-    # when --skip-patient leaves a stale patient_data_monthly.parquet on disk
-    # whose contents don't match this run's product output.
-    product_table = tables_dir / "product_data.parquet"
-    patient_monthly = tables_dir / "patient_data_monthly.parquet"
-    if not skip_patient and product_table.exists() and patient_monthly.exists():
-        console.print("[bold]Step 3g/5:[/bold] Validating product-patient links...")
-        try:
-            from a4d.tables.product import link_product_patient
-
-            product_df = pl.read_parquet(product_table)
-            mismatched = link_product_patient(product_df, patient_monthly)
-            console.print(f"  ✓ Link validation complete ({mismatched} unmatched product rows)\n")
-        except Exception as e:
-            console.print(f"  [bold yellow]Warning: link validation failed: {e}[/bold yellow]\n")
 
     # Step 4 – Upload tables/ and logs/ to GCS under a timestamped prefix
     # Each run gets an isolated path: YYYY/MM/DD/HHMMSS/tables/ and .../logs/

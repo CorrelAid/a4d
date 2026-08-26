@@ -12,7 +12,7 @@ from loguru import logger
 from a4d.clean.converters import safe_convert_column
 from a4d.clean.schema_product import apply_schema, get_product_data_schema
 from a4d.clean.validators import fix_patient_id
-from a4d.findings import Finding, findings_collected
+from a4d.findings import Finding, findings_collected, report_finding
 
 
 def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
@@ -97,13 +97,18 @@ def create_table_product_data(
 def link_product_patient(
     product_df: pl.DataFrame,
     patient_table_path: Path,
-) -> int:
+) -> tuple[int, list[Finding]]:
     """Validate product_released_to against a per-file patient table.
 
     LEFT-joins product rows onto the patient table on
-    ``(file_name, product_released_to ↔ patient_id)`` and logs each
-    ``(file_name, product_released_to)`` pair that has no patient match.
-    Logging-only — does not modify either table and never raises.
+    ``(file_name, product_released_to ↔ patient_id)`` and reports every row
+    whose recipient appears in no patient sheet of its own tracker. Does not
+    modify either table and never raises.
+
+    A release recorded against an ID the workbook does not know means insulin
+    left the clinic attributed to a patient nobody can find -- 14 rows across
+    2 trackers on the 255-tracker corpus, out of 44,591 that name a recipient.
+    Until ticket 73 it was counted, logged at DEBUG, and reported to nobody.
 
     ``patient_table_path`` must have one row per ``(file_name, patient_id)``
     pair actually present in each tracker file — i.e. ``patient_data_monthly``.
@@ -125,7 +130,9 @@ def link_product_patient(
             ``patient_data_monthly.parquet``.
 
     Returns:
-        Total count of mismatched product rows for telemetry/test use.
+        The count of mismatched product rows, and the findings they produced --
+        returned rather than left in a context, because the caller is what
+        knows where the run's findings table is being assembled.
     """
     from a4d.config import settings
 
@@ -134,7 +141,7 @@ def link_product_patient(
             f"Patient table not available at {patient_table_path}; "
             "skipping product-patient link validation."
         )
-        return 0
+        return 0, []
 
     # .unique() guards against join fan-out if the patient table has more
     # than one row per (file_name, patient_id) — e.g. patient_data_monthly
@@ -179,6 +186,35 @@ def link_product_patient(
             f"patient_id='{row['product_released_to']}' count={row['count']}"
         )
 
+    # One finding per row, not per (file, id) pair: each row is its own stock
+    # movement, and the null-recipient defect beside it
+    # (released_units_without_recipient) counts the same way.
+    #
+    # The context is opened here rather than by the caller for the same reason
+    # create_product_data_table opens its own -- this runs at table-aggregation
+    # time, across every tracker's output, outside any one tracker's scope, and
+    # an emit with nothing bound raises into a caller that logs and continues.
+    findings: list[Finding] = []
+    if total_mismatched_rows:
+        with findings_collected(arm="product") as collector:
+            for file_name, patient_id in mismatches.select(
+                "file_name", "product_released_to"
+            ).iter_rows():
+                report_finding(
+                    file_name=file_name,
+                    patient_id=patient_id,
+                    column="product_released_to",
+                    original_value=patient_id,
+                    message=(
+                        f"Units released to '{patient_id}', which appears in no "
+                        f"patient sheet of this tracker"
+                    ),
+                    error_code="released_units_to_unknown_patient",
+                    stage="tables",
+                    function_name="link_product_patient",
+                )
+        findings = collector.findings
+
     summary = (
         f"Product-patient link validation: {total_mismatched_rows} mismatched rows, "
         f"{distinct_pairs} distinct (file × id) pairs, "
@@ -189,4 +225,4 @@ def link_product_patient(
     else:
         logger.info(summary)
 
-    return total_mismatched_rows
+    return total_mismatched_rows, findings

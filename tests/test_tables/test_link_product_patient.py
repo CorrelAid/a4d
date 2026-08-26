@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 from loguru import logger
 
+from a4d.findings import current_findings
 from a4d.tables.product import link_product_patient
 
 
@@ -59,7 +60,7 @@ def test_all_match_returns_zero_no_warnings(tmp_path: Path, captured_warnings: l
         }
     )
 
-    count = link_product_patient(product_df, patient_path)
+    count, _ = link_product_patient(product_df, patient_path)
 
     assert count == 0
     assert captured_warnings == []
@@ -93,7 +94,7 @@ def test_mixed_filters_null_and_sentinel(tmp_path: Path, captured_warnings: list
         }
     )
 
-    count = link_product_patient(product_df, patient_path)
+    count, _ = link_product_patient(product_df, patient_path)
 
     assert count == 2
     # Per-pair detail ("Unmatched product_released_to") is DEBUG-only now —
@@ -121,7 +122,7 @@ def test_cross_file_isolation(tmp_path: Path, captured_warnings: list[str]) -> N
         }
     )
 
-    count = link_product_patient(product_df, patient_path)
+    count, _ = link_product_patient(product_df, patient_path)
 
     assert count == 1
     mismatch_warnings = [w for w in captured_warnings if "Unmatched product_released_to" in w]
@@ -141,8 +142,60 @@ def test_missing_patient_table_returns_zero_with_warning(
     )
     missing_path = tmp_path / "does_not_exist.parquet"
 
-    count = link_product_patient(product_df, missing_path)
+    count, _ = link_product_patient(product_df, missing_path)
 
     assert count == 0
     skip_warnings = [w for w in captured_warnings if "skipping" in w.lower()]
     assert len(skip_warnings) == 1
+
+
+class TestUnmatchedRecipientsBecomeFindings:
+    """Stock released to a patient ID that tracker's own patient sheets do not
+    contain used to be counted, logged at DEBUG, and reported to nobody.
+
+    On the real run that is 14 rows across 2 trackers, out of 44,591 that name
+    a recipient -- rare, but it means insulin left the clinic recorded against
+    a patient the tracker has never heard of (ticket 73). One finding per row
+    rather than per distinct pair: each row is its own stock movement, and the
+    null-recipient defect beside it (``released_units_without_recipient``)
+    counts the same way.
+    """
+
+    @pytest.mark.no_findings_context
+    def test_it_emits_without_a_context_already_bound(self, tmp_path: Path) -> None:
+        """The call sites are CLI steps, not tracker scopes, so the function
+        opens its own context -- the same shape `create_product_data_table`
+        uses. Exercised outside the suite's per-test fixture on purpose: an
+        emit with nothing bound raises, and the exception used to be swallowed
+        by the caller's try/except."""
+        assert current_findings() is None
+
+        patient_path = _write_patient_static(
+            tmp_path / "patient.parquet", [("tracker_a", "KH_QD001")]
+        )
+        product_df = pl.DataFrame(
+            {
+                "file_name": ["tracker_a", "tracker_a", "tracker_a"],
+                "product_released_to": ["KH_QD001", "KH_QD093", "KH_QD093"],
+            }
+        )
+
+        count, findings = link_product_patient(product_df, patient_path)
+
+        assert count == 2
+        assert [f.error_code for f in findings] == ["released_units_to_unknown_patient"] * 2
+        assert {f.file_name for f in findings} == {"tracker_a"}
+        assert {f.arm for f in findings} == {"product"}
+        assert {f.patient_id for f in findings} == {"KH_QD093"}
+        assert current_findings() is None
+
+    @pytest.mark.no_findings_context
+    def test_a_clean_link_emits_nothing(self, tmp_path: Path) -> None:
+        patient_path = _write_patient_static(
+            tmp_path / "patient.parquet", [("tracker_a", "KH_QD001")]
+        )
+        product_df = pl.DataFrame({"file_name": ["tracker_a"], "product_released_to": ["KH_QD001"]})
+
+        count, findings = link_product_patient(product_df, patient_path)
+
+        assert (count, findings) == (0, [])

@@ -813,3 +813,60 @@ class TestAgeFromDobBranchOrder:
             _fix_age_from_dob(df)
 
         assert [f.error_code for f in collector.findings] == ["age_derived_from_dob"]
+
+
+class TestDiagnosisAgeNegativeFromDob:
+    """A diagnosis recorded before the patient was born is a workbook defect,
+    and it must be reported whether or not the age cell was filled in.
+
+    ``_fix_age_from_dob`` reports the same contradiction on the *visit* age as
+    ``age_negative_from_dob``. On the diagnosis age it was met silently: the
+    derivation published ``None`` (ticket 52) and a recorded age was kept
+    untouched, so eight patients across seven real trackers carried the
+    contradiction with nothing said about it (ticket 73).
+    """
+
+    def _df(self, recorded_age: int | None) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "patient_id": ["MY_QE025"],
+                "file_name": ["2024_Putrajaya Hospital A4D Tracker"],
+                "dob": [date(2021, 5, 5)],
+                "t1d_diagnosis_date": [date(2014, 6, 20)],
+                "t1d_diagnosis_age": pl.Series([recorded_age], dtype=pl.Int32),
+            }
+        )
+
+    def test_an_empty_age_reports_the_contradiction(self, tmp_path):
+        with tracker_context("2024_Putrajaya", "patient", tmp_path) as collector:
+            result = _fix_t1d_diagnosis_age(self._df(None))
+
+        assert [f.error_code for f in collector.findings] == ["diagnosis_age_negative_from_dob"]
+        assert result["t1d_diagnosis_age"].to_list() == [None]
+
+    def test_a_recorded_age_is_reported_and_kept(self, tmp_path):
+        """The recorded age is a plausible clinic-entered number; the suspect
+        evidence is the date pair. Reporting it does not licence discarding it
+        (ticket 73)."""
+        with tracker_context("2024_Putrajaya", "patient", tmp_path) as collector:
+            result = _fix_t1d_diagnosis_age(self._df(7))
+
+        assert [f.error_code for f in collector.findings] == ["diagnosis_age_negative_from_dob"]
+        assert result["t1d_diagnosis_age"].to_list() == [7]
+
+    def test_sound_dates_report_nothing(self, tmp_path):
+        df = pl.DataFrame(
+            {
+                "patient_id": ["MY_QE026"],
+                "file_name": ["2024_Putrajaya Hospital A4D Tracker"],
+                "dob": [date(2010, 1, 1)],
+                "t1d_diagnosis_date": [date(2015, 6, 20)],
+                "t1d_diagnosis_age": pl.Series([None], dtype=pl.Int32),
+            }
+        )
+
+        with tracker_context("2024_Putrajaya", "patient", tmp_path) as collector:
+            result = _fix_t1d_diagnosis_age(df)
+
+        assert len(collector) == 0
+        assert result["t1d_diagnosis_age"].to_list() == [5]
