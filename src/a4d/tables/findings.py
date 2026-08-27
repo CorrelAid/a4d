@@ -78,13 +78,22 @@ def rebuild_findings_from_logs(
         output_dir: Directory to write the findings table parquet
         extra_findings: Findings emitted in this process rather than read back
             from the logs -- the product table stage's, which run under
-            ``findings_collected`` and so write to no per-tracker log file
+            ``findings_collected`` and so write to no per-tracker log file.
+            One that the logs already hold is dropped rather than added twice:
+            ``report_finding`` also writes to the active sink, so a stage run
+            after a full pipeline run is usually in ``main_pipeline_*.log``
+            too. Measured over the 255-tracker corpus, adding them
+            unconditionally reported 108,466 findings for a run of 105,464.
 
     Returns:
         Path to the created findings table parquet file
     """
-    findings: list[Finding] = list(extra_findings or [])
+    findings: list[Finding] = []
     seen: set[tuple] = set()
+    # Identity for the extra findings deliberately omits the timestamp the log
+    # scan keys on: the two copies of one finding are emitted by two different
+    # processes, so their timestamps never match.
+    logged_identities: set[tuple] = set()
 
     for log_file in sorted(logs_dir.glob("*.log")):
         with log_file.open(encoding="utf-8") as handle:
@@ -109,10 +118,12 @@ def rebuild_findings_from_logs(
                 # loguru writes every line to both the per-tracker handler and
                 # the worker's own file, so the same finding appears more than
                 # once across the directory.
-                key = (file_name, error_code, extra.get("column"), record.get("message"), timestamp)
+                message = record.get("message", "")
+                key = (file_name, error_code, extra.get("column"), message, timestamp)
                 if key in seen:
                     continue
                 seen.add(key)
+                logged_identities.add((file_name, error_code, extra.get("column") or "", message))
 
                 findings.append(
                     Finding(
@@ -133,6 +144,12 @@ def rebuild_findings_from_logs(
                         else datetime.now(),
                     )
                 )
+
+    for finding in extra_findings or []:
+        identity = (finding.file_name, finding.error_code, finding.column, finding.message)
+        if identity in logged_identities:
+            continue
+        findings.append(finding)
 
     logger.info(f"Rebuilt {len(findings):,} findings from {logs_dir}")
     return create_table_findings(findings, output_dir)

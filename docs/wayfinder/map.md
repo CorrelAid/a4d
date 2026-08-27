@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 9"]
+  subgraph FRONTIER["Frontier · 8"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -46,9 +46,8 @@ flowchart TD
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
     T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
-    T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
   end
-  subgraph DECIDED["Decided · 63"]
+  subgraph DECIDED["Decided · 64"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -113,6 +112,7 @@ flowchart TD
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
     T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
+    T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
   end
   subgraph DROPPED["Out of scope · 2"]
     direction TB
@@ -149,9 +149,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68,T72,T74 frontier
+  class T9,T34,T35,T40,T41,T67,T68,T72 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T73 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T73,T74 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -3050,7 +3050,65 @@ ticket chose deliberately (14 one way, 8 the other) is exactly the distinction
 its `scope` field would make explicit, and right now nothing in the table says
 which counting rule a code follows.
 
+
+**[The stale-log inflation](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md)
+is closed, and the user redrew the rule rather than picking one of the ticket's
+three mechanisms**: every pipeline run owns its output folder, and all logs
+come from the last run. `a4d run` now wipes by default -- it was the only entry
+point still wired preserve-by-default, while `run patient` and `run product`
+had wiped by default all along -- and `logs/` is cleared once per run by the
+CLI rather than by the patient arm, which meant `--skip-patient` cleared it
+never. `--incremental` is the single exception, because a skipped tracker's
+cleaned parquets are the only copy of its data the tables are built from; even
+there the aggregate `main_*` logs go, since a skipped tracker's findings live
+in its own per-tracker log.
+
+**The ticket's own preferred fix was measured false.** It proposed that a
+stable worker log name would fix this "with no logic at all"; loguru's file
+sink appends, so a fixed name grows across runs instead of multiplying, and
+`main_pipeline_patient.log` and `main_pipeline_product.log` have been
+accumulating unnoticed for exactly that reason.
+
+**Verifying the fix turned up a second defect and it was fixed in the same
+session.** With one run's logs on disk, `a4d create tables` still reported
+**108,466** findings against the run's **105,464**: the product table stage's
+findings were handed to the rebuild as `extra_findings` *and* were already in
+`main_pipeline_product.log`, so 3,002 of them counted twice. The log-only
+rebuild is exact, which is also what killed the mid-session idea of excluding
+the aggregate logs from it -- 14 `released_units_to_unknown_patient` rows exist
+only there. Both paths now return 105,464 on the 255-tracker corpus, with
+`patient_data_monthly` (86,360) and `product_data` (75,169) unchanged.
+
+**The standing warning to clear `logs/` before measuring is discharged.** Every
+figure this map quotes from 2026-08-26 onward was measured that way by hand;
+from here the run does it.
+
+**The frontier is eight** -- ticket 74 closing, nothing opening -- and **none
+of the eight is on the route, because the route is finished**; all nine clauses
+of the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and four
+data-quality tickets. **Take [ticket
+72](tickets/72-sheets-the-pipeline-never-opens.md) next**: it is the one with
+real data behind it -- 76 rows with `VN_VC###` patient IDs in `Annual_2026`
+that no code path opens, because the static-sheet test is the exact string
+`"Annual"`. [Ticket 67](tickets/67-findings-must-name-sheet-year-month.md)
+remains the one that would change the most and still should not be started
+without a session to spare.
+
 ## Decisions so far
+
+- [A second local run doubles the rebuilt findings table, because last run's
+  worker logs are still there](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md)
+  — a run now starts from a clean output directory; only `--incremental`
+  preserves anything, and even it drops the aggregate logs. The bare `a4d run`
+  was the last entry point still wired preserve-by-default. Fixed a second,
+  same-run double count found while verifying: `a4d create tables` reported
+  **108,466** findings for a run of **105,464**, because the product table
+  stage's findings were both passed in as `extra_findings` and already in
+  `main_pipeline_product.log`. Both paths now return 105,464 exactly.
 
 - [Three workbook defects the pipeline detects, acts on, and never
   reports](tickets/73-three-defects-detected-but-never-reported.md) -- decided.
@@ -4876,6 +4934,10 @@ flowchart TB
     direction LR
     U73["<b>73</b><br/>Three workbook defects<br/>the pipeline detects,<br/>acts on, and never<br/>reports"]
   end
+  subgraph S2026_08_27["Session 2026-08-27"]
+    direction LR
+    U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -4890,7 +4952,6 @@ flowchart TB
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
     U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
-    U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -4948,7 +5009,8 @@ flowchart TB
   S2026_08_25c ~~~ S2026_08_25d
   S2026_08_25d ~~~ S2026_08_26
   S2026_08_26 ~~~ S2026_08_26b
-  S2026_08_26b ~~~ Sunworked
+  S2026_08_26b ~~~ S2026_08_27
+  S2026_08_27 ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -5044,9 +5106,9 @@ flowchart TB
   U73 -.->|spawned| U74
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68,U72,U74 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68,U72 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U73 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U73,U74 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```
