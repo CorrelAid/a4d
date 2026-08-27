@@ -122,12 +122,26 @@ class TestWorkbook:
             "Glossary",
         ]
 
-    def test_the_findings_sheet_leads_with_actionability(self, tmp_path):
+    def test_the_findings_sheet_leads_with_actionability_then_where_to_look(self, tmp_path):
         """Category first so a reader never scrolls right to learn whether a
-        row matters."""
+        row matters, then the four columns that locate the cell, together.
+
+        Those four answer one question between them -- which workbook, which
+        year, which sheet, which month -- and each qualifies the one before
+        it. They were scattered across the sheet while three of them were
+        always empty; split apart now that they are filled, a reader has to
+        scroll past the message text to learn when a finding happened.
+        """
         out = build_findings_report(_findings([{}]), tmp_path / "findings.xlsx")
 
-        assert _header(out, "Findings")[:3] == ["category", "file_name", "sheet_name"]
+        assert _header(out, "Findings")[:6] == [
+            "category",
+            "file_name",
+            "tracker_year",
+            "sheet_name",
+            "tracker_month",
+            "patient_id",
+        ]
 
     def test_drilling_into_one_tracker_excludes_the_others(self, tmp_path):
         findings = _findings([{"file_name": "2024_Wanted"}, {"file_name": "2024_Other"}])
@@ -181,10 +195,16 @@ def test_xlsxwriter_is_available():
     assert xlsxwriter.__version__
 
 
-def test_the_trackers_sheet_carries_no_column_the_pipeline_never_fills(tmp_path):
-    """`tracker_year` is declared on the findings table but never populated
-    (0 of 122,590 on the real run), so shipping it would be a blank column in
-    the deliverable."""
+def test_the_trackers_sheet_stays_one_row_per_tracker(tmp_path):
+    """The Trackers sheet aggregates a whole workbook into one row, so a
+    per-finding column on it would have to pick one finding's value.
+
+    This test used to exist for a different reason -- `tracker_year` was
+    declared on the findings table and never populated, so shipping it
+    anywhere would have been a blank column. Ticket 67 filled it, and the
+    reason it stays off *this* sheet is now about the sheet's grain rather
+    than about the field being empty.
+    """
     out = build_findings_report(_findings([{}]), tmp_path / "findings.xlsx")
 
     assert "tracker_year" not in _header(out, "Trackers")

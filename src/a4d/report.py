@@ -36,22 +36,28 @@ from loguru import logger
 
 from a4d.findings import FINDING_CATEGORY, FINDING_GLOSSARY, FINDING_SCOPE
 
-# Actionability first, then enough to find the cell in the workbook, then the
-# provenance an operator needs and a clinic does not. The order is the reading
-# order of the sheet, so a staff member never scrolls right to learn whether a
-# row matters.
+# Actionability first, then where in the workbook to look, then what is wrong
+# there, then the provenance an operator needs and a clinic does not. The order
+# is the reading order of the sheet, so a staff member never scrolls right to
+# learn whether a row matters or which file to open.
+#
+# The four place columns sit together because they answer one question between
+# them -- which workbook, which year it covers, which sheet, which month. They
+# were split across the sheet while three of them were always empty; now that
+# they are filled, keeping the year and month out by the provenance columns
+# would mean scrolling past `message` to learn when a finding happened.
 _FINDINGS_COLUMN_ORDER = [
     "category",
     "file_name",
+    "tracker_year",
     "sheet_name",
+    "tracker_month",
     "patient_id",
     "column",
     "original_value",
     "error_code",
     "message",
     "arm",
-    "tracker_year",
-    "tracker_month",
     "stage",
     "function_name",
     "timestamp",
