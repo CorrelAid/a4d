@@ -64,10 +64,9 @@ def _normalize_join_keys(df: pl.DataFrame) -> pl.DataFrame:
 
 def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
     """MISSING_ROW + PHANTOM_ROW: anti-joins on the normalized row key."""
-    raw_keys = _normalize_join_keys(raw).select([*ROW_KEY, "file_name"]).unique(subset=ROW_KEY)
-    cleaned_keys = (
-        _normalize_join_keys(cleaned).select([*ROW_KEY, "file_name"]).unique(subset=ROW_KEY)
-    )
+    keep = [*ROW_KEY, "file_name", "sheet_name"]
+    raw_keys = _normalize_join_keys(raw).select(keep).unique(subset=ROW_KEY)
+    cleaned_keys = _normalize_join_keys(cleaned).select(keep).unique(subset=ROW_KEY)
 
     missing = raw_keys.join(cleaned_keys.select(ROW_KEY), on=ROW_KEY, how="anti")
     for row in missing.iter_rows(named=True):
@@ -82,6 +81,8 @@ def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
                 f"not found in cleaned patient_data_monthly"
             ),
             error_code="source_row_not_in_output",
+            sheet_name=row["sheet_name"] or "",
+            tracker_month=row["tracker_month"],
             function_name="check_missing_patients",
         )
 
@@ -98,6 +99,8 @@ def check_missing_patients(raw: pl.DataFrame, cleaned: pl.DataFrame) -> None:
                 f"has no matching raw source"
             ),
             error_code="source_row_not_in_output",
+            sheet_name=row["sheet_name"] or "",
+            tracker_month=row["tracker_month"],
             function_name="check_missing_patients",
         )
 
@@ -152,6 +155,8 @@ def check_unexpected_nulls(joined: pl.DataFrame, file_name_col: str = "file_name
             emit_finding(
                 file_name=row[file_name_col],
                 patient_id=row.get("patient_id") or "unknown",
+                sheet_name=row.get("sheet_name_raw") or "",
+                tracker_month=row.get("tracker_month"),
                 column=base,
                 original_value=row[raw_col],
                 error_message=(
@@ -182,15 +187,21 @@ def check_value_shifts(joined: pl.DataFrame, file_name_col: str = "file_name_raw
 
         # Subset to rows where both sides have content; let the sacrificial
         # parser handle the empty/whitespace -> null normalization.
-        subset = joined.select([raw_col, clean_col, "patient_id", file_name_col])
+        subset = joined.select(
+            [raw_col, clean_col, "patient_id", file_name_col, "sheet_name_raw", "tracker_month"]
+        )
         parsed_raw = safe_parse_series(subset[raw_col].cast(pl.Utf8), clean_dtype)
 
         cleaned_vals = subset[clean_col].to_list()
         raw_vals = parsed_raw.to_list()
         pids = subset["patient_id"].to_list()
         files = subset[file_name_col].to_list()
+        sheets = subset["sheet_name_raw"].to_list()
+        months = subset["tracker_month"].to_list()
 
-        for raw_v, clean_v, pid, fname in zip(raw_vals, cleaned_vals, pids, files, strict=True):
+        for raw_v, clean_v, pid, fname, sheet, month in zip(
+            raw_vals, cleaned_vals, pids, files, sheets, months, strict=True
+        ):
             # Both null is fine; one-sided null is captured by other checks.
             if raw_v is None or clean_v is None:
                 continue
@@ -203,6 +214,8 @@ def check_value_shifts(joined: pl.DataFrame, file_name_col: str = "file_name_raw
                 original_value=raw_v,
                 error_message=f"VALUE_SHIFT: raw={raw_v} cleaned={clean_v}",
                 error_code="value_out_of_range",
+                sheet_name=sheet or "",
+                tracker_month=month,
                 function_name="check_value_shifts",
             )
 
@@ -241,7 +254,13 @@ def check_out_of_range(raw: pl.DataFrame, file_name_col: str = "file_name") -> N
             if file_name_col in raw_n.columns
             else [""] * raw_n.height
         )
-        for v, pid, fname in zip(parsed.to_list(), pids, files, strict=True):
+        sheets = (
+            raw_n["sheet_name"].to_list() if "sheet_name" in raw_n.columns else [""] * raw_n.height
+        )
+        months = raw_n["tracker_month"].to_list()
+        for v, pid, fname, sheet, month in zip(
+            parsed.to_list(), pids, files, sheets, months, strict=True
+        ):
             if v is None:
                 continue
             if v < min_v or v > max_v:
@@ -252,6 +271,8 @@ def check_out_of_range(raw: pl.DataFrame, file_name_col: str = "file_name") -> N
                     original_value=v,
                     error_message=(f"OUT_OF_RANGE_RAW: value {v} outside [{min_v}, {max_v}]"),
                     error_code="value_out_of_range",
+                    sheet_name=sheet or "",
+                    tracker_month=month,
                     function_name="check_out_of_range",
                 )
 

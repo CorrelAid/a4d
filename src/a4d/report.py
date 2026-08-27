@@ -34,7 +34,7 @@ import polars as pl
 import xlsxwriter
 from loguru import logger
 
-from a4d.findings import FINDING_CATEGORY, FINDING_GLOSSARY
+from a4d.findings import FINDING_CATEGORY, FINDING_GLOSSARY, FINDING_SCOPE
 
 # Actionability first, then enough to find the cell in the workbook, then the
 # provenance an operator needs and a clinic does not. The order is the reading
@@ -61,6 +61,20 @@ _FINDINGS_COLUMN_ORDER = [
 # lost" because a lost cell is usually the consequence of a defect one column
 # over, and a recovery is not a problem at all.
 _CATEGORY_RANK = ["fix_workbook", "data_lost", "recovered"]
+
+# What one row under a code counts, written for an A4D staff member reading
+# the glossary rather than for the parquet's own enum. Two codes with the same
+# count are only comparable when they count the same thing.
+_SCOPE_LABEL = {
+    "tracker": "once per workbook",
+    "sheet": "once per sheet",
+    "sheet_column": "once per column, per sheet",
+    "tracker_column": "once per column, whole workbook",
+    "tracker_value": "once per distinct value, whole workbook",
+    "sheet_value": "once per distinct value, per sheet",
+    "patient": "once per patient",
+    "row": "once per row",
+}
 
 # The per-tracker processing record, as tracker_metadata publishes it: one
 # boolean per arm per stage. Named for a reader rather than for the parquet,
@@ -106,6 +120,7 @@ _HEADERS = {
     "function_name": "Reported by",
     "timestamp": "When",
     # Glossary
+    "counted_per": "Counted",
     "what_it_means_and_what_to_do": "What it means and what to do",
     "findings_in_this_run": "Findings in this run",
     "trackers_affected": "Trackers affected",
@@ -131,6 +146,7 @@ _COLUMN_WIDTHS = {
     "stage": 9,
     "function_name": 26,
     "timestamp": 19,
+    "counted_per": 34,
     "what_it_means_and_what_to_do": 78,
     "clinic_code": 9,
     "processed_completely": 16,
@@ -334,6 +350,12 @@ def glossary_frame(findings: pl.DataFrame, total_trackers: int | None = None) ->
         {
             "error_code": list(FINDING_GLOSSARY),
             "category": [FINDING_CATEGORY[code] for code in FINDING_GLOSSARY],
+            # What one row under this code counts. Without it the counts two
+            # columns over are not comparable: `value_not_in_allowed_list`
+            # reports one distinct misspelling per workbook while
+            # `type_conversion` reports one cell, so a bigger number does not
+            # mean a bigger problem.
+            "counted_per": [_SCOPE_LABEL[FINDING_SCOPE[code]] for code in FINDING_GLOSSARY],
             "what_it_means_and_what_to_do": list(FINDING_GLOSSARY.values()),
             "findings_in_this_run": [counts.get(code, (0, 0))[0] for code in FINDING_GLOSSARY],
             "trackers_affected": [counts.get(code, (0, 0))[1] for code in FINDING_GLOSSARY],
@@ -477,10 +499,21 @@ def build_findings_report(
     return output_path
 
 
+# Columns the findings sheet deliberately drops. ``scope`` is a property of
+# the error code, not of the finding, so a per-row copy would repeat one of
+# eight strings 100,000 times; the Glossary carries it once per code, beside
+# the count it qualifies.
+_FINDINGS_COLUMNS_NOT_SHOWN = frozenset({"scope"})
+
+
 def _ordered(findings: pl.DataFrame) -> pl.DataFrame:
     """Findings in reading order, tolerating a table missing optional columns."""
     present = [column for column in _FINDINGS_COLUMN_ORDER if column in findings.columns]
-    extra = [column for column in findings.columns if column not in _FINDINGS_COLUMN_ORDER]
+    extra = [
+        column
+        for column in findings.columns
+        if column not in _FINDINGS_COLUMN_ORDER and column not in _FINDINGS_COLUMNS_NOT_SHOWN
+    ]
     return findings.select([*present, *extra])
 
 

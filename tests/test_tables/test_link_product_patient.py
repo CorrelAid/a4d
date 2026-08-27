@@ -50,6 +50,7 @@ def test_all_match_returns_zero_no_warnings(tmp_path: Path, captured_warnings: l
                 "tracker_b.xlsx",
                 "tracker_b.xlsx",
             ],
+            "product_sheet_name": "Jun24",
             "product_released_to": [
                 "KD_QB001",
                 "KD_QB001",
@@ -82,6 +83,7 @@ def test_mixed_filters_null_and_sentinel(tmp_path: Path, captured_warnings: list
                 "tracker_a.xlsx",  # null — filtered
                 "tracker_a.xlsx",  # "Undefined" — filtered
             ],
+            "product_sheet_name": "Jun24",
             "product_released_to": [
                 "KD_QB001",
                 "KD_QB001",
@@ -118,6 +120,7 @@ def test_cross_file_isolation(tmp_path: Path, captured_warnings: list[str]) -> N
     product_df = pl.DataFrame(
         {
             "file_name": ["tracker_a.xlsx", "tracker_b.xlsx"],
+            "product_sheet_name": "Jun24",
             "product_released_to": ["KD_QB001", "KD_QB001"],
         }
     )
@@ -138,7 +141,11 @@ def test_missing_patient_table_returns_zero_with_warning(
     tmp_path: Path, captured_warnings: list[str]
 ) -> None:
     product_df = pl.DataFrame(
-        {"file_name": ["tracker_a.xlsx"], "product_released_to": ["KD_QB001"]}
+        {
+            "file_name": ["tracker_a.xlsx"],
+            "product_sheet_name": ["Jun24"],
+            "product_released_to": ["KD_QB001"],
+        }
     )
     missing_path = tmp_path / "does_not_exist.parquet"
 
@@ -176,6 +183,7 @@ class TestUnmatchedRecipientsBecomeFindings:
         product_df = pl.DataFrame(
             {
                 "file_name": ["tracker_a", "tracker_a", "tracker_a"],
+                "product_sheet_name": "Jun24",
                 "product_released_to": ["KH_QD001", "KH_QD093", "KH_QD093"],
             }
         )
@@ -194,7 +202,13 @@ class TestUnmatchedRecipientsBecomeFindings:
         patient_path = _write_patient_static(
             tmp_path / "patient.parquet", [("tracker_a", "KH_QD001")]
         )
-        product_df = pl.DataFrame({"file_name": ["tracker_a"], "product_released_to": ["KH_QD001"]})
+        product_df = pl.DataFrame(
+            {
+                "file_name": ["tracker_a"],
+                "product_sheet_name": ["Jun24"],
+                "product_released_to": ["KH_QD001"],
+            }
+        )
 
         count, findings = link_product_patient(product_df, patient_path)
 

@@ -117,13 +117,15 @@ def fix_sex(df: pl.DataFrame, column: str = "sex") -> pl.DataFrame:
         & (pl.col(column) != "")
         & ~pl.col(column).str.to_lowercase().is_in(list(recognised))
     )
-    id_column = "patient_id" if "patient_id" in df.columns else None
-    for row in unrecognised.iter_rows(named=True):
+    # One finding per distinct spelling, not per row: this shares
+    # ``value_not_in_allowed_list`` with ``validate_allowed_values``, whose
+    # whole population is deduplicated that way, and a code counted two ways
+    # is what the scope field exists to prevent.
+    for value in unrecognised[column].unique().sort().to_list():
         report_finding(
-            patient_id=row[id_column] if id_column else "unknown",
             column=column,
-            original_value=row[column],
-            message=f"Sex value '{row[column]}' is not a recognised spelling of male or female",
+            original_value=value,
+            message=f"Sex value '{value}' is not a recognised spelling of male or female",
             error_code="value_not_in_allowed_list",
             function_name="fix_sex",
         )

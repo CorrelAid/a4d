@@ -84,7 +84,7 @@ def _make_mapper(known_to_standard: dict[str, str]):
     mapper = Mock()
     mapper.synonyms = {standard: [src] for src, standard in known_to_standard.items()}
     mapper.is_known_column = lambda col: col in known_to_standard
-    mapper.rename_columns = lambda df: df.rename(known_to_standard)
+    mapper.rename_columns = lambda df, sheet_name="": df.rename(known_to_standard)
     return mapper
 
 
@@ -101,7 +101,7 @@ def test_harmonize_renames_known_drops_unknown(collector):
     assert len(collector) == 1
     assert collector.findings[0].column == "Random Junk"
     assert collector.findings[0].error_code == "unrecognised_column"
-    assert collector.findings[0].function_name == "harmonize_input_data_columns"
+    assert collector.findings[0].function_name == "report_unrecognised_columns"
 
 
 def test_harmonize_no_unknowns_no_log(collector):
@@ -339,7 +339,7 @@ def test_count_orphan_released_units_logs_per_sheet(collector):
     assert err.error_code == "released_units_without_recipient"
     assert err.function_name == "_count_orphan_released_units"
     assert err.column == "product_released_to"
-    assert "Jul24" in err.message
+    assert err.sheet_name == "Jul24"
     assert "3" in err.message
 
 

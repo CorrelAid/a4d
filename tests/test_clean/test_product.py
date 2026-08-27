@@ -32,6 +32,7 @@ def _entry_date_df(
             "product_entry_date": entry_dates,
             "product_table_year": [table_year] * n,
             "product_sheet_name": ["Jun"] * n,
+            "product_table_month": [6] * n,
             "file_name": ["t.xlsx"] * n,
         },
         schema={
@@ -39,6 +40,7 @@ def _entry_date_df(
             "product_entry_date": pl.Date,
             "product_table_year": pl.Int32,
             "product_sheet_name": pl.String,
+            "product_table_month": pl.Int32,
             "file_name": pl.String,
         },
     )
@@ -585,6 +587,7 @@ def test_format_dates_preserves_year_typo_sentinels():
     df = pl.DataFrame(
         {
             "product": ["Mahosot", "NPH"],
+            "product_sheet_name": ["Jun", "Jun"],
             "product_entry_date": [
                 "2009-12-04 00:00:00",  # Mahosot Excel datetime, year typo
                 "1 jun 20203",  # NPH 5-digit year
@@ -592,6 +595,7 @@ def test_format_dates_preserves_year_typo_sentinels():
         },
         schema={
             "product": pl.String,
+            "product_sheet_name": pl.String,
             "product_entry_date": pl.String,
         },
     )

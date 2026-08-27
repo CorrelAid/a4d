@@ -39,6 +39,7 @@ def test_validate_allowed_values_all_valid(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "status": ["Active", "Inactive", "Active"],
         }
@@ -60,6 +61,7 @@ def test_validate_allowed_values_with_invalid(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 4,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
             "status": ["Active", "INVALID", "Inactive", "BAD_VALUE"],
         }
@@ -98,6 +100,7 @@ def test_validate_allowed_values_preserves_nulls(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "status": ["Active", None, "Inactive"],
         }
@@ -119,6 +122,7 @@ def test_validate_allowed_values_no_replace(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002"],
             "status": ["Active", "INVALID"],
         }
@@ -142,6 +146,7 @@ def test_validate_allowed_values_missing_column(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001"],
         }
     )
@@ -161,6 +166,7 @@ def test_validate_allowed_values_ignores_existing_errors(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "status": ["Active", settings.error_val_character, "INVALID"],
         }
@@ -187,6 +193,7 @@ def test_validate_column_from_rules(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "clinic_visit": ["Y", "N", "INVALID"],
         }
@@ -210,6 +217,7 @@ def test_validate_column_from_rules_missing_column(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001"],
         }
     )
@@ -235,6 +243,7 @@ def test_validate_all_columns(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "clinic_visit": ["Y", "N", "INVALID1"],
             "patient_consent": ["Y", "INVALID2", "N"],
@@ -259,6 +268,7 @@ def test_validate_all_columns_only_validates_existing(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001"],
             "clinic_visit": ["Y"],
             # Many other columns from rules don't exist
@@ -281,6 +291,7 @@ def test_validate_allowed_values_case_insensitive(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "clinic_visit": ["Y", "y", "N"],  # Mixed case
         }
@@ -304,6 +315,7 @@ def test_validate_allowed_values_csv_subset(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 5,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
             "insulin_subtype": [
                 "rapid-acting",  # single valid
@@ -339,6 +351,7 @@ def test_validate_allowed_values_csv_subset_disabled():
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001"],
             "insulin_subtype": ["pre-mixed,rapid-acting"],
         }
@@ -362,6 +375,7 @@ def test_fix_patient_id_valid_ids(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QB004", "AB_QA123", "XY_QA999"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -376,6 +390,7 @@ def test_fix_patient_id_hyphen_normalization(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD-QB004", "AB-QA123"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -395,6 +410,7 @@ def test_fix_patient_id_overlong_without_candidate_is_sentinelled(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QB004XY", "KD_QB004ABC", "VERYLONGID"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -409,6 +425,7 @@ def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KH_QEH026", "KH_QE026", "KH_QE027"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -422,7 +439,7 @@ def test_fix_patient_id_recovers_from_the_tracker_s_own_spelling(collector):
 
 def test_fix_patient_id_recovers_a_short_id_too():
     """Recovery is not limited to the over-length branch."""
-    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD097"]})
+    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD097"], "sheet_name": "Jan24"})
 
     result = fix_patient_id(df)
 
@@ -431,7 +448,7 @@ def test_fix_patient_id_recovers_a_short_id_too():
 
 def test_fix_patient_id_ambiguous_candidates_are_sentinelled():
     """Two candidates one edit away means the intended patient is unknowable."""
-    df = pl.DataFrame({"patient_id": ["KH_QE02", "KH_QE021", "KH_QE023"]})
+    df = pl.DataFrame({"patient_id": ["KH_QE02", "KH_QE021", "KH_QE023"], "sheet_name": "Jan24"})
 
     result = fix_patient_id(df)
 
@@ -444,7 +461,7 @@ def test_fix_patient_id_candidate_must_be_in_the_same_tracker():
     2026_NOGH writes MM_QD97 in its Patient List and every month sheet, and
     has no MM_QD097 anywhere -- so nothing licenses inventing one.
     """
-    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD096", "MM_QD001"]})
+    df = pl.DataFrame({"patient_id": ["MM_QD97", "MM_QD096", "MM_QD001"], "sheet_name": "Jan24"})
 
     result = fix_patient_id(df)
 
@@ -456,6 +473,7 @@ def test_fix_patient_id_invalid_too_short_first_part(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["K_QB004", "A_CD123"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -470,6 +488,7 @@ def test_fix_patient_id_invalid_too_short_second_part(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD_Q004", "AB_C123"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -484,6 +503,7 @@ def test_fix_patient_id_invalid_wrong_digits():
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QB04", "KD_QB0", "KD_QB0001"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -499,6 +519,7 @@ def test_fix_patient_id_invalid_digits_in_letter_positions(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["11_EW004", "KD_Q1004", "12_34567"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -513,6 +534,7 @@ def test_fix_patient_id_invalid_letters_in_digit_positions(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QBX04", "KD_QBABC"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -527,6 +549,7 @@ def test_fix_patient_id_invalid_no_underscore(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KDEW004", "INVALID"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -541,6 +564,7 @@ def test_fix_patient_id_null_values(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["KD_QB004", None, "AB_QA123"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -557,6 +581,7 @@ def test_fix_patient_id_empty_string(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["", "KD_QB004"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -588,6 +613,7 @@ def test_fix_patient_id_mixed_valid_invalid(collector):
                 "KD_QB004XY",  # Invalid, two edits from KD_QB004
                 None,  # Null preserved
             ],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -606,6 +632,7 @@ def test_fix_patient_id_lowercase_letters(collector):
     df = pl.DataFrame(
         {
             "patient_id": ["kd_qb004", "KD_qb004", "kd_QB004"],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -633,6 +660,7 @@ def test_fix_patient_id_never_truncates_an_overlong_id(collector):
                 None,  # Null
                 "",  # Empty
             ],
+            "sheet_name": "Jan24",
         }
     )
 
@@ -665,6 +693,7 @@ def test_fix_patient_id_recovers_a_single_character_typo(collector):
                 "KD_QBX04",  # Substituted character
                 "KD_Q1004",  # Substituted character
             ],
+            "sheet_name": "Jan24",
         }
     )
 

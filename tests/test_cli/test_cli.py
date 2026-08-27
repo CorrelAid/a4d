@@ -111,6 +111,7 @@ class TestRunPipeline:
             finding = Finding(
                 file_name=f"{arm}.xlsx",
                 arm=arm,
+                sheet_name="Jan24",
                 patient_id="P1",
                 column="c",
                 original_value="v",

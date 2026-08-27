@@ -6,6 +6,7 @@ from loguru import logger
 
 from a4d.clean.patient import clean_patient_file
 from a4d.clean.product import clean_product_file
+from a4d.extract.common import tracker_year_or_none
 from a4d.extract.patient import export_patient_raw, read_all_patient_sheets
 from a4d.extract.product import export_product_raw, read_all_product_sheets
 from a4d.findings import tracker_context
@@ -57,7 +58,12 @@ def process_tracker_patient(
         cleaned_output = cleaned_dir / f"{tracker_name}_patient_cleaned.parquet"
 
         # Findings collector and log context for this tracker, bound together
-        with tracker_context(tracker_name, "patient", output_root) as findings:
+        with tracker_context(
+            tracker_name,
+            "patient",
+            output_root,
+            tracker_year=tracker_year_or_none(tracker_file),
+        ) as findings:
             logger.info(f"Processing tracker: {tracker_file.name}")
 
             # STEP 1: Extract
@@ -132,7 +138,12 @@ def process_tracker_product(
 
         cleaned_output = cleaned_dir / f"{tracker_name}_product_cleaned.parquet"
 
-        with tracker_context(tracker_name, "product", output_root) as findings:
+        with tracker_context(
+            tracker_name,
+            "product",
+            output_root,
+            tracker_year=tracker_year_or_none(tracker_file),
+        ) as findings:
             logger.info(f"Processing tracker: {tracker_file.name}")
 
             logger.info("Step 1: Extracting product data from Excel")

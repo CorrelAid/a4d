@@ -23,7 +23,7 @@ from a4d.clean.date_parser import (
 )
 from a4d.config import settings
 from a4d.extract.common import EXCEL_ERROR_STRINGS
-from a4d.findings import ErrorCode, report_finding
+from a4d.findings import PLACE_COLUMNS, ErrorCode, report_finding, sheet_context
 
 
 def normalize_excel_formula_errors(
@@ -75,6 +75,7 @@ def normalize_excel_formula_errors(
                     "a required input was not recorded, so no value could be computed"
                 ),
                 error_code="source_formula_error",
+                **sheet_context(row),
                 function_name="normalize_excel_formula_errors",
             )
 
@@ -184,6 +185,7 @@ def safe_convert_column(
                 original_value=row[f"_orig_{column}"],
                 message=f"Could not convert '{row[f'_orig_{column}']}' to {target_type}",
                 error_code="type_conversion",
+                **sheet_context(row),
                 function_name="safe_convert_column",
             )
 
@@ -222,7 +224,7 @@ def _apply_typo_rescue(
     if not rescue_map:
         return df
 
-    select_cols = [c for c in (file_name_col, patient_id_col) if c in df.columns]
+    select_cols = [c for c in (file_name_col, patient_id_col, *PLACE_COLUMNS) if c in df.columns]
     for original, rescued_val in rescue_map.items():
         if select_cols:
             affected = df.filter(pl.col(column) == original).select(select_cols)
@@ -236,6 +238,7 @@ def _apply_typo_rescue(
                     original_value=original,
                     message=f"date typo rescued: '{original}' -> '{rescued_val}'",
                     error_code="typo_rescued",
+                    **sheet_context(row),
                     function_name="parse_date_column",
                 )
 
@@ -269,7 +272,7 @@ def _log_text_recoveries(
     if not reported:
         return
 
-    select_cols = [c for c in (file_name_col, patient_id_col) if c in df.columns]
+    select_cols = [c for c in (file_name_col, patient_id_col, *PLACE_COLUMNS) if c in df.columns]
     for (text, tracker_year), recovery in reported.items():
         messages: list[tuple[str, ErrorCode]] = [
             (
@@ -308,6 +311,7 @@ def _log_text_recoveries(
                     original_value=text,
                     message=message,
                     error_code=code,
+                    **sheet_context(row),
                     function_name="parse_date_column",
                 )
 
@@ -409,6 +413,7 @@ def parse_date_column(
                 original_value=row[f"_orig_{column}"],
                 message=f"Could not parse date '{row[f'_orig_{column}']}'",
                 error_code="type_conversion",
+                **sheet_context(row),
                 function_name="parse_date_column",
             )
 
@@ -497,6 +502,7 @@ def cut_numeric_value(
                 original_value=row[column],
                 message=f"Value {row[column]} outside allowed range [{min_val}, {max_val}]",
                 error_code="value_out_of_range",
+                **sheet_context(row),
                 function_name="cut_numeric_value",
             )
 

@@ -26,6 +26,7 @@ def test_safe_convert_column_success(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "age": ["25", "30", "18"],
         }
@@ -47,6 +48,7 @@ def test_safe_convert_column_with_failures(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 4,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
             "age": ["25", "invalid", "30", "abc"],
         }
@@ -79,6 +81,7 @@ def test_safe_convert_column_preserves_nulls(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "age": ["25", None, "30"],
         }
@@ -103,6 +106,7 @@ def test_normalize_excel_formula_errors_nulls_and_logs(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "t1d_diagnosis_age": ["9", "#NUM!", "#DIV/0!"],
         }
@@ -122,6 +126,7 @@ def test_normalize_excel_formula_errors_leaves_clean_data_untouched(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002"],
             "bmi": ["17.5", None],
         }
@@ -150,6 +155,7 @@ def test_normalize_excel_formula_errors_uses_custom_id_column(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "product": ["Insulin"],
             "product_balance": ["#REF!"],
         }
@@ -180,6 +186,7 @@ def test_cut_numeric_value(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 5,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004", "XX_QA005"],
             "age": [15, -5, 20, 30, 18],
         }
@@ -207,6 +214,7 @@ def test_safe_convert_multiple_columns(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002"],
             "age": ["25", "30"],
             "height": ["1.75", "1.80"],
@@ -231,6 +239,7 @@ def test_safe_convert_column_missing_column(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001"],
         }
     )
@@ -251,6 +260,7 @@ def test_safe_convert_column_float64(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "weight": ["70.5", "not_a_number", "85.2"],
         }
@@ -274,6 +284,7 @@ def test_safe_convert_column_custom_error_value(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002"],
             "age": ["25", "invalid"],
         }
@@ -295,6 +306,7 @@ def test_safe_convert_column_string_type(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002"],
             "value": [123, 456],
         }
@@ -340,6 +352,7 @@ def test_cut_numeric_value_with_nulls(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 4,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
             "age": [15, None, 30, 20],
         }
@@ -361,6 +374,7 @@ def test_cut_numeric_value_ignores_existing_errors(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan24",
             "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
             "age": [15.0, settings.error_val_numeric, 30.0],
         }
@@ -459,6 +473,7 @@ def test_parse_date_column_rescues_typo_and_logs(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx", "t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1", "P2"],
             "entry_date": ["23-Mach-20", "15-Mar-2024"],
         }
@@ -489,11 +504,13 @@ def test_parse_date_column_logs_unparseable_dates(collector):
     df = pl.DataFrame(
         {
             "file_name": ["test.xlsx", "test.xlsx", "test.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1", "P2", "P3"],
             "entry_date": ["2024-03-15", "garbage_value_xyz", "2024-04-20"],
         },
         schema={
             "file_name": pl.String,
+            "sheet_name": pl.String,
             "patient_id": pl.String,
             "entry_date": pl.String,
         },
@@ -845,6 +862,7 @@ def test_parse_date_column_logs_a_date_read_out_of_a_note(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1"],
             "tracker_year": [2020],
             "hospitalisation_date": ["DKA 23 Oct 2020"],
@@ -867,6 +885,7 @@ def test_parse_date_column_reports_a_note_holding_several_dates(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1"],
             "tracker_year": [2021],
             "hospitalisation_date": ["Dec 2019, Mar 2020 DKA Jan 2021 DKA"],
@@ -886,6 +905,7 @@ def test_parse_date_column_reports_a_year_taken_from_the_tracker(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1"],
             "tracker_year": [2020],
             "hospitalisation_date": ["26 Jun (ceton urine high)"],
@@ -906,6 +926,7 @@ def test_parse_date_column_takes_the_year_from_each_row_not_the_column():
     df = pl.DataFrame(
         {
             "file_name": ["a.xlsx", "b.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1", "P1"],
             "tracker_year": [2020, 2021],
             "hospitalisation_date": ["26 Jun (ceton urine high)"] * 2,
@@ -924,6 +945,7 @@ def test_parse_date_column_says_nothing_when_no_note_is_involved(collector):
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx", "t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1", "P2"],
             "tracker_year": [2024, 2024],
             "entry_date": ["15-Mar-2024", "2024-04-20"],

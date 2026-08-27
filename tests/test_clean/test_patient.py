@@ -227,6 +227,7 @@ class TestFixAgeFromDob:
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": [date(2010, 6, 15)],
                 "tracker_year": [2025],
@@ -244,6 +245,7 @@ class TestFixAgeFromDob:
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": [date(2010, 3, 15)],
                 "tracker_year": [2025],
@@ -261,6 +263,7 @@ class TestFixAgeFromDob:
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": pl.Series([None], dtype=pl.Date),
                 "tracker_year": [2025],
@@ -278,6 +281,7 @@ class TestFixAgeFromDob:
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": [error_date],
                 "tracker_year": [2025],
@@ -294,6 +298,7 @@ class TestFixAgeFromDob:
         df = pl.DataFrame(
             {
                 "patient_id": ["P001"],
+                "sheet_name": "Jan24",
                 "age": [99.0],  # Wrong value from Excel
                 "dob": [date(2010, 6, 15)],
                 "tracker_year": [2025],
@@ -518,6 +523,7 @@ def test_apply_type_conversions_keeps_the_year_of_a_space_separated_date():
     df = pl.DataFrame(
         {
             "file_name": ["t.xlsx", "t.xlsx"],
+            "sheet_name": "Jan24",
             "patient_id": ["P1", "P2"],
             "t1d_diagnosis_date": ["Jun 2006", "2009-04-17 00:00:00"],
         }
@@ -556,6 +562,7 @@ class TestHeightRangeValidation:
             {
                 "height": [2.43, 6.9, 13.0],
                 "file_name": ["f", "f", "f"],
+                "sheet_name": "Jan24",
                 "patient_id": ["p", "p", "p"],
             }
         )
@@ -573,6 +580,7 @@ class TestHeightRangeValidation:
                 "weight": [60.0, 70.0],
                 "bmi": [None, None],
                 "file_name": ["f", "f"],
+                "sheet_name": "Jan24",
                 "patient_id": ["p", "q"],
             }
         )
@@ -692,12 +700,16 @@ class TestBuddhistEraConversion:
             {
                 "patient_id": [f"TH_CM{i:03d}" for i in range(n)],
                 "file_name": ["t.xlsx"] * n,
+                "sheet_name": "Jan24",
+                "tracker_month": [1] * n,
                 "tracker_year": [tracker_year] * n,
                 "t1d_diagnosis_date": dates,
             },
             schema={
                 "patient_id": pl.String,
                 "file_name": pl.String,
+                "sheet_name": pl.String,
+                "tracker_month": pl.Int32,
                 "tracker_year": pl.Int32,
                 "t1d_diagnosis_date": pl.Date,
             },
@@ -785,6 +797,7 @@ class TestAgeFromDobBranchOrder:
             {
                 "patient_id": ["KH_QD001"],
                 "file_name": ["2024_CDA A4D Tracker"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": [date(2025, 6, 1)],
                 "tracker_year": [2024],
@@ -802,6 +815,7 @@ class TestAgeFromDobBranchOrder:
             {
                 "patient_id": ["KH_QD001"],
                 "file_name": ["2024_CDA A4D Tracker"],
+                "sheet_name": "Jan24",
                 "age": [None],
                 "dob": [date(2010, 6, 1)],
                 "tracker_year": [2024],
@@ -831,6 +845,7 @@ class TestDiagnosisAgeNegativeFromDob:
             {
                 "patient_id": ["MY_QE025"],
                 "file_name": ["2024_Putrajaya Hospital A4D Tracker"],
+                "sheet_name": "Jan24",
                 "dob": [date(2021, 5, 5)],
                 "t1d_diagnosis_date": [date(2014, 6, 20)],
                 "t1d_diagnosis_age": pl.Series([recorded_age], dtype=pl.Int32),
@@ -859,6 +874,7 @@ class TestDiagnosisAgeNegativeFromDob:
             {
                 "patient_id": ["MY_QE026"],
                 "file_name": ["2024_Putrajaya Hospital A4D Tracker"],
+                "sheet_name": "Jan24",
                 "dob": [date(2010, 1, 1)],
                 "t1d_diagnosis_date": [date(2015, 6, 20)],
                 "t1d_diagnosis_age": pl.Series([None], dtype=pl.Int32),

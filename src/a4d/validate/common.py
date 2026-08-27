@@ -71,6 +71,8 @@ def emit_finding(
     error_message: str,
     error_code: ErrorCode,
     function_name: str,
+    sheet_name: str = "",
+    tracker_month: int | None = None,
 ) -> None:
     """Thin wrapper around ``report_finding`` enforcing the schema.
 
@@ -80,6 +82,9 @@ def emit_finding(
     tool specifically -- an earlier version borrowed whichever operator-facing
     code was closest and encoded the real one in the message, which is the
     mis-filing this taxonomy now forbids.
+
+    Every code this wrapper accepts is row-scoped, so the caller has to name
+    the sheet the row came from -- the frames it walks all carry it.
     """
     report_finding(
         file_name=file_name,
@@ -89,6 +94,8 @@ def emit_finding(
         original_value="" if original_value is None else str(original_value),
         message=error_message,
         error_code=error_code,
+        sheet_name=sheet_name,
+        tracker_month=tracker_month,
         function_name=function_name,
         stage="validate",
     )

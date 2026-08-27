@@ -28,7 +28,7 @@ from pathlib import Path
 
 import polars as pl
 
-from a4d.findings import FINDING_CATEGORY, FINDING_GLOSSARY
+from a4d.findings import FINDING_CATEGORY, FINDING_GLOSSARY, FINDING_SCOPE
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "a4d"
 
@@ -260,7 +260,8 @@ def main() -> int:
     for code in sorted(by_code, key=lambda c: -counts.get(c, (0, 0))[0]):
         n, trackers = counts.get(code, (0, 0))
         measured = f"{n:>6,} findings / {trackers:>3} trackers" if counts else "not measured"
-        print(f"{code}  [{FINDING_CATEGORY.get(code, '<unknown>')}]  {measured}")
+        scope = FINDING_SCOPE.get(code, "<unknown>")
+        print(f"{code}  [{FINDING_CATEGORY.get(code, '<unknown>')}]  <{scope}>  {measured}")
         print(f"    glossary: {FINDING_GLOSSARY.get(code, '<none>')}")  # type: ignore[arg-type]
         for site in by_code[code]:
             print(f"    {site.module}:{site.line} {site.function}()  stage={site.stage}")

@@ -13,7 +13,7 @@ import pytest
 import xlsxwriter
 from openpyxl import load_workbook
 
-from a4d.findings import FINDING_GLOSSARY
+from a4d.findings import FINDING_GLOSSARY, FINDINGS_SCHEMA
 from a4d.report import (
     _HEADERS,
     build_findings_report,
@@ -490,3 +490,43 @@ class TestRecencyOrdering:
         )
 
         assert order_by_recency(findings)["sheet_name"].to_list() == ["Jan24", "Feb24", "Mar24"]
+
+
+class TestGlossarySaysHowEachCodeIsCounted:
+    """Ticket 67: two codes with the same count are only comparable when they
+    count the same thing. `value_not_in_allowed_list` reports one distinct
+    misspelling per workbook -- 1,170 province findings against 26,124 rows
+    carrying the sentinel -- while `type_conversion` reports one cell."""
+
+    def test_every_code_carries_a_counted_per_label(self):
+        glossary = glossary_frame(pl.DataFrame(schema=FINDINGS_SCHEMA))
+        assert glossary["counted_per"].null_count() == 0
+        assert "" not in glossary["counted_per"].to_list()
+
+    def test_the_two_units_read_differently(self):
+        glossary = glossary_frame(pl.DataFrame(schema=FINDINGS_SCHEMA))
+        by_code = dict(
+            zip(
+                glossary["error_code"].to_list(),
+                glossary["counted_per"].to_list(),
+                strict=True,
+            )
+        )
+        assert by_code["type_conversion"] == "once per row"
+        assert by_code["value_not_in_allowed_list"] == "once per distinct value, whole workbook"
+        assert by_code["empty_product_data"] == "once per workbook"
+
+
+def test_the_findings_sheet_does_not_repeat_the_scope_on_every_row(tmp_path):
+    """Scope is a property of the code, so it belongs in the Glossary once,
+    not beside 103,603 findings as one of eight repeated strings."""
+    findings = _findings([{"error_code": "type_conversion"}]).with_columns(
+        pl.lit("row").alias("scope")
+    )
+    out = tmp_path / "findings.xlsx"
+    build_findings_report(findings, out)
+
+    workbook = load_workbook(out, read_only=True)
+    headers = next(workbook["Findings"].iter_rows(min_row=1, max_row=1, values_only=True))
+    assert "scope" not in headers
+    assert "Counted" in next(workbook["Glossary"].iter_rows(min_row=1, max_row=1, values_only=True))

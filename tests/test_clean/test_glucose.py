@@ -14,6 +14,7 @@ def _frame(mg: list, mmol: list | None = None, column: str = "fbg_updated_mg") -
     return pl.DataFrame(
         {
             "file_name": ["t.xlsx"] * len(mg),
+            "sheet_name": "Jan24",
             "patient_id": [f"KH_QD{i:03d}" for i in range(len(mg))],
             column: pl.Series(mg, dtype=pl.Float64),
             mmol_column: pl.Series(

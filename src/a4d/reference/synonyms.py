@@ -182,6 +182,7 @@ class ColumnMapper:
         self,
         df: pl.DataFrame,
         strict: bool = False,
+        sheet_name: str = "",
     ) -> pl.DataFrame:
         """Rename DataFrame columns using synonym mappings.
 
@@ -189,6 +190,9 @@ class ColumnMapper:
             df: Input DataFrame with potentially non-standard column names
             strict: If True, raise error if unmapped columns exist
                 If False, keep unmapped columns as-is
+            sheet_name: Sheet the frame came from, for the merge finding. A
+                caller processing a workbook passes it; the merge is a
+                per-sheet fact, so a finding without it cannot be acted on.
 
         Returns:
             DataFrame with standardized column names
@@ -218,16 +222,13 @@ class ColumnMapper:
                     "These columns do not appear in the synonym file."
                 )
             else:
-                report_finding(
-                    error_code="unrecognised_column",
-                    message=(
-                        f"Keeping {len(unmapped_columns)} unmapped columns as-is: "
-                        f"{unmapped_columns}"
-                    ),
-                    original_value=", ".join(sorted(unmapped_columns)),
-                    stage="extract",
-                    function_name="rename_columns",
-                )
+                # Reported by the caller, which knows the sheet -- see
+                # report_unrecognised_columns below. This method is handed a
+                # bare frame and used by tests and tools that are not
+                # processing a workbook at all, so a finding raised here
+                # could name no sheet and would double-count the same
+                # unmapped column the callers already report per sheet.
+                logger.debug(f"Keeping {len(unmapped_columns)} unmapped columns as-is")
 
         # Several source columns can map to one canonical name: the 2023 template
         # splits complication screening into B.P./Kidney/Eye/Foot/Lipids sub-columns,
@@ -249,6 +250,7 @@ class ColumnMapper:
                     "Values are comma-joined in column order; empty cells are skipped."
                 ),
                 original_value=", ".join(sorted(merge_groups)),
+                sheet_name=sheet_name,
                 stage="extract",
                 function_name="rename_columns",
             )
@@ -362,3 +364,30 @@ if __name__ == "__main__":
 
     renamed_df = patient_mapper.rename_columns(df)
     print(renamed_df)
+
+
+def report_unrecognised_columns(df: pl.DataFrame, mapper: ColumnMapper, sheet_name: str) -> None:
+    """Report every column of ``df`` the reference list does not recognise.
+
+    Called by whoever knows the sheet, which the mapper does not. One finding
+    per column rather than one listing them all: an operator fixes headers one
+    at a time, and a comma-joined list in a single row cannot be filtered,
+    counted or joined against the column it names.
+
+    Args:
+        df: Frame whose column names are being checked, before renaming
+        mapper: The synonym mapper deciding what is recognised
+        sheet_name: Sheet the frame came from
+    """
+    for col in df.columns:
+        if mapper.is_known_column(col) or col in mapper.synonyms:
+            continue
+        report_finding(
+            column=col,
+            original_value=col,
+            message=f"Unknown column '{col}': it matches nothing in the reference column list",
+            error_code="unrecognised_column",
+            sheet_name=sheet_name,
+            stage="extract",
+            function_name="report_unrecognised_columns",
+        )

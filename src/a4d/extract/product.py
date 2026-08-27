@@ -19,7 +19,11 @@ from a4d.extract.common import (
 )
 from a4d.extract.wide_format import handle_wide_format_cells, handle_wide_format_columns
 from a4d.findings import report_finding
-from a4d.reference.synonyms import ColumnMapper, load_product_mapper
+from a4d.reference.synonyms import (
+    ColumnMapper,
+    load_product_mapper,
+    report_unrecognised_columns,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning, module=r"openpyxl\..*")
 
@@ -296,8 +300,7 @@ def _count_orphan_released_units(
         column="product_released_to",
         original_value=str(count),
         message=(
-            f"Sheet '{sheet_name}' has {count} rows where product_released_to "
-            f"is missing next to product_units_released."
+            f"{count} rows have product_units_released with no product_released_to beside them."
         ),
         error_code="released_units_without_recipient",
         sheet_name=sheet_name,
@@ -313,22 +316,9 @@ def _harmonize(
     file_name: str,
 ) -> pl.DataFrame:
     """Rename columns via the mapper, then drop any column not in the synonym schema (step 1.5)."""
-    unknown = [
-        col for col in df.columns if not mapper.is_known_column(col) and col not in mapper.synonyms
-    ]
-    if unknown:
-        for col in unknown:
-            report_finding(
-                patient_id="unknown",
-                column=col,
-                original_value=col,
-                message=f"Sheet {sheet_name}: unknown column '{col}'",
-                error_code="unrecognised_column",
-                stage="extract",
-                function_name="harmonize_input_data_columns",
-            )
+    report_unrecognised_columns(df, mapper, sheet_name)
 
-    df = mapper.rename_columns(df)
+    df = mapper.rename_columns(df, sheet_name=sheet_name)
     known = set(mapper.synonyms.keys())
     keep = [c for c in df.columns if c in known]
     return df.select(keep) if keep else df.clear()
@@ -363,7 +353,7 @@ def read_all_product_sheets(
             # One finding per skipped sheet. A second copy under
             # function_name="find_product_section" said the same thing.
             report_finding(
-                message=f"Sheet {sheet_name}: {exc}. Skipping.",
+                message=f"{exc}. Skipping this sheet.",
                 error_code="product_section_not_found",
                 sheet_name=sheet_name,
                 stage="extract",
