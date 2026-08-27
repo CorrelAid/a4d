@@ -6,9 +6,9 @@ flowchart TD
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
+    T75["<b>75</b> · grilling<br/>A screening block records<br/>several results per<br/>patient and the pipeline<br/>keeps only the first"]
   end
-  subgraph DECIDED["Decided · 66"]
+  subgraph DECIDED["Decided · 67"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -70,6 +70,7 @@ flowchart TD
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
     T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
+    T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
@@ -112,8 +113,8 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T68 frontier
+  class T9,T34,T35,T40,T41,T75 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T69,T70,T71,T72,T73,T74 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped

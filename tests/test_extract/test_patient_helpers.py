@@ -858,6 +858,51 @@ class TestFindDroppedDataColumns:
 
         assert find_dropped_data_columns(headers, data) == []
 
+    def test_ignores_the_second_half_of_a_merged_heading(self):
+        """A heading stretched over two columns names both of them.
+
+        The 2022 template merges "Insulin Regimen" across a pair of columns, so
+        the right-hand one reads as headerless while the value is read from the
+        left-hand one. Reporting it tells the clinic to fix a heading that is
+        not broken.
+        """
+        headers = ["ID", "Insulin Regimen", None]
+        data = [("1", "Self-mixed BD", "Self-mixed BD")]
+
+        assert find_dropped_data_columns(headers, data, merged_spans=[(2, 3)]) == []
+
+    def test_reports_a_headerless_column_outside_any_merge(self):
+        headers = ["ID", "Insulin Regimen", None]
+        data = [("1", "Self-mixed BD", "Mixtard30 Penfill")]
+
+        assert find_dropped_data_columns(headers, data, merged_spans=[(2, 2)]) == [(2, 1)]
+
+    def test_ignores_a_row_counter_carrying_one_stray_keystroke(self):
+        """2023 Mahosot has 83 row numbers and one cell reading "m"."""
+        headers = [None, "ID"]
+        data = [("1", "a"), ("2", "b"), ("m", "c"), ("4", "d")]
+
+        assert find_dropped_data_columns(headers, data) == []
+
+    def test_still_ignores_a_counter_that_restarts(self):
+        """The ascending test is only asked of a column carrying a stray."""
+        headers = [None, "ID"]
+        data = [("1", "a"), ("2", "b"), ("1", "c")]
+
+        assert find_dropped_data_columns(headers, data) == []
+
+    def test_reports_a_column_of_numbers_with_a_stray_that_do_not_count(self):
+        headers = [None, "ID"]
+        data = [("70", "a"), ("65", "b"), ("high", "c")]
+
+        assert find_dropped_data_columns(headers, data) == [(0, 3)]
+
+    def test_treats_a_whitespace_only_cell_as_empty(self):
+        headers = ["ID", None]
+        data = [("1", "   "), ("2", None)]
+
+        assert find_dropped_data_columns(headers, data) == []
+
 
 class TestRecoverBlankHeaders:
     """Tests for recover_blank_headers() function."""

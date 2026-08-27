@@ -43,9 +43,9 @@ flowchart TD
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
+    T75["<b>75</b> · grilling<br/>A screening block records<br/>several results per<br/>patient and the pipeline<br/>keeps only the first"]
   end
-  subgraph DECIDED["Decided · 66"]
+  subgraph DECIDED["Decided · 67"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -107,6 +107,7 @@ flowchart TD
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
     T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
+    T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
@@ -149,9 +150,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T68 frontier
+  class T9,T34,T35,T40,T41,T75 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T69,T70,T71,T72,T73,T74 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -3243,7 +3244,87 @@ this session did the measuring half of it. [Ticket
 the larger.
 
 
+**[The 217 headerless-column defects](tickets/68-blank-header-emitter-vs-catalogue.md)
+is closed, and neither of the two numbers it was built to reconcile described a
+real population.** The emitter reported **217 findings / 4,390 values**; only
+**21 findings / 327 values** are a defect anyone can act on. It now reports
+exactly those.
+
+**88% of it was one clinic formatting habit.** The 2022 template stretches the
+`Insulin Regimen` header, and the complication-screening headers, across two
+columns each. The right-hand column then reads as headerless while the leftmost
+carries the value straight into the output -- nothing lost -- and the pipeline
+was telling nineteen clinics to fix a header that is not broken. That is the
+whole of the "why only 2022" question the ticket carried: one template
+replicated 19 times, not a defect 2022 clinics committed. The gate was that the
+emitter never received the merge spans, while `recover_blank_headers` -- one
+function away in the same file -- computed them and skipped exactly these
+columns. **The derived-list rule again**: the same exclusion existed twice and
+only one copy was being applied.
+
+**A further 178 values were the row counter with one keystroke in it** -- `'m'`
+among 83 row numbers in 2023 Mahosot's Sep23 sheet, a lone space in 2022
+Children's Hospital 2's Oct22 -- which the all-numeric guard could not survive.
+
+**The ticket's headline example turned out to be the fix working.** Running the
+extraction functions on `2021_Kantha Bopha` directly: Mar21 and Apr21 each drop
+column Q holding **97** values, the siblings donate `"Insulin Regime"`
+unanimously, recovery fires, and the emitter returns nothing -- 97 + 97 is
+ticket 30's exact 194. It stopped firing because ticket 30 fixed it.
+
+**What is left is genuine and small**: 2017/2018 Mahosot column S, 327 values
+all reading `Mixtard30 Penfill (3ml x 5's/box)`, unlabelled between two
+insulin-estimate columns, with no sibling sheet naming it.
+
+**A first attempt was measured false and reverted mid-session.** Identifying the
+counter by its numbers counting upward, full stop, took the code to **95**
+findings rather than 21, because counters that restart or hold a single number
+stopped qualifying; the ascending test is now asked only of the one-stray case.
+Findings went **103,603 -> 103,407** on the real 255-tracker both-arm run --
+exactly -217 + 21 and nothing else -- with codes firing **40 -> 40** and every
+published data table unchanged. Full detail: [ticket
+68](tickets/68-blank-header-emitter-vs-catalogue.md).
+
+**Splitting the suppressed findings by what the merge names turned up a real
+population, and it is a step backwards taken knowingly.** The `Insulin Regimen`
+shadows (103 findings, 3,659 values) are merge residue -- 2,910 of those values
+are byte-identical to the column the merge anchors. The complication-screening
+shadows (90 findings, **226 values across 12 trackers**) duplicate the anchor
+**zero** times: they are additional screening results -- `Foot Examination
+(Nerves)`, `Lipid profile`, `TSH` -- one per column, of which the pipeline
+publishes the first and discards the rest. They were visible only by accident,
+under a message that described them wrongly, and are now dropped in silence.
+That measurement graduated the map's **multi-select screening block** fog patch,
+which had been waiting for exactly this count, into [ticket
+75](tickets/75-screening-selections-under-merged-header.md).
+
+**The frontier is six** -- ticket 68 closing, ticket 75 opening -- and **none of
+the six is on the route, because the route is finished**; all nine clauses of
+the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and two
+data-quality tickets. **Take [ticket
+75](tickets/75-screening-selections-under-merged-header.md) next**: this session
+took away the only visibility those 226 clinical results had, so it is the one
+thing on the map that is currently worse than it was this morning. [Ticket
+40](tickets/40-source-defect-findings-report.md) is the other, and the larger.
+
 ## Decisions so far
+
+- [The pipeline reports 217 headerless-column defects where the triage found
+  4,572](tickets/68-blank-header-emitter-vs-catalogue.md) — neither number was a
+  real population. **217 findings / 4,390 values became 21 / 327**, and the
+  remainder were false positives of two kinds: a column a merged header already
+  names (193, 3,885 values -- the 2022 template stretches `Insulin Regimen` and
+  the complication-screening headers over two columns, so the right-hand one
+  reads as headerless while the left carries the value), and the row counter
+  carrying one stray keystroke (3, 178 values). What survives is real: 2017/2018
+  Mahosot column S, 327 unlabelled insulin-product entries. The catalogue's
+  headline example stopped firing because ticket 30's own recovery fixed it --
+  97 + 97 = its exact 194. Findings **103,603 -> 103,407**, exactly -217 + 21,
+  no published data table moved.
 
 - [Findings do not say which sheet, year or month they came from, though the
   emitters know](tickets/67-findings-must-name-sheet-year-month.md) — every
@@ -4488,6 +4569,18 @@ the larger.
 
 ## Assumptions in force
 
+- **Content buried under the right-hand half of a merged header is never worth
+  reporting to a clinic.** Excel does not display it, so nobody at the clinic
+  can see or correct it -- the basis on which [ticket
+  68](tickets/68-blank-header-emitter-vs-catalogue.md) stopped reporting 193
+  such columns. Resting on judgement plus the measurement that 2,910 of the
+  3,659 `Insulin Regimen` shadow values are byte-identical to the column the
+  merge anchors. **Overturned by** the 226 complication-screening values that
+  are *not* duplicates and are real clinical results -- which is why they are
+  now [ticket 75](tickets/75-screening-selections-under-merged-header.md)
+  rather than covered by this assumption. Any further population of
+  merge-covered columns holding distinct real values overturns it again.
+
 - **`scope` belongs in the published table rather than being derived at read
   time.** The user chose the scope field over the two cheaper routes but was
   not asked where it should live; materialising it into the parquet -- a
@@ -4850,16 +4943,6 @@ ninth clause, it is the only frontier ticket on the route.
   measurement to cascade. Together with the 11 `insulin_subtype` and 2
   `remote_followup` cells above, this patch and the `Undefined` one now own
   15 of the 16 cells the cleaned stage has left.
-- Whether a **multi-select screening block should keep more than its first
-  selection**. `2021_Putrajaya` records four complication-screening selections
-  per row in four adjacent columns under one merged header; both pipelines keep
-  only the first, so the comparison stays silent (R parks the rest in unmapped
-  suffixed columns, Python drops them, neither reaches mapped output). Found
-  while closing [ticket 48](tickets/48-putrajaya-screening-columns-lost.md) and
-  deliberately not fixed there -- it is a shared limitation, not a divergence,
-  and nobody has yet said whether the extra selections are wanted. Not sharp
-  enough to ticket until someone has measured how many trackers lay a block out
-  this way and what the downstream consumer expects.
 - What **"official migration" communication or cutover** means once `migration`
   reaches `dev`/`main` — who is told, what the A4D-facing announcement says,
   whether anything outside this repo still runs R. Both repo-side threads have
@@ -5157,6 +5240,7 @@ flowchart TB
   subgraph S2026_08_27["Session 2026-08-27"]
     direction LR
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
+    U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
     U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
     U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
@@ -5171,7 +5255,7 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
+    U75["<b>75</b><br/>A screening block<br/>records several results<br/>per patient and the<br/>pipeline keeps only the<br/>first"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5324,11 +5408,12 @@ flowchart TB
   U70 -.->|spawned| U72
   U70 -.->|spawned| U73
   U73 -.->|spawned| U74
+  U68 -.->|spawned| U75
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U68 tfrontier
+  class U9,U34,U35,U40,U41,U75 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U69,U70,U71,U72,U73,U74 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```
