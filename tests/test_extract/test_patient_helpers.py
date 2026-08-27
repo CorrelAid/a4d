@@ -21,10 +21,12 @@ from a4d.extract.patient import (
 )
 
 
-def create_mock_mapper(known_columns: set[str]):
+def create_mock_mapper(known_columns: set[str], standard_names: dict[str, str] | None = None):
     """Create a mock ColumnMapper that validates specific column names."""
     mapper = Mock()
     mapper.is_known_column = lambda col: col in known_columns
+    names = standard_names or {}
+    mapper.get_standard_name = lambda col: names.get(col, col)
     return mapper
 
 
@@ -691,29 +693,63 @@ class TestMergeHeadersWithMergedSpans:
 
         assert result == ["Insulin Regimen", None]
 
-    def test_bare_title_does_not_claim_a_column_another_already_maps_to(self):
-        """The 2022 complication-screening block, which collided on 290 sheets.
+    def test_a_multi_select_block_names_every_column_it_spans(self):
+        """The 2022 complication-screening block records one screening per column.
 
-        The block's own column already carries the screening selection; a blank
-        column inside the same merge would take the bare title, which maps to
-        the same standard column and silently competes with it.
+        A patient screened for kidney, eye and foot in one month has three ticks
+        in three columns under one merged title, and only the leftmost carries a
+        header of its own. Giving the others the same header hands them to
+        `merge_duplicate_columns_data`, which comma-joins them into one cell --
+        measured across the corpus as 227 ticks in 133 patient-months that were
+        otherwise dropped, none of them a repeat of the tick that was kept.
         """
+        h1 = ["Drop Down", None, None]
+        h2 = ["Current Month Complication Screening", None, None]
+        mapper = create_mock_mapper(
+            {"Current Month Complication Screening Drop Down"},
+            {"Current Month Complication Screening Drop Down": "complication_screening"},
+        )
+
+        result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 3)])
+
+        assert result == ["Current Month Complication Screening Drop Down"] * 3
+
+    def test_a_multi_select_block_leaves_named_columns_alone(self):
+        """Only the columns with no header of their own join the block."""
         h1 = ["Drop Down", None, "Results"]
         h2 = ["Current Month Complication Screening", None, None]
         mapper = create_mock_mapper(
             {
                 "Current Month Complication Screening Drop Down",
                 "Current Month Complication Screening Results",
-            }
+            },
+            {"Current Month Complication Screening Drop Down": "complication_screening"},
         )
 
         result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 3)])
 
         assert result == [
             "Current Month Complication Screening Drop Down",
-            None,
+            "Current Month Complication Screening Drop Down",
             "Current Month Complication Screening Results",
         ]
+
+    def test_a_single_select_block_does_not_take_its_spanned_columns(self):
+        """Insulin regimen is one value per patient-month, so the shadow stays out.
+
+        2,910 of the 3,659 values under the 2022 insulin merge are byte-identical
+        to the column the merge anchors; joining them would produce a worse value.
+        """
+        h1 = ["Drop Down", None]
+        h2 = ["Insulin Regimen", None]
+        mapper = create_mock_mapper(
+            {"Insulin Regimen Drop Down"},
+            {"Insulin Regimen Drop Down": "insulin_regimen"},
+        )
+
+        result = merge_headers(h1, h2, mapper=mapper, merged_spans=[(1, 2)])
+
+        assert result == ["Insulin Regimen Drop Down", None]
 
     def test_two_sub_headers_qualifying_alike_do_not_merge(self):
         h1 = ["Date", None, "Date"]

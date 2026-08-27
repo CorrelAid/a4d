@@ -32,7 +32,7 @@ def test_e2e_pipeline(tracker_fixture, expected_rows, expected_year, description
 
     This test validates that:
     1. Extraction works and produces expected row count
-    2. Cleaning works and produces 83-column schema
+    2. Cleaning works and produces 85-column schema
     3. Row count is preserved through the pipeline
     4. Year is extracted correctly
     """
@@ -69,7 +69,7 @@ class TestE2E2024Penang:
         df_clean = clean_patient_data(df_raw)
 
         # Validate schema
-        assert len(df_clean.columns) == 83
+        assert len(df_clean.columns) == EXPECTED_SCHEMA_COLS
         assert len(df_clean) == 174
 
         # Validate metadata
@@ -117,7 +117,7 @@ class TestE2ECrosYearConsistency:
     def test_all_years_produce_same_schema(
         self, tracker_2024_penang, tracker_2023_sibu, tracker_2022_penang
     ):
-        """All tracker years should produce the same 83-column schema."""
+        """All tracker years should produce the same 85-column schema."""
         trackers = [
             (tracker_2024_penang, "2024_Penang"),
             (tracker_2023_sibu, "2023_Sibu"),

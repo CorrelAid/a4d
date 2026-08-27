@@ -1,7 +1,7 @@
 """Integration tests for patient data cleaning.
 
 Tests cleaning on real extracted data, validating:
-- Correct schema (83 columns)
+- Correct schema (85 columns)
 - Type conversions work correctly
 - Error tracking works
 - Derived columns are created
@@ -23,7 +23,7 @@ class TestClean2024Penang:
     """Test cleaning on 2024 Penang extracted data."""
 
     def test_clean_produces_correct_schema(self, tracker_2024_penang):
-        """Should produce exactly 83 columns after cleaning."""
+        """Should produce exactly 85 columns after cleaning."""
         skip_if_missing(tracker_2024_penang)
 
         df_raw = read_all_patient_sheets(tracker_2024_penang)
@@ -103,7 +103,7 @@ class TestClean2022PenangLegacy:
     """Test cleaning on 2022 Penang (legacy format)."""
 
     def test_clean_legacy_format(self, tracker_2022_penang):
-        """Should clean legacy format to same 83-column schema."""
+        """Should clean legacy format to same 85-column schema."""
         skip_if_missing(tracker_2022_penang)
 
         df_raw = read_all_patient_sheets(tracker_2022_penang)

@@ -45,7 +45,7 @@ def tracker_2018_mandalay():
 
 
 # Expected values for validation
-EXPECTED_SCHEMA_COLS = 83  # After cleaning (patient)
+EXPECTED_SCHEMA_COLS = 85  # After cleaning (patient)
 EXPECTED_SCHEMA_COLS_PRODUCT = 20  # After cleaning (product)
 
 
