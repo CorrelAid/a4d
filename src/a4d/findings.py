@@ -61,6 +61,9 @@ ErrorCode = Literal[
     "duplicate_source_columns",
     "unrecognised_column",
     "sheet_skipped",
+    "month_sheet_missing",
+    "month_sheets_end_early",
+    "static_sheet_missing",
     "static_sheet_duplicate_id",
     "empty_product_data",
     "product_section_not_found",
@@ -118,6 +121,9 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
     "duplicate_source_columns": "fix_workbook",
     "unrecognised_column": "fix_workbook",
     "sheet_skipped": "fix_workbook",
+    "month_sheet_missing": "fix_workbook",
+    "month_sheets_end_early": "fix_workbook",
+    "static_sheet_missing": "fix_workbook",
     "static_sheet_duplicate_id": "fix_workbook",
     "empty_product_data": "fix_workbook",
     "product_section_not_found": "fix_workbook",
@@ -191,6 +197,24 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "rest of the workbook still processed. Usually a sheet with no header "
         "row, no data, no patient ID column, or a name no month can be read "
         "from. The named sheet is where to look."
+    ),
+    "month_sheet_missing": (
+        "A month sheet is missing from the middle of this tracker's own range, "
+        "so no data was read for that month. Add the sheet, or confirm the "
+        "clinic recorded nothing that month. A tracker that simply starts late "
+        "because the clinic joined mid-year is not reported here."
+    ),
+    "month_sheets_end_early": (
+        "The tracker's year is over but its month sheets stop before December, "
+        "so no data exists for the rest of the year. Confirm the clinic stopped "
+        "reporting rather than the sheets being missing."
+    ),
+    "static_sheet_missing": (
+        "The workbook has no Patient List or Annual sheet, although every "
+        "tracker from that sheet's introduction year on carries one, so none of "
+        "the data it holds reached the output. Where the workbook holds the "
+        "sheet under a different name -- 'Annual_2025' rather than 'Annual' -- "
+        "the message names it, and renaming it is the fix."
     ),
     "static_sheet_duplicate_id": (
         "The Patient List or Annual sheet lists the same patient more than once "

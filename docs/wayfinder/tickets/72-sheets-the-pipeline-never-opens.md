@@ -2,12 +2,12 @@
 id: 72
 title: A sheet whose name the matcher does not recognise is skipped in total silence
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-27
+claimed_at: 2026-08-27
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 70
 ---
@@ -93,3 +93,113 @@ implement it.
    a finding per sheet.
 
 Reproduce with `uv run python scripts/finding_blind_spots.py --probe sheets`.
+
+
+## Resolution (session 2026-08-27)
+
+**Decision.** The pipeline lists every sheet it never opens on the **operational
+log**, and raises a **`fix_workbook` finding** for every sheet a tracker of its
+year *should* hold and does not. Sheet selection itself is unchanged: no
+matcher was loosened, and no extraction moved.
+
+Three new error codes, all `fix_workbook`, all emitted from
+`audit_workbook_sheets` (`src/a4d/extract/sheet_audit.py`), called once per
+workbook from `read_all_patient_sheets` -- the patient arm only, because the
+audit is per workbook and the product arm reads the same file:
+
+- **`month_sheet_missing`** -- a month absent from *inside* the tracker's own
+  first-to-last range. Fires **1/255**: 2017 Mahosot has `Feb17` then `Apr17`,
+  with no `Mar17` under any spelling.
+- **`month_sheets_end_early`** -- a *completed* year whose last month sheet is
+  before December. Fires **4/255**: 2020 YCH (Oct), 2022 UTH (Aug), 2023 CHO
+  (Oct), 2025 UMC (Aug).
+- **`static_sheet_missing`** -- `Patient List` or `Annual` absent although the
+  tracker's year is at or past that sheet's introduction year. Fires **1/255**:
+  the 2026 VNC tracker.
+
+`unopened_sheets()` / `log_unopened_sheets()` write the full list to the log
+instead of the findings table: **510 log lines across all 255 trackers** (2x per
+tracker, the logs table's pre-existing loguru dual-sink behaviour -- a
+pre-existing `find_month_sheets` info line lands 8x, so this is not new).
+
+**Because.** The user rejected the ticket's implied "widen the matcher" route as
+a hidden subset of "report everything": widening requires already knowing every
+sheet name in use, and even then says nothing about names future trackers will
+invent. So the two halves are deliberately different in kind -- an exhaustive
+*list* for the log, which needs no recogniser and therefore has no blind spot,
+and an *assertion on what should be present* for the findings table, which
+surfaces an unopened sheet named anything at all because the sheet it should
+have been is reported missing.
+
+The thresholds were chosen by measuring the population, not by principle. The
+ticket's own framing ("all 12 monthly sheets") would fire on **36** trackers, of
+which **31** are clinics that joined mid-year (VNC starts Jul 2017, PTJ Jul
+2021, QMC Dec 2025) and 48 are 2026 trackers whose year has not finished. The
+three narrower checks fire **6 times total**, and every one is actionable.
+
+The static-sheet introduction years are derived from the corpus, not declared:
+`Patient List` 0/62 before 2022 and 145/145 from 2022; `Annual` 0/122 before
+2024 and 132/133 from 2024 -- the single exception being the case this ticket
+exists to report.
+
+**The ticket named the wrong sheet, and the correction is the session's main
+finding.** The ticket says the loss is `Annual_2026`'s 76 rows and is "bounded"
+because its screening columns are empty. Measured directly against the real
+workbooks:
+
+| sheet | workbook | 76 patient rows | screening data |
+|---|---|---|---|
+| `Annual` | 2025 VNC tracker | yes | **none** -- ID/Name/Status/Education only |
+| `Annual_2025` | **2026** VNC tracker | yes | **26 kidney tests, 21 eye exams, 21 BP pairs**, 15 and 8 in two more blocks |
+| `Annual_2026` | 2026 VNC tracker | yes | 6 cells -- this year, barely started |
+
+The clinic filled 2025's annual screening in retrospectively, **in the 2026
+workbook**. The pipeline opens the 2025 workbook's `Annual` sheet, finds it
+empty of screening data, and never opens the populated copy. So `Annual_2025`
+holds the only annual screening VNC has for 2025, and the loss is neither
+bounded nor hypothetical. This also kills the obvious widening rule: "prefix-
+match `Annual`, take the sheet matching the tracker year" selects the *empty*
+`Annual_2026` and still loses `Annual_2025`. The `static_sheet_missing` message
+names both candidates and says explicitly that a sheet holding another year's
+data belongs in that year's tracker.
+
+**Rejected.**
+
+- *Widen the matcher (case-insensitive months, normalised static-sheet match).*
+  Measured: case-insensitive month matching pulls in **zero** new sheets today
+  -- none of the 16 distinct unopened names starts with a month abbreviation in
+  any casing. A normalised `Annual` match pulls in exactly `Annual_2025` and
+  `Annual_2026`. Killed on the user's reasoning above, and independently by the
+  fact that `join_static_sheet` (`extract/patient.py`) joins Annual data onto
+  the tracker's own patient rows carrying no year of its own, so reading
+  `Annual_2025` from a 2026 workbook would file 2025 screening under 2026.
+- *Read `Annual_2025` and attribute it to the year in its name*, joining it into
+  the 2025 tracker's output. Semantically correct and rejected as far larger
+  than this ticket: it introduces cross-tracker data flow, which nothing in the
+  pipeline does today, and needs a rule for when both copies hold values. The
+  finding now puts it on record for A4D to fix at source.
+- *A finding per unopened sheet.* 517 rows, 499 of them `Lookup List` /
+  `Inventory` / `INV` variants, burying the one that matters.
+- *A recogniser for "sheets that look like ones we wanted".* The user's point:
+  it can only match names somebody already thought of, which is the exact blind
+  spot this ticket exists to close.
+
+**What this gives up.** `Annual_2025`'s screening data stays unread until A4D
+moves it. The case-sensitivity hazard in `find_month_sheets` is real and
+untouched -- it has zero current instances, and `log_unopened_sheets` would now
+surface the first one.
+
+**Evidence: executed.** Every number above was measured against the real
+255-tracker corpus on the drive, not a fixture. Full both-arm run
+(`a4d run --skip-download --skip-upload --skip-drive-download --force`):
+findings **105,464 -> 105,470**, exactly the 1 + 4 + 1 predicted and nothing
+else; codes firing **37 -> 40**; `patient_data_monthly` (86,360),
+`product_data` (75,169), `patient_data_static` (1,828) and
+`patient_data_annual` (4,520) all unchanged, so no production data moved. The
+`Annual_2025` / `Annual` cell counts were read directly from both VNC
+workbooks. Full suite 1,293 passed / 1 skipped (15 new tests), ruff,
+`ruff format --check`, `ty check src/` all pass.
+
+**Tense.** Everything above is current behaviour on `dev` as of this session,
+except the two rejected extraction changes, which describe what *would* happen
+and were not made.

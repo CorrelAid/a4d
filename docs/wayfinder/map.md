@@ -36,7 +36,7 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 8"]
+  subgraph FRONTIER["Frontier · 7"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
@@ -45,9 +45,8 @@ flowchart TD
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
-    T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
   end
-  subgraph DECIDED["Decided · 64"]
+  subgraph DECIDED["Decided · 65"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -111,6 +110,7 @@ flowchart TD
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
+    T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
     T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
     T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
   end
@@ -149,9 +149,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68,T72 frontier
+  class T9,T34,T35,T40,T41,T67,T68 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T73,T74 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T72,T73,T74 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -3098,6 +3098,67 @@ that no code path opens, because the static-sheet test is the exact string
 remains the one that would change the most and still should not be started
 without a session to spare.
 
+
+**[The sheets the pipeline never opens](tickets/72-sheets-the-pipeline-never-opens.md)
+is closed, and it corrected its own headline finding.** The ticket said the live
+loss was `Annual_2026`'s 76 rows and was "bounded" because its screening columns
+are empty. Reading both real VNC workbooks shows the loss is `Annual_2025` --
+sitting *inside the 2026 workbook*, holding 26 kidney function tests, 21 eye
+exams and 21 blood-pressure pairs, while the 2025 workbook's own `Annual` sheet
+carries ID/Name/Status/Education and nothing else. The clinic filled 2025's
+annual screening in retrospectively, in the following year's file, so that sheet
+is the only annual screening VNC has for 2025.
+
+**That also killed the obvious fix.** "Prefix-match `Annual`, take the sheet
+matching the tracker year" selects the *empty* `Annual_2026` and still loses
+`Annual_2025`; and `join_static_sheet` carries no year of its own, so reading a
+2025 sheet from a 2026 workbook would file 2025 screening under 2026. The user
+chose report-only: no matcher was loosened and no extraction moved.
+
+**The user rejected widening as a hidden subset of reporting** -- it requires
+already knowing every sheet name in use, and says nothing about names future
+trackers invent. So the answer is two things of different kinds: an exhaustive
+*list* of unopened sheets on the operational log (510 lines across 255
+trackers), which needs no recogniser and therefore has no blind spot; and an
+*assertion on what should be present* in the findings table, which surfaces an
+unopened sheet named anything at all, because the sheet it should have been is
+reported missing.
+
+**The thresholds were set by measuring the population, not by principle.** The
+ticket's implied "all 12 monthly sheets" fires on **36** trackers, of which 31
+are clinics that joined mid-year and 48 are 2026 files whose year has not
+finished. Three narrower checks fire **6 times in 255 trackers**, every one
+actionable: `month_sheet_missing` (1 -- 2017 Mahosot has `Feb17` then `Apr17`),
+`month_sheets_end_early` (4 -- completed years stopping in Aug or Oct), and
+`static_sheet_missing` (1 -- the 2026 VNC tracker). The static sheets'
+introduction years are derived from the corpus, not declared: `Patient List`
+0/62 before 2022 and 145/145 after; `Annual` 0/122 before 2024 and 132/133
+after.
+
+Findings went **105,464 -> 105,470** on the real 255-tracker both-arm run --
+exactly the 1 + 4 + 1 and nothing else -- and codes firing **37 -> 40**, all
+three `fix_workbook`. `patient_data_monthly` (86,360), `product_data` (75,169),
+`patient_data_static` (1,828) and `patient_data_annual` (4,520) are unchanged,
+so no production data moved. Full detail: [ticket
+72](tickets/72-sheets-the-pipeline-never-opens.md).
+
+**The frontier is seven** -- ticket 72 closing, nothing opening -- and **none of
+the seven is on the route, because the route is finished**; all nine clauses of
+the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and three
+data-quality tickets. **Take [ticket
+67](tickets/67-findings-must-name-sheet-year-month.md) next** if the session has
+room: it is still the one that would change the most, three sessions have now
+deferred it, and it gained weight again here -- two of this ticket's three new
+codes are workbook-level and carry no sheet, year or month at all, which is
+exactly the `scope` distinction 67 exists to make explicit. If the session is
+short, [ticket 68](tickets/68-blank-header-emitter-vs-catalogue.md) is the
+smaller one, and 67 may well answer it.
+
+
 ## Decisions so far
 
 - [A second local run doubles the rebuilt findings table, because last run's
@@ -4327,6 +4388,7 @@ without a session to spare.
   regression that left `a4d run` writing **no product table at all** while
   reporting success (absent → 75,169 rows), and an `arm` argument silently
   ignored; together they recovered 3,002 lost findings (119,588 → 122,590).
+- [A sheet whose name the matcher does not recognise is skipped in total silence](tickets/72-sheets-the-pipeline-never-opens.md) — report, don't widen: every unopened sheet is listed on the operational log (510 lines/255 trackers), and three new `fix_workbook` codes assert the sheets a tracker's year should hold, firing 6 times in 255. Corrected the ticket's own finding: the lost screening data is `Annual_2025` inside the *2026* VNC workbook, not the near-empty `Annual_2026`.
 
 ## Assumptions in force
 
@@ -4572,6 +4634,14 @@ the reason ticket 66 had to land first. Its own premise carried two figures
 that were wrong (a "1M+ row" logs table; `table_errors` as a data source) and
 both are corrected on it. Under the reading that ticket 16 is the destination's
 ninth clause, it is the only frontier ticket on the route.
+- The static sheets' introduction years — `Patient List` from 2022, `Annual`
+  from 2024 — are read off the current corpus (0/62 and 0/122 before; 145/145
+  and 132/133 after), not off an A4D template changelog. `STATIC_SHEET_INTRODUCED`
+  in `src/a4d/extract/sheet_audit.py` rests on
+  [ticket 72](tickets/72-sheets-the-pipeline-never-opens.md); overturned by a
+  tracker predating those years that legitimately carries the sheet, or by A4D
+  stating a different introduction date — either way the check would report
+  absences that are not defects.
 
 ## Not yet specified
 
@@ -4683,6 +4753,29 @@ ninth clause, it is the only frontier ticket on the route.
   known divergences; no `pipeline/patient.py` unit test) aren't ticketed yet
   — they don't block the merge/promotion path the way product's gaps do, but
   will need a home before the map can call itself done.
+- Whether a sheet holding **another year's data inside a later year's workbook**
+  should be read at all. The 2026 VNC tracker's `Annual_2025` holds the only
+  annual screening that clinic has for 2025 (26 kidney tests, 21 eye exams, 21
+  BP pairs); the 2025 workbook's own `Annual` sheet has none of it. Reading it
+  correctly means attributing it to the year in its *name*, which would make one
+  workbook's data flow into another workbook's output -- something nothing in
+  the pipeline does today, and which needs a rule for when both copies hold
+  values. [Ticket 72](tickets/72-sheets-the-pipeline-never-opens.md) reported it
+  instead, on the reasoning that one clinic-year is not enough to justify
+  cross-tracker flow. Not sharp enough to ticket until someone has measured how
+  often a clinic backfills a previous year in the current workbook, or until
+  A4D declines to fix it at source.
+
+- Whether `find_month_sheets`'s **case sensitivity** should be loosened. It
+  keeps a sheet only if the name starts with a capitalised month abbreviation,
+  so `JAN24` or `january24` is invisible to both arms. Measured across the
+  255-tracker corpus by [ticket
+  72](tickets/72-sheets-the-pipeline-never-opens.md): **zero** current
+  instances -- none of the 16 distinct unopened sheet names starts with a month
+  abbreviation in any casing. A real hazard with no evidence behind it, and
+  `log_unopened_sheets` now surfaces the first instance if one arrives. Not
+  worth fixing on today's evidence.
+
 
 ## Out of scope
 
@@ -4936,6 +5029,7 @@ flowchart TB
   end
   subgraph S2026_08_27["Session 2026-08-27"]
     direction LR
+    U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
     U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
   subgraph Sunworked["Closed without being worked"]
@@ -4951,7 +5045,6 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
-    U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5106,9 +5199,9 @@ flowchart TB
   U73 -.->|spawned| U74
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68,U72 tfrontier
+  class U9,U34,U35,U40,U41,U67,U68 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U73,U74 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U72,U73,U74 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```
