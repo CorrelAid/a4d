@@ -21,6 +21,7 @@ Usage:
     ...     logger.warning("Missing column", column="hba1c_updated_date")
 """
 
+import shutil
 import sys
 import threading
 from collections.abc import Generator
@@ -28,6 +29,41 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from loguru import logger
+
+
+def clear_run_logs(output_root: Path, *, keep_per_tracker: bool = False) -> None:
+    """Drop the previous run's log files before this run opens its own sinks.
+
+    Both readers of ``output_root/logs/`` -- :func:`a4d.tables.logs.create_table_logs`
+    and :func:`a4d.tables.findings.rebuild_findings_from_logs` -- take every
+    ``*.log`` file in the directory. Per-tracker logs are safe on their own,
+    since :func:`file_logger` deletes and rewrites each one by name. The
+    aggregate logs are not: ``main_worker_<timestamp>_pid<n>.log`` is a fresh
+    name every run and loguru's file sink appends rather than truncates, so a
+    second run in the same directory left both readers summing two runs. It
+    returned 213,921 findings for a run that produced 105,464.
+
+    Args:
+        output_root: Root output directory (logs live in ``output_root/logs/``)
+        keep_per_tracker: Keep the per-tracker logs and drop only the aggregate
+            ``main_*`` ones. Set under ``--incremental``, where a tracker the
+            run skips has no other record of its findings -- its lines in the
+            previous run's worker log are duplicates of its own log file, never
+            the only copy.
+    """
+    log_dir = output_root / "logs"
+    if not log_dir.exists():
+        return
+
+    if not keep_per_tracker:
+        shutil.rmtree(log_dir)
+        return
+
+    # Aggregate logs are the ones setup_logging names, which prefixes "main_".
+    # Rotation writes siblings (.zip) under the same prefix, so match on it
+    # rather than on the .log suffix.
+    for stale in log_dir.glob("main_*"):
+        stale.unlink()
 
 
 def _main_thread_only(record) -> bool:  # noqa: ANN001

@@ -63,7 +63,7 @@ uv run a4d download clinic-data   # Download clinic_data.xlsx from Google Drive 
 uv run a4d report findings        # Excel of every data-quality finding (--tracker NAME to drill into one, --from-bigquery for a deployed run)
 ```
 
-Key options: `--file` (single tracker), `--workers N`, `--skip-tables`, `--skip-download`, `--skip-upload`, `--skip-drive-download`, `--skip-product`, `--incremental` (skip trackers matching previous run's manifest).
+Key options: `--file` (single tracker), `--workers N`, `--skip-tables`, `--skip-download`, `--skip-upload`, `--skip-drive-download`, `--skip-product`, `--incremental` (skip trackers matching previous run's manifest, and keep their outputs). Every run otherwise starts from a clean output directory -- `output/logs/` included, so no table sums two runs.
 
 ## Output Directory Structure
 

@@ -13,6 +13,7 @@ from rich.table import Table
 
 from a4d.discovery import discover_tracker_files
 from a4d.findings import Finding
+from a4d.logging import clear_run_logs
 from a4d.pipeline.patient import (
     process_patient_tables,
     run_patient_pipeline,
@@ -562,6 +563,8 @@ def run_patient_cmd(
 
     _render_pipeline_header(data_root_display, _output_root, _workers, skip_tables=skip_tables)
 
+    clear_run_logs(_output_root, keep_per_tracker=not (force or not incremental))
+
     # Step 1: Extract + clean (table creation handled below for visible progress)
     console.print("[bold]Step 1/4:[/bold] Extracting and cleaning tracker files...")
     try:
@@ -901,6 +904,8 @@ def run_product_cmd(
 
     _render_pipeline_header(data_root_display, _output_root, _workers, skip_tables=skip_tables)
 
+    clear_run_logs(_output_root, keep_per_tracker=not (force or not incremental))
+
     console.print("[bold]Step 1/4:[/bold] Extracting and cleaning product data...")
     try:
         result = run_product_pipeline(
@@ -1239,7 +1244,9 @@ def run_all_cmd(
             "--incremental",
             help=(
                 "Skip trackers whose MD5 + completion state match the previous "
-                "run's manifest. Both arms see the same filtered queue."
+                "run's manifest. Both arms see the same filtered queue. "
+                "Preserves prior outputs, since a skipped tracker's parquets "
+                "are the only copy of its data."
             ),
         ),
     ] = False,
@@ -1248,10 +1255,9 @@ def run_all_cmd(
         typer.Option(
             "--force",
             help=(
-                "Wipe prior local outputs (raw, cleaned, tables) before each "
-                "pipeline arm runs. Without this flag, `run` reuses any "
-                "existing per-tracker parquets on disk. Overrides --incremental "
-                "if both are passed."
+                "Wipe prior local outputs even under --incremental. A run "
+                "wipes them by default; only --incremental preserves them, "
+                "and this flag overrides that."
             ),
         ),
     ] = False,
@@ -1285,8 +1291,8 @@ def run_all_cmd(
         # Skip Drive download if clinic_data.xlsx is already current
         uv run a4d run --skip-drive-download
 
-        # Wipe prior outputs before each arm runs
-        uv run a4d run --force
+        # Reuse unchanged trackers' outputs instead of wiping and reprocessing
+        uv run a4d run --incremental
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -1372,13 +1378,14 @@ def run_all_cmd(
             raise typer.Exit(0)
 
     # Step 2+3 – Extract, clean and build tables.
-    # clean_output wiring is `force` here, not `force or not incremental` like
-    # run patient/run product. Reason: the bare `run`'s historical default
-    # (on `migration` and on this branch pre-change) was preserve-outputs — it
-    # never passed clean_output, inheriting the orchestrator's False default.
-    # --force on `migration` was a vestigial no-op (declared, plumbed, never
-    # read). With --force now actually wired through, opting in wipes both arms;
-    # without it, `run` keeps its prior preserve-outputs contract.
+    # A run starts from a clean output directory unless --incremental says
+    # otherwise, matching `run patient` and `run product`. Preserved outputs
+    # are load-bearing in exactly one place: an --incremental run skips
+    # unchanged trackers, and their cleaned parquets are the only copy of their
+    # data the tables are built from. Everywhere else, a preserved output is a
+    # previous run's leftover that the tables would sum into this run's.
+    clean_output = force or not incremental
+    clear_run_logs(settings.output_root, keep_per_tracker=not clean_output)
     result = None
     product_result = None
     if not skip_patient:
@@ -1387,7 +1394,7 @@ def run_all_cmd(
             result = run_patient_pipeline(
                 tracker_files=shared_tracker_files,
                 max_workers=_workers,
-                clean_output=force,
+                clean_output=clean_output,
                 show_progress=True,
                 console_log_level="WARNING",
             )
@@ -1447,7 +1454,7 @@ def run_all_cmd(
             product_result = run_product_pipeline(
                 tracker_files=shared_tracker_files,
                 max_workers=_workers,
-                clean_output=force,
+                clean_output=clean_output,
                 show_progress=True,
                 console_log_level="WARNING",
             )

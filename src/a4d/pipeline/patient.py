@@ -114,7 +114,8 @@ def run_patient_pipeline(
         max_workers: Number of parallel workers (1 = sequential)
         output_root: Output directory (None = use settings.output_root)
         skip_tables: If True, only extract + clean, skip table creation
-        clean_output: If True, wipe patient_data_raw/, patient_data_cleaned/, tables/ before run
+        clean_output: If True, wipe patient_data_raw/, patient_data_cleaned/ and tables/
+            before the run. logs/ is cleared by the CLI, not here -- both arms write to it
         progress_callback: Optional callback(tracker_name, success) called after each tracker
         show_progress: If True, show tqdm progress bar
         console_log_level: Console log level (None=INFO, ERROR=quiet, etc)
@@ -148,9 +149,12 @@ def run_patient_pipeline(
     if output_root is None:
         output_root = settings.output_root
 
-    # Wipe previous run's outputs so tables reflect only this run.
+    # Wipe previous run's outputs so tables reflect only this run. logs/ is
+    # deliberately not here: it is shared with the product arm, so an arm that
+    # wiped it would delete the other arm's log files mid-run. Clearing it is
+    # the run's job -- see clear_run_logs, called once per CLI invocation.
     if clean_output:
-        for subdir in ("patient_data_raw", "patient_data_cleaned", "tables", "logs"):
+        for subdir in ("patient_data_raw", "patient_data_cleaned", "tables"):
             target = output_root / subdir
             if target.exists():
                 shutil.rmtree(target)

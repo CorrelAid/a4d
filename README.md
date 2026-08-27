@@ -64,8 +64,8 @@ just run --skip-download        # Reuse files already in data_root
 just run --skip-drive-download  # Skip clinic_data.xlsx refresh from Google Drive
 just run --skip-product         # Patient-only run
 just run --skip-patient         # Product-only run (mutually exclusive with --skip-product)
-just run --incremental          # Skip unchanged trackers (MD5 + completion match)
-just run --force                # Wipe prior local outputs before each arm runs
+just run --incremental          # Skip unchanged trackers (MD5 + completion match), keeping their outputs
+just run --force                # Wipe prior local outputs even under --incremental
 
 # Single-arm runs (no GCS download/upload)
 just run-local                  # Patient extract + clean + tables
