@@ -165,7 +165,7 @@ class TestColumnMapper:
             }
         )
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert "age" in renamed.columns
         assert "patient_id" in renamed.columns
@@ -184,7 +184,7 @@ class TestColumnMapper:
             }
         )
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert "age" in renamed.columns
         assert "UnknownColumn" in renamed.columns
@@ -207,7 +207,7 @@ class TestColumnMapper:
             }
         )
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert list(renamed.columns) == ["age", "patient_id"]
         assert renamed["patient_id"].to_list() == ["P001", "P002", "P003,P003b"]
@@ -218,7 +218,7 @@ class TestColumnMapper:
 
         df = pl.DataFrame({"Patient ID": [None, ""], "ID": ["", None]})
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert renamed["patient_id"].to_list() == [None, None]
 
@@ -228,7 +228,7 @@ class TestColumnMapper:
 
         df = pl.DataFrame({"Age": [25, None], "Age*": [None, 30]})
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert renamed["age"].to_list() == ["25", "30"]
 
@@ -257,7 +257,7 @@ class TestColumnMapper:
             }
         )
 
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         assert renamed.columns == df.columns
         assert renamed.equals(df)
@@ -358,7 +358,7 @@ class TestIntegrationWithActualData:
         }
 
         df = pl.DataFrame(test_data)
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         # Check that columns are renamed correctly
         assert "age" in renamed.columns
@@ -378,7 +378,7 @@ class TestIntegrationWithActualData:
         }
 
         df = pl.DataFrame(test_data)
-        renamed = mapper.rename_columns(df)
+        renamed = mapper.rename_columns(df, sheet_name="Jan24")
 
         # Check that columns are renamed correctly
         assert "product" in renamed.columns

@@ -105,6 +105,29 @@ def get_tracker_year(tracker_file: Path, month_sheets: list[str]) -> int:
     )
 
 
+def tracker_year_or_none(tracker_file: Path) -> int | None:
+    """The tracker's year from its file name, or None if it does not state one.
+
+    Findings carry the year so the published table can be filtered by it, and
+    the year is constant for a whole workbook -- so it is resolved once when
+    the tracker scope opens rather than at each emit site. The file name is the
+    only source available that early: the month sheets are not read yet.
+    Every tracker in the corpus is named ``YYYY_Clinic``, but a workbook that
+    breaks that convention must not stop the run over a filter field.
+
+    Args:
+        tracker_file: Path to the tracker Excel file
+
+    Returns:
+        The year, or None where the name carries no usable one
+    """
+    try:
+        return get_tracker_year(tracker_file, [])
+    except ValueError:
+        logger.debug(f"No tracker year in file name '{tracker_file.name}'; findings omit it")
+        return None
+
+
 def find_month_sheets(workbook) -> list[str]:
     """Find all month sheets in the tracker workbook.
 

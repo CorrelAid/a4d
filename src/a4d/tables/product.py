@@ -12,7 +12,13 @@ from loguru import logger
 from a4d.clean.converters import safe_convert_column
 from a4d.clean.schema_product import apply_schema, get_product_data_schema
 from a4d.clean.validators import fix_patient_id
-from a4d.findings import Finding, findings_collected, report_finding
+from a4d.findings import (
+    Finding,
+    findings_collected,
+    present_place_columns,
+    report_finding,
+    sheet_context,
+)
 
 
 def read_cleaned_product_data(cleaned_files: list[Path]) -> pl.DataFrame:
@@ -197,19 +203,20 @@ def link_product_patient(
     findings: list[Finding] = []
     if total_mismatched_rows:
         with findings_collected(arm="product") as collector:
-            for file_name, patient_id in mismatches.select(
-                "file_name", "product_released_to"
-            ).iter_rows():
+            for row in mismatches.select(
+                "file_name", "product_released_to", *present_place_columns(mismatches.columns)
+            ).iter_rows(named=True):
                 report_finding(
-                    file_name=file_name,
-                    patient_id=patient_id,
+                    file_name=row["file_name"],
+                    patient_id=row["product_released_to"],
                     column="product_released_to",
-                    original_value=patient_id,
+                    original_value=row["product_released_to"],
                     message=(
-                        f"Units released to '{patient_id}', which appears in no "
-                        f"patient sheet of this tracker"
+                        f"Units released to '{row['product_released_to']}', which appears "
+                        f"in no patient sheet of this tracker"
                     ),
                     error_code="released_units_to_unknown_patient",
+                    **sheet_context(row),
                     stage="tables",
                     function_name="link_product_patient",
                 )

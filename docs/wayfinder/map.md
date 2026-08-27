@@ -36,17 +36,16 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 7"]
+  subgraph FRONTIER["Frontier · 6"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T68["<b>68</b> · task<br/>The pipeline reports 217<br/>headerless-column defects<br/>where the triage found<br/>4,572"]
   end
-  subgraph DECIDED["Decided · 65"]
+  subgraph DECIDED["Decided · 66"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -107,6 +106,7 @@ flowchart TD
     T63["<b>63</b> · task<br/>The cleaned stage has<br/>4,949 cells with no cause,<br/>because the ID spelling<br/>that explains them is gone<br/>by then"]
     T64["<b>64</b> · task<br/>Rewrite every docstring<br/>and doc that explains the<br/>code by what R did"]
     T66["<b>66</b> · task<br/>Unify the two separate<br/>channels that report data-<br/>quality findings"]
+    T67["<b>67</b> · task<br/>Findings do not say which<br/>sheet, year or month they<br/>came from, though the<br/>emitters know"]
     T69["<b>69</b> · task<br/>The finding taxonomy mis-<br/>files recoveries as data<br/>loss, duplicates rows, and<br/>has no code for a<br/>malformed patient ID"]
     T70["<b>70</b> · task<br/>What can go wrong in a<br/>tracker that the pipeline<br/>never reports at all?"]
     T71["<b>71</b> · task<br/>The pipeline reads its own<br/>report, and Excel's lock<br/>files, as if they were<br/>trackers"]
@@ -149,9 +149,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T67,T68 frontier
+  class T9,T34,T35,T40,T41,T68 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T69,T70,T71,T72,T73,T74 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T69,T70,T71,T72,T73,T74 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65 dropped
 ```
@@ -3159,7 +3159,103 @@ short, [ticket 68](tickets/68-blank-header-emitter-vs-catalogue.md) is the
 smaller one, and 67 may well answer it.
 
 
+**[Findings that name where they came from](tickets/67-findings-must-name-sheet-year-month.md)
+is closed, and it is the largest change the reporting effort has made to the
+published table.** Three sessions deferred it; the four sessions before this
+one each handed it more weight. Every finding now names its sheet, year and
+month, and the ones that legitimately have no sheet say so through a declared
+**`scope`** rather than through a blank nobody could read.
+
+**`scope` is derived from the error code, exactly as `category` is** -- one
+exhaustive map, materialised into the parquet. Eight values, each earned by a
+real code, split along the extent that owns the deduplication: `tracker`,
+`sheet`, `sheet_column`, `tracker_column`, `tracker_value`, `sheet_value`,
+`patient`, `row`. That one field answers both questions this ticket carried:
+what one row of the table counts (ticket 70's finding that the Summary sheet
+weighted a per-row emitter 22x above a per-value one), and whether a blank
+`sheet_name` means "the whole workbook" or "we lost which sheet". On the real
+run the invariant holds exactly -- **every in-sheet scope has zero blank
+sheets, every workbook-spanning scope is blank on every row.**
+
+| | before | after |
+|---|---|---|
+| no `sheet_name` | 102,967 | **1,836** (all workbook-scoped) |
+| no `tracker_year` | 105,470 | **0** |
+| no `tracker_month` | 105,470 | **1,838** |
+| findings | 105,470 | **103,603** |
+
+**Declaring the scope forced out two duplicate emitters**, because a code
+cannot have two units. `unrecognised_column` was reported twice in the product
+arm -- once per column per sheet, and once per sheet as a batch row listing
+every unmapped column -- and reporting moved out of `ColumnMapper`, a
+reference-data utility that knows no sheet, into a function the callers own
+(**23,180 -> 21,341**, while the patient arm's 626 batch rows *gained*
+granularity, becoming 1,277 per-column findings). `missing_required_field`
+emitted a workbook total and then its own rows under the same code
+(**163 -> 135**). -1,839 and -28 is exactly the -1,867 the run moved; nothing
+else changed, and no published data table moved at all.
+
+**The guard is three-layered, and each layer caught what the one above it
+could not.** `Finding` now refuses a scope/sheet mismatch at construction, the
+way it already refused a blank `file_name` -- that found roughly 130 emit
+sites and fixtures silently dropping the sheet. A static AST check over every
+`report_finding` call site then found **four `sheet_skipped` sites in
+`extract/patient.py` that neither the suite nor the 255-tracker corpus ever
+reaches** -- the Patient List and Annual `except` arms. And the published
+table's `scope` column is asserted by test, because it **shipped all-null on
+its first real run**: the collector materialised the derived fields and
+`create_table_findings` built its own record dicts, so the table BigQuery
+reads had nothing in it. That is the map's own "never hand-maintain what can
+be derived" rule biting a derivation that existed twice; both writers now call
+one function.
+
+**The report finally has something to show.** Its Sheet, Tracker year and
+Sheet month columns have existed all along and were always empty; they are now
+populated. The Glossary gains a `Counted` column in plain English ("once per
+row", "once per distinct value, whole workbook") beside the count it
+qualifies, which is the answer to ticket 70's ranking problem. `scope` is
+deliberately kept off the per-finding sheet -- it is a property of the code,
+and 103,603 copies of one of eight strings is noise.
+
+**A side effect settled most of [ticket
+68](tickets/68-blank-header-emitter-vs-catalogue.md) without opening it.**
+`blank_header_with_data` is scoped `sheet_column` and its message carries each
+column's value count: summing those gives **4,390 values across 217 findings**
+against ticket 30's catalogue of **4,572**, so the emitter is within 4% of the
+catalogue rather than missing 95% of it -- the 217-vs-4,572 framing was
+comparing columns to values. And with `tracker_year` populated for the first
+time, "every one of them a 2022 tracker" is false: it fires across
+**2017-2023**. What is left of 68 is genuinely smaller -- why it still does
+not fire on `2021_Kantha Bopha` at all, and why 2022 carries 84% of it.
+
+**The frontier is six** -- ticket 67 closing, nothing opening -- and **none of
+the six is on the route, because the route is finished**; all nine clauses of
+the destination are met. What remains is four standing decisions
+([golden-master tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's new
+fields](tickets/41-decide-2026-new-patient-list-columns.md)) and two
+data-quality tickets. **Take [ticket
+68](tickets/68-blank-header-emitter-vs-catalogue.md) next**: it is now much
+smaller than it looks from its title, its remaining question is sharp, and
+this session did the measuring half of it. [Ticket
+40](tickets/40-source-defect-findings-report.md) is the other one, and it is
+the larger.
+
+
 ## Decisions so far
+
+- [Findings do not say which sheet, year or month they came from, though the
+  emitters know](tickets/67-findings-must-name-sheet-year-month.md) — every
+  finding now names its place, and a finding that names no sheet says so with
+  a declared `scope` rather than a blank. `scope` is derived from the error
+  code the way `category` is, eight values, materialised into the published
+  table. No `sheet_name` went **102,967 -> 1,836**, no `tracker_year`
+  **105,470 -> 0**, no `tracker_month` **105,470 -> 1,838** — and every
+  remaining blank is a scope that spans the workbook, which is the whole
+  point. Declaring the scope forced out two duplicate emitters
+  (**105,470 -> 103,603** findings, exactly -1,839 and -28), and the static
+  guard it needed found four `sheet_skipped` sites nothing had ever reached.
 
 - [A second local run doubles the rebuilt findings table, because last run's
   worker logs are still there](tickets/74-stale-worker-logs-inflate-rebuilt-tables.md)
@@ -4392,6 +4488,29 @@ smaller one, and 67 may well answer it.
 
 ## Assumptions in force
 
+- **`scope` belongs in the published table rather than being derived at read
+  time.** The user chose the scope field over the two cheaper routes but was
+  not asked where it should live; materialising it into the parquet -- a
+  BigQuery schema change consumers see -- was the session's own call, on the
+  grounds that `category` is already materialised and a read-time field cannot
+  be filtered or joined in BigQuery. Resting on [ticket
+  67](tickets/67-findings-must-name-sheet-year-month.md); overturned by a
+  consumer that breaks on the new column, or by the user preferring the
+  derived form.
+
+- **The scope assigned to a code that never fires is a reading, not a
+  measurement.** Two of the 42 codes produced no findings on the 255-tracker
+  run: `sheet_skipped` (scope `sheet`, ten emit sites, zero instances) and
+  `source_row_not_in_output` (scope `row`, emitted only by the hand-run
+  source-vs-output validator, which is not part of a pipeline run). Their
+  scope was assigned by reading the emitter rather than by counting what it
+  produced; every one of the 40 codes that *does* fire was checked against its
+  measured unit. Resting on [ticket
+  67](tickets/67-findings-must-name-sheet-year-month.md); overturned by one of
+  those codes firing and its counts disagreeing with its declared scope, which
+  the `Finding` validator would surface immediately for the sheet half and
+  nothing would surface for the unit half.
+
 - **A diagnosis age the workbook records is more trustworthy than the two
   dates that contradict it.** Four of the eight patients whose diagnosis date
   precedes their date of birth publish the age the clinic typed (3, 9, 3, 14)
@@ -4655,7 +4774,15 @@ ninth clause, it is the only frontier ticket on the route.
   of `data_lost` and into the bucket A4D staff work from, and nobody has said
   whether that is wanted. Not sharp enough to ticket until someone has looked
   at what the 1,503 actually are -- the same question probably applies to
-  `value_out_of_range` and `blood_pressure_unparseable`.
+  `value_out_of_range` and `blood_pressure_unparseable`. **Sharpened by
+  [ticket 67](tickets/67-findings-must-name-sheet-year-month.md)**: the 1,503
+  are now known to be one finding per *distinct* bad value per workbook
+  (scope `tracker_value`), so re-categorising them moves 1,503 rows that stand
+  for many more cells -- 1,170 `province` findings alone cover 26,124 rows
+  carrying the `Undefined` sentinel. `blood_pressure_unparseable` turns out to
+  be coarser still (`tracker_column`: one finding per column per workbook, 21
+  of them, naming neither the offending value nor the row), which is its own
+  question and probably the sharper one.
 
 - Whether **R's inability to read a slash-separated month/year** deserves its
   own cause. One `bmi_date` cell (`0ct/19`, typo-rescued to `OCT/19`) is
@@ -5029,6 +5156,7 @@ flowchart TB
   end
   subgraph S2026_08_27["Session 2026-08-27"]
     direction LR
+    U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
     U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
@@ -5043,7 +5171,6 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U67["<b>67</b><br/>Findings do not say<br/>which sheet, year or<br/>month they came from,<br/>though the emitters know"]
     U68["<b>68</b><br/>The pipeline reports 217<br/>headerless-column<br/>defects where the triage<br/>found 4,572"]
   end
 
@@ -5199,9 +5326,9 @@ flowchart TB
   U73 -.->|spawned| U74
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U67,U68 tfrontier
+  class U9,U34,U35,U40,U41,U68 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U69,U70,U71,U72,U73,U74 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U69,U70,U71,U72,U73,U74 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65 tdropped
 ```

@@ -908,7 +908,10 @@ class TestFixSexReportsUnrecognisedValues:
 
         assert [f.error_code for f in collector.findings] == ["value_not_in_allowed_list"]
         assert collector.findings[0].original_value == "§"
-        assert collector.findings[0].patient_id == "KH_PK001"
+        # No patient: the code is deduplicated per distinct value across the
+        # tracker (scope ``tracker_value``), which is how the other 1,502
+        # findings under it count, so no single row owns this one.
+        assert collector.findings[0].patient_id == "unknown"
         assert result["sex"].to_list() == [settings.error_val_character]
 
     def test_recognised_values_and_blanks_report_nothing(self, collector):

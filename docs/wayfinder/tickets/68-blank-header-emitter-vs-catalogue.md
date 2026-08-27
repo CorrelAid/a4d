@@ -42,6 +42,33 @@ spawned_by: 16
 > from "why is the emitter missing 95% of them" to "why does it skip whole
 > trackers", and the second question is the real one.
 
+> **The unit hypothesis is confirmed, and one of this ticket's two headline
+> claims is now false (2026-08-27, from [ticket
+> 67](67-findings-must-name-sheet-year-month.md)).** `blank_header_with_data`
+> is scoped `sheet_column` -- **one finding per dropped column per sheet**, and
+> its message carries the column's value count. Summing those counts over the
+> real 255-tracker run gives **4,390 values across 217 findings, 168 sheets and
+> 24 trackers**, against ticket 30's catalogue of **4,572**. So the emitter is
+> not missing 95% of the population; it is within **4%** of it, and the
+> 217-vs-4,572 framing was comparing columns to values.
+>
+> **"every one of them a 2022 tracker" no longer holds.** `tracker_year` is
+> populated for the first time by ticket 67, and the code fires across
+> **2017-2023**: 2017 Mahosot (9 findings, 97 values), 2018 Mahosot (12, 230),
+> 2021 Putrajaya_DC (10, 19), 2022 (181 across 19 trackers, 3,878 values),
+> 2023 Mahosot (2, 163) and 2023 Likas (3, 3). Whether that claim was wrong
+> when written or became false as rounds 4-10's extraction fixes landed is not
+> established -- the earlier figure was read off file names, and this one is
+> the field.
+>
+> **What is left of this ticket is question 1 and half of question 2.** The
+> code still does not fire on `2021_Kantha Bopha` at all -- the only Kantha
+> Bopha tracker it fires on is 2022, 12 findings -- so the headline example
+> from ticket 30's catalogue is still unexplained, and 2022 still carries
+> **84%** of the findings, which wants a reason even though it is no longer
+> the whole population. Question 4's premise ("under-states by an order of
+> magnitude") is dead.
+
 ## Premise
 
 Rests on [Triage the patient pipeline's raw-stage column-existence

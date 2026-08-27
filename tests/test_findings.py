@@ -16,6 +16,8 @@ from loguru import logger
 from a4d.findings import (
     FINDING_CATEGORY,
     FINDING_GLOSSARY,
+    FINDING_SCOPE,
+    SCOPES_INSIDE_A_SHEET,
     ErrorCode,
     Finding,
     FindingCollector,
@@ -36,6 +38,7 @@ def _report(**overrides):
     """Emit one finding with sensible defaults, overriding what a test cares about."""
     kwargs = {
         "patient_id": "XX_YY001",
+        "sheet_name": "Jan24",
         "column": "age",
         "original_value": "invalid",
         "message": "Could not convert 'invalid' to Int32",
@@ -94,9 +97,26 @@ class TestTrackerContext:
         with tracker_context(
             "2024_Penang", "patient", tmp_path, tracker_year=2024, tracker_month=10
         ) as collector:
-            _report()
+            _report(error_code="tracker_layout_changed", sheet_name="")
         finding = collector.findings[0]
         assert (finding.tracker_year, finding.tracker_month) == (2024, 10)
+
+    def test_the_sheet_the_finding_names_decides_its_month(self, tmp_path):
+        """A sheet called "Jan24" states its own month, and it beats the
+        tracker-wide one: the context's month is a whole-workbook default,
+        while the sheet is where the finding actually is."""
+        with tracker_context(
+            "2024_Penang", "patient", tmp_path, tracker_year=2024, tracker_month=10
+        ) as collector:
+            _report(sheet_name="Jan24")
+        assert collector.findings[0].tracker_month == 1
+
+    def test_a_static_sheet_names_no_month(self, tmp_path):
+        """A Patient List sheet covers the whole year, so inventing a month
+        for it would be worse than leaving it blank."""
+        with tracker_context("2024_Penang", "patient", tmp_path, tracker_year=2024) as collector:
+            _report(error_code="sheet_skipped", sheet_name="Patient List")
+        assert collector.findings[0].tracker_month is None
 
     def test_the_log_file_still_carries_the_arm_so_the_two_arms_do_not_collide(self, tmp_path):
         """One tracker produces a patient and a product log; the files must differ."""
@@ -177,6 +197,7 @@ class TestFileNameIsNeverBlank:
         finding = Finding(
             file_name="2024_Penang",
             arm="patient",
+            sheet_name="Jan24",
             patient_id="XX_YY001",
             column="age",
             original_value="invalid",
@@ -219,6 +240,106 @@ class TestCategory:
         with tracker_context("2024_Penang", "patient", tmp_path) as collector:
             _report(error_code="unrecognised_column")
         assert collector.findings[0].category == "fix_workbook"
+
+
+class TestScope:
+    """Scope says what one row of the findings table counts.
+
+    Two findings side by side used to be able to mean "one cell" and "one
+    distinct value across thousands of cells", with nothing in the table
+    saying which -- so the Summary sheet's ranking silently weighted a
+    per-row emitter above a per-value one. Scope is derived from the error
+    code exactly as category is, for the same reason: one code cannot be
+    counted two ways in two modules.
+    """
+
+    def test_every_error_code_has_a_scope(self):
+        unmapped = sorted(set(get_args(ErrorCode)) - set(FINDING_SCOPE))
+        assert unmapped == [], f"error codes with no scope: {unmapped}"
+
+    def test_no_scope_entry_names_an_unknown_code(self):
+        stale = sorted(set(FINDING_SCOPE) - set(get_args(ErrorCode)))
+        assert stale == [], f"scope entries for codes that no longer exist: {stale}"
+
+    @pytest.mark.parametrize(
+        ("error_code", "expected"),
+        [
+            # The workbook as a whole: there is no sheet to name, because the
+            # finding is precisely that a sheet is absent or that no sheet had
+            # what was looked for.
+            ("empty_product_data", "tracker"),
+            ("month_sheet_missing", "tracker"),
+            # One sheet, named.
+            ("product_section_not_found", "sheet"),
+            ("released_units_without_recipient", "sheet"),
+            # One column of one sheet.
+            ("blank_header_with_data", "sheet_column"),
+            ("unrecognised_column", "sheet_column"),
+            # One column across every sheet of the tracker, so no one sheet.
+            ("tracker_layout_changed", "tracker_column"),
+            ("glucose_unit_swapped", "tracker_column"),
+            # One patient, deduplicated across the months they appear in.
+            ("diagnosis_age_negative_from_dob", "patient"),
+            # One distinct offending value, deduplicated across the rows
+            # carrying it -- 1,170 province findings against 26,124 rows --
+            # by the tracker for one code and by the sheet for the other.
+            ("value_not_in_allowed_list", "tracker_value"),
+            ("product_not_in_catalogue", "sheet_value"),
+            # One source row.
+            ("type_conversion", "row"),
+            ("source_formula_error", "row"),
+        ],
+    )
+    def test_the_taxonomy_lands_where_measured(self, error_code, expected):
+        assert FINDING_SCOPE[error_code] == expected
+
+    def test_scope_is_readable_off_the_finding(self, tmp_path):
+        with tracker_context("2024_Penang", "patient", tmp_path) as collector:
+            _report(error_code="type_conversion", sheet_name="Jan24")
+        assert collector.findings[0].scope == "row"
+
+    def test_dataframe_carries_the_derived_scope(self, tmp_path):
+        with tracker_context("2024_Penang", "patient", tmp_path) as collector:
+            _report(error_code="empty_product_data", sheet_name="")
+        assert collector.to_dataframe()["scope"].to_list() == ["tracker"]
+
+    def test_scopes_inside_a_sheet_are_exactly_the_ones_that_name_one(self):
+        """The point of the field: blankness becomes checkable.
+
+        An empty ``sheet_name`` used to mean either "this finding is about the
+        whole workbook" or "this finding is about a sheet and we lost which
+        one". Splitting the scopes into those that sit inside a sheet and
+        those that do not is what tells the two apart.
+        """
+        assert SCOPES_INSIDE_A_SHEET == {"sheet", "sheet_column", "sheet_value", "row"}
+
+
+class TestSheetNameMatchesScope:
+    """The guard, not just the fix.
+
+    Filling the field once is worth nothing if the next emitter added leaves
+    it empty again and nothing says so. ``file_name`` already refuses a
+    finding nobody can trace to a workbook; this is the same rule one level
+    down, and it is what stops the gap this taxonomy exists to close from
+    reopening silently.
+    """
+
+    def test_a_finding_inside_a_sheet_must_name_it(self, tmp_path):
+        with tracker_context("2024_Penang", "patient", tmp_path):
+            with pytest.raises(ValueError, match="sheet_name"):
+                _report(error_code="type_conversion", sheet_name="")
+
+    def test_a_finding_about_the_whole_workbook_must_not_name_a_sheet(self, tmp_path):
+        """A sheet on a tracker-scoped finding is a claim the scope denies."""
+        with tracker_context("2024_Penang", "product", tmp_path):
+            with pytest.raises(ValueError, match="sheet_name"):
+                _report(error_code="empty_product_data", sheet_name="Jan24")
+
+    def test_the_matching_case_passes(self, tmp_path):
+        with tracker_context("2024_Penang", "patient", tmp_path) as collector:
+            _report(error_code="type_conversion", sheet_name="Jan24")
+            _report(error_code="tracker_layout_changed", sheet_name="")
+        assert [f.sheet_name for f in collector.findings] == ["Jan24", ""]
 
 
 class TestStageNames:

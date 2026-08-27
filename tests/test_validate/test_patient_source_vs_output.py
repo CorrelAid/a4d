@@ -23,6 +23,7 @@ RAW_SCHEMA = {
     "tracker_year": pl.Int64,
     "tracker_month": pl.Int64,
     "file_name": pl.Utf8,
+    "sheet_name": pl.Utf8,
     "weight": pl.Utf8,
     "height": pl.Utf8,
     "hba1c_updated": pl.Utf8,
@@ -34,18 +35,24 @@ CLEAN_SCHEMA = {
     "tracker_year": pl.Int64,
     "tracker_month": pl.Int64,
     "file_name": pl.Utf8,
+    "sheet_name": pl.Utf8,
     "weight": pl.Float64,
     "height": pl.Float64,
     "hba1c_updated": pl.Float64,
 }
 
 
+def _with_sheet(rows: list[dict]) -> list[dict]:
+    """Default the sheet a row came from, which real pipeline output always has."""
+    return [{"sheet_name": f"Mon{row['tracker_month']:02d}", **row} for row in rows]
+
+
 def _make_raw(rows: list[dict]) -> pl.DataFrame:
-    return pl.DataFrame(rows, schema=RAW_SCHEMA)
+    return pl.DataFrame(_with_sheet(rows), schema=RAW_SCHEMA)
 
 
 def _make_clean(rows: list[dict]) -> pl.DataFrame:
-    return pl.DataFrame(rows, schema=CLEAN_SCHEMA)
+    return pl.DataFrame(_with_sheet(rows), schema=CLEAN_SCHEMA)
 
 
 def test_normalize_patient_id_strips_transfer_suffix(collector) -> None:

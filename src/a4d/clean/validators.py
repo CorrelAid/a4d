@@ -19,7 +19,7 @@ from typing import Any
 import polars as pl
 
 from a4d.config import settings
-from a4d.findings import report_finding
+from a4d.findings import report_finding, sheet_context
 from a4d.reference.loaders import get_reference_data_path, load_yaml
 
 
@@ -545,6 +545,7 @@ def fix_patient_id(
                             f"needs correcting."
                         ),
                         error_code="patient_id_recovered",
+                        **sheet_context(row),
                         function_name="fix_patient_id",
                     )
                 else:
@@ -558,6 +559,7 @@ def fix_patient_id(
                             "unambiguous match in this tracker"
                         ),
                         error_code="patient_id_unrepairable",
+                        **sheet_context(row),
                         function_name="fix_patient_id",
                     )
 

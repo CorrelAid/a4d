@@ -13,7 +13,7 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
-from a4d.findings import FINDING_CATEGORY, FINDINGS_SCHEMA, Finding
+from a4d.findings import FINDING_CATEGORY, FINDINGS_SCHEMA, Finding, findings_dataframe
 
 
 def create_table_findings(findings: list[Finding], output_dir: Path) -> Path:
@@ -39,8 +39,7 @@ def create_table_findings(findings: list[Finding], output_dir: Path) -> Path:
         pl.DataFrame(schema=FINDINGS_SCHEMA).write_parquet(output_file)
         return output_file
 
-    records = [{**f.model_dump(), "category": f.category} for f in findings]
-    df = pl.DataFrame(records, schema=FINDINGS_SCHEMA).sort("timestamp")
+    df = findings_dataframe(findings).sort("timestamp")
     df.write_parquet(output_file)
 
     logger.info(f"Findings table saved: {output_file} ({len(df):,} findings)")

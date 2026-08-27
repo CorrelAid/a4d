@@ -35,7 +35,7 @@ Example:
     {'type_conversion': 1}
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -44,8 +44,9 @@ from typing import Any, Literal
 
 import polars as pl
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from a4d.extract.common import extract_tracker_month
 from a4d.logging import file_logger
 
 Arm = Literal["patient", "product"]
@@ -103,6 +104,104 @@ ErrorCode = Literal[
     "blood_pressure_unparseable",
     "source_row_not_in_output",
 ]
+
+FindingScope = Literal[
+    "tracker",
+    "sheet",
+    "sheet_column",
+    "tracker_column",
+    "tracker_value",
+    "sheet_value",
+    "patient",
+    "row",
+]
+
+# What one row of the findings table counts, derived from the error code the
+# same way the category is. Two things depend on it.
+#
+# First, counts become comparable. ``validate_allowed_values`` iterates
+# ``unique()``, so it emits one finding per *distinct* bad value per tracker:
+# 1,170 province findings across 124 trackers, against 26,124 cleaned rows
+# carrying the ``Undefined`` province sentinel in those same trackers.
+# ``type_conversion`` is per *row* -- 3,579 findings against 3,692
+# ``hba1c_baseline`` sentinels. Both emitters are right; the table could not
+# tell them apart, so the report's Summary sheet ranked trackers by a count
+# that weighted one 22x above the other.
+#
+# Second, a blank ``sheet_name`` becomes readable. It used to mean either
+# "this finding is about the whole workbook" or "this finding is about a sheet
+# and we lost which one", and that ambiguity is what kept 102,967 findings
+# with no sheet invisible. Scopes in :data:`SCOPES_INSIDE_A_SHEET` must name
+# one; the rest must not.
+#
+# Kept exhaustive over ErrorCode by a test.
+FINDING_SCOPE: dict[ErrorCode, FindingScope] = {
+    # The workbook as a whole. These have no sheet to name because the finding
+    # is that a sheet is absent, or that no sheet held what was looked for.
+    "empty_product_data": "tracker",
+    "month_sheet_missing": "tracker",
+    "month_sheets_end_early": "tracker",
+    # One sheet.
+    "sheet_skipped": "sheet",
+    "static_sheet_missing": "sheet",
+    "static_sheet_duplicate_id": "sheet",
+    "product_section_not_found": "sheet",
+    "released_units_without_recipient": "sheet",
+    "duplicate_source_columns": "sheet",
+    # One column of one sheet.
+    "blank_header_with_data": "sheet_column",
+    "unrecognised_column": "sheet_column",
+    # One column across every month sheet of the tracker, so no one sheet owns
+    # it. These are aggregates by construction: the emitter has already looked
+    # at the whole column before deciding there is anything to say.
+    "tracker_layout_changed": "tracker_column",
+    "glucose_unit_swapped": "tracker_column",
+    "blood_pressure_unparseable": "tracker_column",
+    "testing_frequency_averaged": "tracker_column",
+    # One patient, deduplicated across the months they appear in. A diagnosis
+    # date before a date of birth is a property of the patient; saying it once
+    # per monthly row would say it 58 times for 8 patients.
+    "diagnosis_age_negative_from_dob": "patient",
+    # One distinct offending value, deduplicated across every row carrying it
+    # -- the right call for a column where one misspelling repeats down a
+    # sheet. Which extent owns the deduplication is the emitter's choice and
+    # has to be stated: a province spelled wrong is reported once for the
+    # whole workbook, an unknown product once per sheet, because correcting
+    # the latter is a per-sheet edit.
+    "value_not_in_allowed_list": "tracker_value",
+    "product_not_in_catalogue": "sheet_value",
+    # One source row.
+    "excel_error_patient_id": "row",
+    "missing_required_field": "row",
+    "patient_id_unrepairable": "row",
+    "patient_id_recovered": "row",
+    "source_formula_error": "row",
+    "glucose_unit_suspect": "row",
+    "balance_reconciliation": "row",
+    "negative_stock_balance": "row",
+    "released_units_to_unknown_patient": "row",
+    "entry_date_outside_sheet_month": "row",
+    "entry_date_outside_tracker_year": "row",
+    "age_negative_from_dob": "row",
+    "typo_rescued": "row",
+    "date_recovered_from_text": "row",
+    "date_multiple_in_cell": "row",
+    "date_year_inferred": "row",
+    "buddhist_era_converted": "row",
+    "age_derived_from_dob": "row",
+    "age_corrected_from_dob": "row",
+    "type_conversion": "row",
+    "implausible_era_date": "row",
+    "date_beyond_tracker_year": "row",
+    "value_out_of_range": "row",
+    "source_row_not_in_output": "row",
+}
+
+# The scopes that sit inside one sheet, and so must name it. Everything else
+# spans the workbook and must leave ``sheet_name`` blank, so the blank is a
+# statement rather than a loss.
+SCOPES_INSIDE_A_SHEET: frozenset[str] = frozenset({"sheet", "sheet_column", "sheet_value", "row"})
+
 
 FindingCategory = Literal["fix_workbook", "recovered", "data_lost"]
 
@@ -453,10 +552,41 @@ class Finding(BaseModel):
             raise ValueError("file_name must name a tracker; a finding cannot be unattributed")
         return value.strip()
 
+    @model_validator(mode="after")
+    def _sheet_name_agrees_with_the_scope(self) -> Finding:
+        """A finding inside a sheet names it; one about the workbook does not.
+
+        Raising rather than warning, for the reason ``file_name`` does: the
+        gap this closes was 102,967 findings deep and stayed invisible for
+        two months precisely because a missing sheet name looked exactly like
+        a finding that legitimately had none. A test only catches the emit
+        sites a test exercises; this catches all of them.
+        """
+        inside = FINDING_SCOPE[self.error_code] in SCOPES_INSIDE_A_SHEET
+        named = bool(self.sheet_name.strip())
+        if inside and not named:
+            raise ValueError(
+                f"{self.error_code} is scoped to {FINDING_SCOPE[self.error_code]!r} "
+                "but carries no sheet_name. Pass the sheet the finding came from, "
+                "or give the code a workbook-wide scope in FINDING_SCOPE."
+            )
+        if not inside and named:
+            raise ValueError(
+                f"{self.error_code} is scoped to {FINDING_SCOPE[self.error_code]!r}, "
+                f"which spans the workbook, but carries sheet_name={self.sheet_name!r}. "
+                "Drop the sheet, or give the code a sheet-level scope."
+            )
+        return self
+
     @property
     def category(self) -> FindingCategory:
         """What the operator can do about it, derived from the error code."""
         return FINDING_CATEGORY[self.error_code]
+
+    @property
+    def scope(self) -> FindingScope:
+        """What one row of the findings table counts, derived from the code."""
+        return FINDING_SCOPE[self.error_code]
 
 
 class FindingCollector:
@@ -486,13 +616,8 @@ class FindingCollector:
         return counts
 
     def to_dataframe(self) -> pl.DataFrame:
-        """Findings as a DataFrame, with the derived category materialised."""
-        if not self.findings:
-            return pl.DataFrame(schema=FINDINGS_SCHEMA)
-        records = [
-            {**finding.model_dump(), "category": finding.category} for finding in self.findings
-        ]
-        return pl.DataFrame(records, schema=FINDINGS_SCHEMA)
+        """Findings as a DataFrame, with the derived fields materialised."""
+        return findings_dataframe(self.findings)
 
 
 # Column order and types of the published table. Declared once so an empty run
@@ -508,12 +633,36 @@ FINDINGS_SCHEMA: dict[str, Any] = {
     "message": pl.Utf8,
     "error_code": pl.Categorical,
     "category": pl.Categorical,
+    "scope": pl.Categorical,
     "stage": pl.Categorical,
     "function_name": pl.Categorical,
     "tracker_year": pl.Int32,
     "tracker_month": pl.Int32,
     "timestamp": pl.Datetime,
 }
+
+
+def findings_dataframe(findings: list[Finding]) -> pl.DataFrame:
+    """Findings as a DataFrame, with every derived field materialised.
+
+    The one place the derived fields are written out. The published table used
+    to build its own record dicts, which is how ``scope`` shipped as an
+    all-null column on its first run: the derivation existed twice and only
+    one copy learned about the new field.
+
+    Args:
+        findings: The findings to materialise
+
+    Returns:
+        A frame with exactly :data:`FINDINGS_SCHEMA`'s columns and types
+    """
+    if not findings:
+        return pl.DataFrame(schema=FINDINGS_SCHEMA)
+    records = [
+        {**finding.model_dump(), "category": finding.category, "scope": finding.scope}
+        for finding in findings
+    ]
+    return pl.DataFrame(records, schema=FINDINGS_SCHEMA)
 
 
 _current: ContextVar[FindingCollector | None] = ContextVar("a4d_findings", default=None)
@@ -524,6 +673,63 @@ _discarding: ContextVar[bool] = ContextVar("a4d_findings_discarded", default=Fal
 def current_findings() -> FindingCollector | None:
     """The collector bound to this context, or None outside any."""
     return _current.get()
+
+
+# The cleaned frames name the same three things differently: the patient arm
+# carries sheet_name/tracker_month/tracker_year, the product arm
+# product_sheet_name/product_table_month/product_table_year. Reading both here
+# rather than at each of the ~34 emit sites is what keeps a new emitter from
+# quietly filling neither.
+_SHEET_COLUMNS = ("sheet_name", "product_sheet_name")
+_MONTH_COLUMNS = ("tracker_month", "product_table_month")
+_YEAR_COLUMNS = ("tracker_year", "product_table_year")
+
+# Every column :func:`sheet_context` reads. An emitter that narrows a frame
+# with ``.select(...)`` before iterating it has to keep these, or the place is
+# gone by the time the finding is built.
+PLACE_COLUMNS: tuple[str, ...] = _SHEET_COLUMNS + _MONTH_COLUMNS + _YEAR_COLUMNS
+
+
+def present_place_columns(columns: Iterable[str]) -> list[str]:
+    """The place columns a frame actually has, for widening a ``select``.
+
+    Args:
+        columns: The frame's column names
+
+    Returns:
+        The subset of :data:`PLACE_COLUMNS` present, in declaration order
+    """
+    have = set(columns)
+    return [c for c in PLACE_COLUMNS if c in have]
+
+
+def sheet_context(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Where in the workbook a row-scoped finding came from.
+
+    Splat into :func:`report_finding` -- ``**sheet_context(row)`` -- so a call
+    site names the place once instead of copying two ``row.get`` calls that
+    then have to know which arm's column names it is looking at.
+
+    Args:
+        row: One row of a cleaned frame, as ``iter_rows(named=True)`` yields it
+
+    Returns:
+        ``sheet_name``, and ``tracker_month`` / ``tracker_year`` where the
+        frame carries them. Each is omitted rather than passed as None, so a
+        frame without the column leaves the tracker context's value standing.
+    """
+    sheet = next((row[c] for c in _SHEET_COLUMNS if row.get(c) is not None), "")
+    month = next((row[c] for c in _MONTH_COLUMNS if row.get(c) is not None), None)
+    year = next((row[c] for c in _YEAR_COLUMNS if row.get(c) is not None), None)
+    place: dict[str, Any] = {"sheet_name": str(sheet)}
+    if month is not None:
+        place["tracker_month"] = int(month)
+    # The year normally rides on the tracker context, but the table stage runs
+    # across every tracker at once under findings_collected, where there is no
+    # one tracker to have opened a context for -- so the row is the only source.
+    if year is not None:
+        place["tracker_year"] = int(year)
+    return place
 
 
 @contextmanager
@@ -637,6 +843,8 @@ def report_finding(
     column: str = "",
     original_value: Any = "",
     sheet_name: str = "",
+    tracker_month: int | None = None,
+    tracker_year: int | None = None,
     stage: str = "clean",
     function_name: str = "",
 ) -> None:
@@ -675,6 +883,16 @@ def report_finding(
         )
     resolved_arm = arm if arm is not None else context.get("arm", "patient")
 
+    # A sheet named "Jan24" states its own month, and every extract-stage
+    # emitter has the sheet but not the frame that would carry the month --
+    # so derive it once here rather than at each site. Static sheets
+    # ("Patient List", "Annual") name no month and correctly keep None.
+    if tracker_month is None and sheet_name.strip():
+        try:
+            tracker_month = extract_tracker_month(sheet_name)
+        except ValueError:
+            tracker_month = None
+
     finding = Finding(
         file_name=str(resolved_name),
         arm=resolved_arm,
@@ -686,8 +904,10 @@ def report_finding(
         error_code=error_code,
         stage=stage,
         function_name=function_name,
-        tracker_year=context.get("tracker_year"),
-        tracker_month=context.get("tracker_month"),
+        tracker_year=tracker_year if tracker_year is not None else context.get("tracker_year"),
+        # The year is constant for a whole tracker and rides on the context;
+        # the month varies sheet by sheet, so a per-row emitter passes it.
+        tracker_month=tracker_month if tracker_month is not None else context.get("tracker_month"),
     )
     collector.add(finding)
 
@@ -706,4 +926,10 @@ def report_finding(
         stage=stage,
         emitting_function=function_name,
         finding_file_name=finding.file_name,
+        # Bound explicitly rather than left to file_logger's per-tracker
+        # contextualize: the month is per sheet, so the context's value would
+        # overwrite it with the tracker-wide one on the way back out of the
+        # log-driven rebuild.
+        tracker_year=finding.tracker_year,
+        tracker_month=finding.tracker_month,
     ).log(_LEVEL_BY_CATEGORY[finding.category], message)

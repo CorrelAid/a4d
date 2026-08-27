@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from a4d.findings import FINDING_CATEGORY, ErrorCode
+from a4d.findings import FINDING_CATEGORY, FINDING_SCOPE, SCOPES_INSIDE_A_SHEET, ErrorCode
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "a4d"
 
@@ -31,7 +31,7 @@ EXPECTED_EMITTERS: dict[ErrorCode, set[str]] = {
     "blank_header_with_data": {"extract_patient_data"},
     "tracker_layout_changed": {"read_all_patient_sheets"},
     "duplicate_source_columns": {"rename_columns"},
-    "unrecognised_column": {"harmonize_input_data_columns", "rename_columns"},
+    "unrecognised_column": {"report_unrecognised_columns"},
     "sheet_skipped": {
         "extract_patient_data",
         "read_all_patient_sheets",
@@ -163,4 +163,56 @@ class TestNoHiddenCodes:
                     indirect.append(str(path.relative_to(SRC)))
         assert sorted(indirect) == sorted(INDIRECT_EMIT_SITES), (
             f"report_finding called with a non-literal error_code in: {indirect}"
+        )
+
+
+class TestEveryInSheetEmitterNamesItsSheet:
+    """The static half of the sheet guard.
+
+    ``Finding``'s own validator catches a missing sheet when the code runs, so
+    it catches everything the suite and the corpus actually exercise. What it
+    cannot catch is an emitter on a branch nothing has hit yet -- an
+    ``except`` arm, a tracker shape the corpus does not contain. This reads
+    the source instead, so a new emit site fails the moment it is written
+    rather than the first time a workbook happens to trigger it.
+    """
+
+    @staticmethod
+    def _sites_missing_a_sheet() -> list[str]:
+        offenders = []
+        for path in SRC.rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not isinstance(node.func, ast.Name) or node.func.id != "report_finding":
+                    continue
+                code = next(
+                    (
+                        k.value.value
+                        for k in node.keywords
+                        if k.arg == "error_code" and isinstance(k.value, ast.Constant)
+                    ),
+                    None,
+                )
+                if code is None or FINDING_SCOPE.get(code) not in SCOPES_INSIDE_A_SHEET:
+                    continue
+                names_it = any(k.arg == "sheet_name" for k in node.keywords) or any(
+                    # ``**sheet_context(row)`` -- the helper always yields one
+                    k.arg is None
+                    and isinstance(k.value, ast.Call)
+                    and isinstance(k.value.func, ast.Name)
+                    and k.value.func.id == "sheet_context"
+                    for k in node.keywords
+                )
+                if not names_it:
+                    offenders.append(f"{path.relative_to(SRC)}:{node.lineno} {code}")
+        return sorted(offenders)
+
+    def test_no_in_sheet_emit_site_omits_the_sheet(self):
+        offenders = self._sites_missing_a_sheet()
+        assert offenders == [], (
+            "these emit sites report a code scoped inside a sheet but pass no "
+            "sheet_name. Pass the sheet, splat **sheet_context(row) if a cleaned "
+            f"row is in hand, or re-scope the code in FINDING_SCOPE: {offenders}"
         )

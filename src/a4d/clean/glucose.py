@@ -18,7 +18,7 @@ multiply the clinically most important readings in the file by 18 and hide them.
 
 import polars as pl
 
-from a4d.findings import report_finding
+from a4d.findings import report_finding, sheet_context
 
 # mmol/L * 18 = mg/dL. The pipeline's existing cross-derivation uses the same
 # rounded factor, so unit resolution stays consistent with it.
@@ -126,6 +126,7 @@ def _flag_suspect_readings(df: pl.DataFrame, mg_col: str) -> None:
                 "Confirm the unit in the source workbook."
             ),
             error_code="glucose_unit_suspect",
+            **sheet_context(row),
             function_name="resolve_glucose_units",
         )
 

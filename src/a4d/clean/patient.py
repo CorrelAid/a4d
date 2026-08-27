@@ -43,7 +43,7 @@ from a4d.clean.transformers import extract_regimen, strip_string_whitespace
 from a4d.clean.validators import validate_all_columns
 from a4d.config import settings
 from a4d.extract.common import normalize_patient_id_expr
-from a4d.findings import report_finding
+from a4d.findings import report_finding, sheet_context
 
 
 def clean_patient_data(
@@ -779,6 +779,7 @@ def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
                 original_value="NULL" if excel_age is None else str(excel_age),
                 message=f"Calculated age is negative ({calc_age}), check DOB",
                 error_code="age_negative_from_dob",
+                **sheet_context(row),
                 function_name="_fix_age_from_dob",
             )
             ages_negative += 1
@@ -789,6 +790,7 @@ def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
                 original_value=excel_age if excel_age is not None else "NULL",
                 message=f"Age missing, calculated from DOB as {calc_age}",
                 error_code="age_derived_from_dob",
+                **sheet_context(row),
                 function_name="_fix_age_from_dob",
             )
             ages_missing += 1
@@ -801,6 +803,7 @@ def _fix_age_from_dob(df: pl.DataFrame) -> pl.DataFrame:
                     f"Age mismatch: Excel={excel_age}, Calculated={calc_age}. Using calculated age."
                 ),
                 error_code="age_corrected_from_dob",
+                **sheet_context(row),
                 function_name="_fix_age_from_dob",
             )
             ages_fixed += 1
@@ -955,8 +958,8 @@ def _convert_buddhist_era_dates(df: pl.DataFrame) -> pl.DataFrame:
         )
 
         candidates = df.with_columns(shifted.alias("_shifted")).filter(mask)
-        for patient_id, original, shifted_value in candidates.select(
-            "patient_id", col, "_shifted"
+        for patient_id, original, shifted_value, sheet_name, tracker_month in candidates.select(
+            "patient_id", col, "_shifted", "sheet_name", "tracker_month"
         ).iter_rows():
             report_finding(
                 patient_id=patient_id or "UNKNOWN",
@@ -964,6 +967,8 @@ def _convert_buddhist_era_dates(df: pl.DataFrame) -> pl.DataFrame:
                 original_value=str(original),
                 message=(f"Date {original} is a Buddhist-era year; converted to {shifted_value}"),
                 error_code="buddhist_era_converted",
+                sheet_name=sheet_name or "",
+                tracker_month=tracker_month,
                 function_name="_convert_buddhist_era_dates",
             )
             converted_cells += 1
@@ -1019,8 +1024,15 @@ def _validate_dates(df: pl.DataFrame) -> pl.DataFrame:
         )
 
         # Log each error (tuple-unpack avoids per-row dict construction)
-        for patient_id, file_name, original_date, tracker_year in invalid_dates.select(
-            "patient_id", "file_name", col, "tracker_year"
+        for (
+            patient_id,
+            file_name,
+            original_date,
+            tracker_year,
+            sheet_name,
+            tracker_month,
+        ) in invalid_dates.select(
+            "patient_id", "file_name", col, "tracker_year", "sheet_name", "tracker_month"
         ).iter_rows():
             patient_id = patient_id if patient_id is not None else "UNKNOWN"
             file_name = file_name if file_name is not None else "UNKNOWN"
@@ -1031,6 +1043,8 @@ def _validate_dates(df: pl.DataFrame) -> pl.DataFrame:
                 original_value=str(original_date),
                 message=f"Date {original_date} is beyond tracker year {tracker_year}",
                 error_code="date_beyond_tracker_year",
+                sheet_name=sheet_name or "",
+                tracker_month=tracker_month,
                 function_name="_validate_dates",
             )
             dates_fixed += 1

@@ -27,7 +27,7 @@ from a4d.clean.converters import (
 )
 from a4d.clean.schema_product import apply_schema, get_product_data_schema, get_string_columns
 from a4d.config import settings
-from a4d.findings import report_finding
+from a4d.findings import present_place_columns, report_finding, sheet_context
 from a4d.reference.products import load_known_products, load_product_categories
 
 ACTIVITY_COLS: tuple[str, ...] = (
@@ -446,10 +446,12 @@ def _check_entry_dates_match_sheet(df: pl.DataFrame) -> None:
             column="product_entry_date",
             original_value=str(entry_date),
             message=(
-                f"product_entry_date {entry_date} does not match sheet "
-                f"'{sheet_name or 'unknown'}' (expected {ty}-{tm:02d})"
+                f"product_entry_date {entry_date} does not match the sheet's own "
+                f"month (expected {ty}-{tm:02d})"
             ),
             error_code="entry_date_outside_sheet_month",
+            sheet_name=sheet_name or "",
+            tracker_month=tm,
             function_name="check_entry_dates",
         )
 
@@ -528,9 +530,13 @@ def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
     )
 
     convertible = df.filter(convert_mask).select(
-        "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product",
+        "product_entry_date",
+        "product_table_year",
+        "product_sheet_name",
+        "product_table_month",
     )
-    for product, entry_date, table_year_val, sheet_name in convertible.iter_rows():
+    for product, entry_date, table_year_val, sheet_name, table_month in convertible.iter_rows():
         report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
@@ -539,26 +545,33 @@ def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
                 f"product_entry_date {entry_date} is the Buddhist-era year of "
                 f"product_table_year {table_year_val}; converted to "
                 f"{entry_date.year - BUDDHIST_ERA_OFFSET}-{entry_date.month:02d}-"
-                f"{entry_date.day:02d} (sheet '{sheet_name or 'unknown'}')"
+                f"{entry_date.day:02d}"
             ),
             error_code="buddhist_era_converted",
+            sheet_name=sheet_name or "",
+            tracker_month=table_month,
             function_name="_validate_entry_dates",
         )
 
     implausible = df.filter(implausible_era_mask).select(
-        "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product",
+        "product_entry_date",
+        "product_table_year",
+        "product_sheet_name",
+        "product_table_month",
     )
-    for product, entry_date, table_year_val, sheet_name in implausible.iter_rows():
+    for product, entry_date, table_year_val, sheet_name, table_month in implausible.iter_rows():
         report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
             message=(
                 f"product_entry_date {entry_date} is neither a Gregorian date nor "
-                f"the Buddhist-era year of product_table_year {table_year_val} "
-                f"(sheet '{sheet_name or 'unknown'}')"
+                f"the Buddhist-era year of product_table_year {table_year_val}"
             ),
             error_code="implausible_era_date",
+            sheet_name=sheet_name or "",
+            tracker_month=table_month,
             function_name="_validate_entry_dates",
         )
 
@@ -575,36 +588,43 @@ def _validate_entry_dates(df: pl.DataFrame) -> pl.DataFrame:
     )
 
     above = df.filter(above_max_mask).select(
-        "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product",
+        "product_entry_date",
+        "product_table_year",
+        "product_sheet_name",
+        "product_table_month",
     )
-    for product, entry_date, table_year_val, sheet_name in above.iter_rows():
+    for product, entry_date, table_year_val, sheet_name, table_month in above.iter_rows():
         report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
-            message=(
-                f"product_entry_date {entry_date} beyond "
-                f"product_table_year {table_year_val} "
-                f"(sheet '{sheet_name or 'unknown'}')"
-            ),
+            message=(f"product_entry_date {entry_date} beyond product_table_year {table_year_val}"),
             error_code="entry_date_outside_tracker_year",
+            sheet_name=sheet_name or "",
+            tracker_month=table_month,
             function_name="_validate_entry_dates",
         )
 
     below = df.filter(below_min_mask).select(
-        "product", "product_entry_date", "product_table_year", "product_sheet_name"
+        "product",
+        "product_entry_date",
+        "product_table_year",
+        "product_sheet_name",
+        "product_table_month",
     )
-    for product, entry_date, table_year_val, sheet_name in below.iter_rows():
+    for product, entry_date, table_year_val, sheet_name, table_month in below.iter_rows():
         report_finding(
             patient_id=product or "unknown",
             column="product_entry_date",
             original_value=str(entry_date),
             message=(
                 f"product_entry_date {entry_date} before "
-                f"product_table_year {table_year_val} - {YEAR_FLOOR_DELTA} "
-                f"(sheet '{sheet_name or 'unknown'}')"
+                f"product_table_year {table_year_val} - {YEAR_FLOOR_DELTA}"
             ),
             error_code="entry_date_outside_tracker_year",
+            sheet_name=sheet_name or "",
+            tracker_month=table_month,
             function_name="_validate_entry_dates",
         )
 
@@ -869,6 +889,7 @@ def _clean_units_received(
             patient_id=row.get("product") or "unknown",
             column="product_units_received",
             error_code="type_conversion",
+            **sheet_context(row),
             function_name="_clean_units_received",
             original_value=str(original),
             message=(f"product_units_received '{original}' could not be converted to numeric"),
@@ -1061,6 +1082,10 @@ def _report_balance_reconciliation(
     computed_closing = df.group_by(group).agg(
         pl.col("product_balance").last().alias("_computed_closing"),
         *([pl.col("file_name").last().alias("_file_name")] if "file_name" in df.columns else []),
+        # The group is per (sheet, product), so the month and year are constant
+        # within it; carried through the aggregation because the finding is
+        # about one sheet's stock and has to say which month that was.
+        *[pl.col(c).last().alias(c) for c in present_place_columns(df.columns) if c not in group],
     )
 
     joined = source_closing.join(computed_closing, on=group, how="inner")
@@ -1076,19 +1101,19 @@ def _report_balance_reconciliation(
         if abs(source_value - computed) <= tolerance:
             continue
         product = row.get("product") or "unknown"
-        sheet_name = row.get("product_sheet_name") or "unknown"
         report_finding(
             patient_id="unknown",
             column="product_balance",
             original_value=source_value,
             message=(
-                f"Closing balance mismatch for product '{product}' in sheet "
-                f"'{sheet_name}': tracker recorded {source_value}, but the "
+                f"Closing balance mismatch for product '{product}': "
+                f"tracker recorded {source_value}, but the "
                 f"recorded transactions add up to {computed} "
                 f"(difference {round(computed - source_value, 10)}). "
                 "The stock movements and the tracker's own total do not agree."
             ),
             error_code="balance_reconciliation",
+            **sheet_context(row),
             function_name="_compute_running_balance",
         )
 
@@ -1106,18 +1131,16 @@ def _validate_negative_balances(
 
     negatives = df.filter(
         pl.col("product_balance").is_not_null() & (pl.col("product_balance") < 0)
-    ).select("product_balance", "product", "product_sheet_name")
-    for balance, product, sheet_name in negatives.iter_rows():
+    ).select("product_balance", "product", "product_sheet_name", "product_table_month")
+    for balance, product, sheet_name, table_month in negatives.iter_rows():
         report_finding(
             patient_id="unknown",
             column="product_balance",
             original_value=balance,
-            message=(
-                f"Negative balance {balance} for product "
-                f"'{product or 'unknown'}' in sheet "
-                f"'{sheet_name or 'unknown'}'"
-            ),
+            message=(f"Negative balance {balance} for product '{product or 'unknown'}'"),
             error_code="negative_stock_balance",
+            sheet_name=sheet_name or "",
+            tracker_month=table_month,
             function_name="_validate_negative_balances",
         )
     return df
@@ -1153,11 +1176,9 @@ def _report_unknown_products(
             patient_id="unknown",
             column="product",
             original_value=row["product"],
-            message=(
-                f"Unknown product '{row['product']}' in sheet "
-                f"'{row.get('product_sheet_name') or 'unknown'}'"
-            ),
+            message=f"Unknown product '{row['product']}'",
             error_code="product_not_in_catalogue",
+            **sheet_context(row),
             function_name="_report_unknown_products",
         )
     return df

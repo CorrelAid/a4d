@@ -17,7 +17,7 @@ from pathlib import Path
 import polars as pl
 
 from a4d.findings import Finding
-from a4d.tables.findings import rebuild_findings_from_logs
+from a4d.tables.findings import create_table_findings, rebuild_findings_from_logs
 
 
 def _log_line(finding: Finding, timestamp: float) -> str:
@@ -37,6 +37,8 @@ def _log_line(finding: Finding, timestamp: float) -> str:
                     "original_value": finding.original_value,
                     "stage": finding.stage,
                     "emitting_function": finding.function_name,
+                    "tracker_year": finding.tracker_year,
+                    "tracker_month": finding.tracker_month,
                 },
             }
         }
@@ -83,3 +85,48 @@ def test_an_extra_finding_absent_from_the_logs_is_still_kept(tmp_path: Path):
     df = pl.read_parquet(out)
     assert len(df) == 2
     assert set(df.get_column("patient_id").to_list()) == {"MY_PJ001", "MY_PJ002"}
+
+
+class TestThePublishedTableCarriesTheDerivedFields:
+    """Both writers materialise them, because both used to derive their own.
+
+    ``scope`` shipped as an all-null column on its first real run: the
+    collector's ``to_dataframe`` learned about it and ``create_table_findings``
+    built its own record dicts, so the published table -- the one BigQuery
+    reads -- silently had nothing in it.
+    """
+
+    @staticmethod
+    def _finding(**overrides) -> Finding:
+        fields = {
+            "file_name": "2024_Penang",
+            "arm": "patient",
+            "sheet_name": "Jan24",
+            "message": "m",
+            "error_code": "type_conversion",
+        }
+        return Finding(**{**fields, **overrides})
+
+    def test_create_table_findings_writes_scope_and_category(self, tmp_path):
+        path = create_table_findings([self._finding()], tmp_path)
+        df = pl.read_parquet(path)
+        assert df["scope"].to_list() == ["row"]
+        assert df["category"].to_list() == ["data_lost"]
+
+    def test_the_rebuild_writes_them_too(self, tmp_path):
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        (logs / "t_patient.log").write_text(_log_line(self._finding(), 1.0) + "\n")
+
+        df = pl.read_parquet(rebuild_findings_from_logs(logs, tmp_path))
+
+        assert df["scope"].to_list() == ["row"]
+        assert df["tracker_month"].to_list() == [None]
+
+    def test_a_workbook_scoped_finding_says_so(self, tmp_path):
+        """The distinction the field exists for: a blank sheet that means
+        "the whole workbook", not "we lost which sheet"."""
+        finding = self._finding(error_code="empty_product_data", arm="product", sheet_name="")
+        df = pl.read_parquet(create_table_findings([finding], tmp_path))
+        assert df["scope"].to_list() == ["tracker"]
+        assert df["sheet_name"].to_list() == [""]

@@ -24,7 +24,11 @@ from a4d.extract.common import (
 )
 from a4d.extract.sheet_audit import audit_workbook_sheets, log_unopened_sheets
 from a4d.findings import report_finding
-from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
+from a4d.reference.synonyms import (
+    ColumnMapper,
+    load_patient_mapper,
+    report_unrecognised_columns,
+)
 
 __all__ = [
     "extract_tracker_month",
@@ -800,7 +804,7 @@ def extract_patient_data(
             workbook.close()
         report_finding(
             error_code="sheet_skipped",
-            message=(f"No valid headers found in sheet '{sheet_name}'"),
+            message="No valid headers found in this sheet",
             sheet_name=sheet_name,
             stage="extract",
             function_name="extract_patient_data",
@@ -826,9 +830,9 @@ def extract_patient_data(
         report_finding(
             error_code="blank_header_with_data",
             message=(
-                f"Sheet '{sheet_name}': column {get_column_letter(column_index + 1)} holds "
-                f"{value_count} values but its header cell is empty and no other sheet names "
-                "it, so the column is dropped. Fix the header in the source tracker to recover it."
+                f"Column {get_column_letter(column_index + 1)} holds {value_count} values "
+                "but its header cell is empty and no other sheet names it, so the column "
+                "is dropped. Fix the header in the source tracker to recover it."
             ),
             sheet_name=sheet_name,
             stage="extract",
@@ -860,6 +864,7 @@ def harmonize_patient_data_columns(
     df: pl.DataFrame,
     mapper: ColumnMapper | None = None,
     strict: bool = False,
+    sheet_name: str = "",
 ) -> pl.DataFrame:
     """Harmonize patient data columns using synonym mappings.
 
@@ -871,6 +876,10 @@ def harmonize_patient_data_columns(
         mapper: ColumnMapper to use (if None, loads default patient mapper)
         strict: If True, raise error if unmapped columns exist
                 If False, keep unmapped columns as-is (default)
+        sheet_name: Sheet the frame came from. Unrecognised columns are only
+            reported when it is given: without a sheet the finding names no
+            place in the workbook, and the callers that omit it are tests and
+            tools working on a bare frame rather than a tracker.
 
     Returns:
         DataFrame with standardized column names
@@ -890,7 +899,9 @@ def harmonize_patient_data_columns(
     if mapper is None:
         mapper = load_patient_mapper()
 
-    renamed_df = mapper.rename_columns(df, strict=strict)
+    if sheet_name:
+        report_unrecognised_columns(df, mapper, sheet_name)
+    renamed_df = mapper.rename_columns(df, strict=strict, sheet_name=sheet_name)
 
     logger.info(
         f"Harmonized columns: {len(df.columns)} -> {len(renamed_df.columns)} "
@@ -1062,21 +1073,21 @@ def read_all_patient_sheets(
         if df_sheet.is_empty():
             report_finding(
                 error_code="sheet_skipped",
-                message=(f"Sheet '{sheet_name}' has no data, skipping"),
+                message="Sheet has no data, skipping",
                 sheet_name=sheet_name,
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )
             continue
 
-        df_sheet = harmonize_patient_data_columns(df_sheet, mapper=mapper, strict=False)
+        df_sheet = harmonize_patient_data_columns(
+            df_sheet, mapper=mapper, strict=False, sheet_name=sheet_name
+        )
 
         if "patient_id" not in df_sheet.columns:
             report_finding(
                 error_code="sheet_skipped",
-                message=(
-                    f"Sheet '{sheet_name}' has no 'patient_id' column after harmonization, skipping"
-                ),
+                message="Sheet has no 'patient_id' column after harmonization, skipping",
                 sheet_name=sheet_name,
                 stage="extract",
                 function_name="read_all_patient_sheets",
@@ -1088,7 +1099,7 @@ def read_all_patient_sheets(
         except ValueError as e:
             report_finding(
                 error_code="sheet_skipped",
-                message=(f"Could not extract month from '{sheet_name}': {e}, skipping"),
+                message=f"Could not extract a month from this sheet's name: {e}, skipping",
                 sheet_name=sheet_name,
                 stage="extract",
                 function_name="read_all_patient_sheets",
@@ -1126,28 +1137,23 @@ def read_all_patient_sheets(
     missing_count = len(missing_patient_id_rows)
 
     if missing_count > 0:
-        report_finding(
-            error_code="missing_required_field",
-            message=(
-                f"Found {missing_count} rows with missing patient_id in {tracker_file.name} - "
-                f"these rows will be excluded from processing"
-            ),
-            stage="extract",
-            function_name="read_all_patient_sheets",
+        logger.info(
+            f"{missing_count} rows have no patient_id in {tracker_file.name} and are excluded"
         )
-
-        # Log to ErrorCollector if available
+        # One finding per row, and deliberately no workbook-level total beside
+        # them: the aggregate said the same thing as its own rows, which is
+        # the duplication the unified channel exists to end. The count stays
+        # on the operational log, where a run summary belongs.
         for row in missing_patient_id_rows.iter_rows(named=True):
-            sheet_name = row.get("sheet_name", "unknown")
             name_value = row.get("name", "")
             report_finding(
                 patient_id="MISSING",
                 column="patient_id",
                 original_value=None,
-                message=(
-                    f"Row in sheet '{sheet_name}' has missing patient_id (name: {name_value})"
-                ),
+                message=f"Row has no patient_id (name: {name_value})",
                 error_code="missing_required_field",
+                sheet_name=str(row.get("sheet_name") or ""),
+                tracker_month=row.get("tracker_month"),
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )
@@ -1190,11 +1196,12 @@ def read_all_patient_sheets(
                 column="patient_id",
                 original_value=row["patient_id"],
                 message=(
-                    f"Row in sheet '{row.get('sheet_name', 'unknown')}' has an Excel formula "
-                    f"error ({row['patient_id']}) where its patient ID should be; the row is "
-                    "dropped because the patient cannot be identified"
+                    f"Row has an Excel formula error ({row['patient_id']}) where its patient "
+                    "ID should be; the row is dropped because the patient cannot be identified"
                 ),
                 error_code="excel_error_patient_id",
+                sheet_name=str(row.get("sheet_name") or ""),
+                tracker_month=row.get("tracker_month"),
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )
@@ -1260,16 +1267,15 @@ def read_all_patient_sheets(
                 else:
                     report_finding(
                         error_code="sheet_skipped",
-                        message=(
-                            "Patient List sheet has no 'patient_id' column after harmonization"
-                        ),
+                        message="Sheet has no 'patient_id' column after harmonization",
+                        sheet_name="Patient List",
                         stage="extract",
                         function_name="read_all_patient_sheets",
                     )
             else:
                 report_finding(
                     error_code="sheet_skipped",
-                    message="Patient List sheet is empty",
+                    message="Sheet is empty",
                     sheet_name="Patient List",
                     stage="extract",
                     function_name="read_patient_list_sheet",
@@ -1277,7 +1283,8 @@ def read_all_patient_sheets(
         except Exception as e:
             report_finding(
                 error_code="sheet_skipped",
-                message=(f"Could not process Patient List sheet: {e}"),
+                message=f"Could not process this sheet: {e}",
+                sheet_name="Patient List",
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )
@@ -1322,14 +1329,15 @@ def read_all_patient_sheets(
                 else:
                     report_finding(
                         error_code="sheet_skipped",
-                        message=("Annual sheet has no 'patient_id' column after harmonization"),
+                        message="Sheet has no 'patient_id' column after harmonization",
+                        sheet_name="Annual",
                         stage="extract",
                         function_name="read_all_patient_sheets",
                     )
             else:
                 report_finding(
                     error_code="sheet_skipped",
-                    message="Annual sheet is empty",
+                    message="Sheet is empty",
                     sheet_name="Annual",
                     stage="extract",
                     function_name="read_annual_sheet",
@@ -1337,7 +1345,8 @@ def read_all_patient_sheets(
         except Exception as e:
             report_finding(
                 error_code="sheet_skipped",
-                message=(f"Could not process Annual sheet: {e}"),
+                message=f"Could not process this sheet: {e}",
+                sheet_name="Annual",
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )

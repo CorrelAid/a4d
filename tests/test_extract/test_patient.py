@@ -247,7 +247,7 @@ def test_harmonize_patient_data_columns_multiple_synonyms():
         }
     )
 
-    harmonized = harmonize_patient_data_columns(raw_df)
+    harmonized = harmonize_patient_data_columns(raw_df, sheet_name="Jan24")
 
     assert list(harmonized.columns) == ["patient_id"]
     assert harmonized["patient_id"].to_list() == ["P001,P002", "P003"]
@@ -696,4 +696,4 @@ def test_excel_error_patient_id_row_is_dropped_and_recorded(tmp_path, collector)
     dropped = errors.filter(pl.col("error_code") == "excel_error_patient_id")
     assert len(dropped) == 1
     assert dropped["original_value"][0] == "#REF!"
-    assert "Jan24" in dropped["message"][0]
+    assert dropped["sheet_name"][0] == "Jan24"
