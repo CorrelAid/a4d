@@ -533,8 +533,40 @@ def _is_number(value: object) -> bool:
     return True
 
 
+def columns_under_merged_header(merged_spans: list[tuple[int, int]] | None) -> set[int]:
+    """Column indices a merged header names without occupying their own cell.
+
+    A header merged across several columns sits in the leftmost one, so the rest
+    read as headerless while the value is read from the leftmost. They are named
+    by the merge, not missing a name.
+    """
+    return {col - 1 for first, last in (merged_spans or []) for col in range(first + 1, last + 1)}
+
+
+def _is_row_counter(values: list) -> bool:
+    """Is this the unlabelled 1, 2, 3... counter left of the patient rows?
+
+    A purely numeric column is one, and so is one carrying a single stray
+    keystroke in the margin provided its numbers still count upward: 2023
+    Mahosot's Sep23 sheet has one cell reading "m" among 83 row numbers, which
+    would otherwise be reported as 83 lost values. The ascending test is only
+    asked of the one-stray case -- demanding it of every column would start
+    reporting the counters that restart or repeat, which are plainly still
+    counters and have never been worth a finding.
+    """
+    numbers = [float(str(v)) for v in values if _is_number(v)]
+    strays = len(values) - len(numbers)
+    if strays == 0:
+        return True
+    if strays > 1 or len(numbers) < 2:
+        return False
+    return all(later > earlier for earlier, later in zip(numbers, numbers[1:], strict=False))
+
+
 def find_dropped_data_columns(
-    headers: list[str | None], data: list[tuple]
+    headers: list[str | None],
+    data: list[tuple],
+    merged_spans: list[tuple[int, int]] | None = None,
 ) -> list[tuple[int, int]]:
     """Find headerless columns that nonetheless carry data.
 
@@ -546,19 +578,30 @@ def find_dropped_data_columns(
     "Insulin Regime". Reporting these lets the source workbook be corrected;
     the pipeline cannot name such a column on its own.
 
-    All-numeric columns are excluded: the trackers put an unlabelled row counter
-    left of the patient data, which accounts for 189 of the 199 headerless
-    columns holding values across the 254-tracker set.
+    Two kinds of column are headerless without anything being lost, and both are
+    excluded so the report only carries defects a clinic can act on:
+
+    - a column a merged header already names. The 2022 template stretches
+      "Insulin Regimen" and the complication-screening headers across two
+      columns each, which accounted for 193 of the 217 findings this emitter
+      produced across the 255-tracker set -- 3,885 values, none of them lost,
+      since the leftmost column of the merge carries them.
+    - the tracker's own row counter (see `_is_row_counter`).
 
     Returns:
         (column index, count of non-empty values) per affected column
     """
+    named_by_merge = columns_under_merged_header(merged_spans)
     findings = []
     for i, header in enumerate(headers):
-        if header:
+        if header or i in named_by_merge:
             continue
-        values = [row[i] for row in data if i < len(row) and row[i] not in (None, "")]
-        if not values or all(_is_number(v) for v in values):
+        values = [
+            row[i]
+            for row in data
+            if i < len(row) and str(row[i] if row[i] is not None else "").strip()
+        ]
+        if not values or _is_row_counter(values):
             continue
         findings.append((i, len(values)))
     return findings
@@ -587,14 +630,14 @@ def recover_blank_headers(
       template's hidden merged-cell column, blank in every sheet and correctly
       dropped, out of reach of this rule,
     - a name this sheet already uses is refused, since it would collide,
-    - a position covered by a merged header is refused: the merge is this
-      sheet's own statement about what the column belongs to, and outranks a
-      sibling laid out differently. Putrajaya's Jul21 sheet carries "Patient
-      Observations" at the position Dec21 uses for a complication-screening
-      selection, so recovering by position filed a screening result under
-      observations,
     - and only columns `find_dropped_data_columns` reports are eligible, so
-      spacer columns and the unlabelled row counter are untouched.
+      spacer columns, the unlabelled row counter and any column a merged header
+      already names are untouched. That last exclusion matters here as well as
+      there: the merge is this sheet's own statement about what the column
+      belongs to, and outranks a sibling laid out differently. Putrajaya's Jul21
+      sheet carries "Patient Observations" at the position Dec21 uses for a
+      complication-screening selection, so recovering by position filed a
+      screening result under observations.
 
     Measured over the 254-tracker set: recovers 316 values across 5 trackers and
     does nothing to the other 4,256.
@@ -604,13 +647,8 @@ def recover_blank_headers(
 
     recovered = list(headers)
     taken = {h for h in headers if h}
-    covered = {
-        col - 1 for first, last in (merged_spans or []) for col in range(first + 1, last + 1)
-    }
 
-    for index, _ in find_dropped_data_columns(headers, data):
-        if index in covered:
-            continue
+    for index, _ in find_dropped_data_columns(headers, data, merged_spans=merged_spans):
         donors: set[str] = set()
         for sibling in sibling_headers:
             if index < len(sibling):
@@ -826,7 +864,9 @@ def extract_patient_data(
                 )
         headers = recovered
 
-    for column_index, value_count in find_dropped_data_columns(headers, data):
+    for column_index, value_count in find_dropped_data_columns(
+        headers, data, merged_spans=merged_spans
+    ):
         report_finding(
             error_code="blank_header_with_data",
             message=(
