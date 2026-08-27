@@ -22,6 +22,7 @@ from a4d.extract.common import (
     get_tracker_year,
     normalize_patient_id_expr,
 )
+from a4d.extract.sheet_audit import audit_workbook_sheets, log_unopened_sheets
 from a4d.findings import report_finding
 from a4d.reference.synonyms import ColumnMapper, load_patient_mapper
 
@@ -1010,6 +1011,13 @@ def read_all_patient_sheets(
 
     year = get_tracker_year(tracker_file, month_sheets)
     logger.info(f"Processing {len(month_sheets)} month sheets for year {year}")
+
+    # Report the sheets this tracker should hold and does not, and list the ones
+    # nothing opens (ticket 72). Runs here, on the patient arm only, because the
+    # audit is per workbook: the product arm reads the same file and would
+    # duplicate every finding.
+    log_unopened_sheets(wb, tracker_file.name)
+    audit_workbook_sheets(wb, year, is_year_complete=year < datetime.date.today().year)
 
     all_sheets_data = []
 
