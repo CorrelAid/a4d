@@ -95,6 +95,8 @@ def create_table_patient_data_monthly(patient_data: pl.DataFrame, output_dir: Pa
         "bmi",
         "bmi_date",
         "clinic_id",
+        "complication_screening",
+        "complication_screening_results",
         "fbg_updated_date",
         "fbg_updated_mg",
         "fbg_updated_mmol",

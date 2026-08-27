@@ -384,3 +384,32 @@ class TestIntegrationWithActualData:
         assert "product" in renamed.columns
         assert "product_entry_date" in renamed.columns
         assert "product_units_received" in renamed.columns
+
+    def test_screening_selection_holds_only_the_which_screenings_dropdown(self):
+        """The 2023 per-test columns record a month, not a screening selection.
+
+        Each of them holds the month one test was completed, so mapping them all
+        onto the selection column comma-joined five months into one cell and a
+        patient-month read "MAR,MAR". They are deliberately unmapped -- reported
+        as columns the pipeline does not recognise -- until ticket 77 decides
+        where 3,638 recorded completion months belong.
+        """
+        mapper = load_patient_mapper()
+
+        for header in (
+            "Complication Screening Completed Kidney",
+            "Complication Screening Completed (MONTH) Kidney",
+            "Complication Screening Completed B.P.",
+            "Complication Screening Completed Lipids",
+            "Complication Screening Completed (MONTH) TSH",
+        ):
+            assert mapper.get_standard_name(header) != "complication_screening"
+
+        assert (
+            mapper.get_standard_name("Current Month Complication Screening (kidney, eye, foot)")
+            == "complication_screening"
+        )
+        assert (
+            mapper.get_standard_name("Complication Screening Completed Results")
+            == "complication_screening_results"
+        )

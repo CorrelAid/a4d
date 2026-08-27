@@ -12,7 +12,7 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 | `extract/wide_format.py` | Mandalay wide-format handling (column expansion 2020-21; cell splitting 2017-19) |
 | `clean/patient.py` | Type conversion, validation, transformations → cleaned parquet |
 | `clean/product.py` | Product cleaning pipeline (R steps 2.0-2.21) → cleaned product parquet |
-| `clean/schema.py` | 83-column patient meta schema matching R output |
+| `clean/schema.py` | 85-column patient meta schema every cleaned parquet conforms to |
 | `clean/schema_product.py` | 20-column product meta schema + helpers |
 | `clean/converters.py` | Safe type conversion, reporting a finding per unusable cell |
 | `clean/validators.py` | Case-insensitive allowed-values validation |

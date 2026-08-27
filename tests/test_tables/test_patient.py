@@ -69,6 +69,8 @@ def cleaned_patient_data_files(tmp_path: Path) -> list[Path]:
             "hospitalisation_cause": [None, None, None],
             "observations": ["Doing well", "Good progress", "Needs improvement"],
             "observations_category": ["Good", "Good", "Fair"],
+            "complication_screening": ["Kidney,Eye,Foot", "Kidney", None],
+            "complication_screening_results": ["Normal", "Abnormal", None],
             "edu_occ": ["Student", "Student", "Student"],
             "edu_occ_updated": ["Student", "Student", "Student"],
             "blood_pressure_updated": ["110/70", "115/75", "120/80"],
@@ -152,6 +154,8 @@ def cleaned_patient_data_files(tmp_path: Path) -> list[Path]:
             "hospitalisation_cause": [None, None],
             "observations": ["Excellent progress", "Very good"],
             "observations_category": ["Excellent", "Good"],
+            "complication_screening": ["Lipids,TSH", None],
+            "complication_screening_results": ["Normal", None],
             "edu_occ": ["Student", "Student"],
             "edu_occ_updated": ["Student", "Student"],
             "blood_pressure_updated": ["108/68", "112/72"],
@@ -259,6 +263,14 @@ def test_create_table_patient_data_monthly(cleaned_patient_data_files: list[Path
     assert "insulin_type" in result.columns
     assert "name" not in result.columns
     assert "dob" not in result.columns
+
+    # Which screenings a clinic did this month, and what they found. Recorded
+    # in every template since 2021 and published for the first time by ticket
+    # 75 -- 4,031 selections and 3,349 outcomes across the corpus reached no
+    # table before it.
+    assert "complication_screening" in result.columns
+    assert "complication_screening_results" in result.columns
+    assert "Kidney,Eye,Foot" in result["complication_screening"].to_list()
 
     sorted_check = result["tracker_year"].to_list()
     assert sorted_check == sorted(sorted_check)

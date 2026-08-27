@@ -333,7 +333,49 @@ def merge_headers(
             continue
         headers[index] = name
         taken.add(name)
+
+    _join_multi_select_spans(headers, merged_spans, mapper)
     return headers
+
+
+MULTI_SELECT_MERGED_BLOCKS = frozenset({"complication_screening"})
+"""Blocks whose merged title covers one column *per recorded value*.
+
+Most merged titles cover one field: the columns past the leftmost hold merge
+residue Excel does not even display, and joining them makes the value worse --
+2,910 of the 3,659 values under the 2022 "Insulin Regimen" merge are
+byte-identical to the column the merge anchors.
+
+Complication screening is the exception, because a patient can be screened for
+several things in one month and the template gives each its own column. Across
+the 254-tracker corpus that is 227 ticks in 133 patient-months over 13
+workbooks, and *none* of them repeats the tick in the anchor column: a
+patient-month reading "Kidney" really had Eye, Foot, Lipids and Thyroid done
+too. Naming those columns after the anchor hands them to
+`merge_duplicate_columns_data`, which comma-joins them into one cell.
+"""
+
+
+def _join_multi_select_spans(
+    headers: list[str | None],
+    merged_spans: list[tuple[int, int]],
+    mapper: ColumnMapper | None,
+) -> None:
+    """Give a multi-select block's unnamed columns the header of its anchor.
+
+    Mutates `headers` in place. A column that carries a sub-header of its own is
+    a different field within the block (the block's "Results" or "Date" column)
+    and is left alone.
+    """
+    if mapper is None:
+        return
+    for first, last in merged_spans:
+        anchor = headers[first - 1] if first - 1 < len(headers) else None
+        if not anchor or mapper.get_standard_name(anchor) not in MULTI_SELECT_MERGED_BLOCKS:
+            continue
+        for index in range(first, min(last, len(headers))):
+            if headers[index] is None:
+                headers[index] = anchor
 
 
 def _carries_data_beyond_identifier(row: tuple) -> bool:

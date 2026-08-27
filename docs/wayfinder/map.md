@@ -43,9 +43,9 @@ flowchart TD
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
-    T75["<b>75</b> · grilling<br/>A screening block records<br/>several results per<br/>patient and the pipeline<br/>keeps only the first"]
+    T76["<b>76</b> · task<br/>Everything the pipeline<br/>reads out of a workbook<br/>and then discards to fit<br/>the fixed output shape"]
   end
-  subgraph DECIDED["Decided · 67"]
+  subgraph DECIDED["Decided · 68"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -114,11 +114,13 @@ flowchart TD
     T72["<b>72</b> · task<br/>A sheet whose name the<br/>matcher does not recognise<br/>is skipped in total<br/>silence"]
     T73["<b>73</b> · task<br/>Three workbook defects the<br/>pipeline detects, acts on,<br/>and never reports"]
     T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
+    T75["<b>75</b> · grilling<br/>Which screenings a patient<br/>had, and what they found,<br/>is read from every<br/>workbook and never<br/>published"]
   end
-  subgraph DROPPED["Out of scope · 2"]
+  subgraph DROPPED["Out of scope · 3"]
     direction TB
     T1["<b>1</b> · grilling<br/>Does product-pipeline's<br/>test suite meet the same<br/>cell-by-cell rigor as<br/>patient's?"]
     T65["<b>65</b> · grilling<br/>Two values published into<br/>the logs table still name<br/>R scripts"]
+    T77["<b>77</b> · grilling<br/>The 2023 template records<br/>which month each screening<br/>was done, and the pipeline<br/>has nowhere to put it"]
   end
 
   T2 --> T15
@@ -150,11 +152,11 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41,T75 frontier
+  class T9,T34,T35,T40,T41,T76 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
-  class T1,T65 dropped
+  class T1,T65,T77 dropped
 ```
 <!-- graph:end -->
 
@@ -3311,6 +3313,59 @@ took away the only visibility those 226 clinical results had, so it is the one
 thing on the map that is currently worse than it was this morning. [Ticket
 40](tickets/40-source-defect-findings-report.md) is the other, and the larger.
 
+
+**[Which screenings a patient had, and what they found](tickets/75-screening-selections-under-merged-header.md)
+is closed, and the ticket's own premise was false.** It was written to decide
+what to do about 227 extra screening ticks the pipeline discarded after keeping
+the first. Measuring found the pipeline kept **none** of them: the screening
+selection and its outcome were read out of every workbook and then dropped when
+the fixed 85-column output shape was applied, with no finding raised --
+**4,031 selections and 3,349 outcomes** across the corpus reaching no table at
+all. The 227 were a rounding error beside the whole field going unpublished.
+
+**The field is now published, and the 227 arrived for free.** Two columns join
+the output shape and the monthly table. Where a merged header covers several
+columns and the leftmost is the screening selection, the others take the
+anchor's header and the existing same-name join folds them into one cell, so a
+patient screened for five things reads `Kidney,Eye,Foot,Lipids,TSH` instead of
+nothing. **395 selections, 3,349 outcomes, 133 patient-months carrying more than
+one screening -- each of those figures was zero before.** Which blocks are
+multi-select is a declared list, not inferred from the values: the insulin block
+stays single-select, since 2,910 of its 3,659 shadow values are byte-identical
+repeats.
+
+**Publishing it exposed a second field wearing the same name, and the first run
+shipped it.** The 2023 template asks a different question -- seven columns, one
+per test, each holding the *month* that test was completed -- and the reference
+file mapped five of them onto the selection column, which comma-joined them into
+`MAR,MAR` on 1,393 patient-months. That fusion predates this session; it was
+invisible because the result was discarded afterwards. Those five are now
+unmapped, so all seven surface as columns the pipeline does not recognise rather
+than a value that is false, and a reference-data test pins the decision. Nothing
+was lost: none of those 3,638 cells reached a table before today either.
+
+**Measured against a controlled baseline, not against the map.** A full both-arm
+run with the pre-change code reproduces the recorded 103,407 findings exactly;
+after, 104,820 with the same 40 codes firing. Only three codes moved -- 1,765
+columns now reported as unrecognised against 353 fewer reported as fused (the
+same seven columns, described differently), and one more `tracker_layout_changed`
+on 2021 Putrajaya, whose month sheets genuinely disagree and now show one more
+column doing so. All four published tables are unchanged in row count.
+
+**The frontier is six** -- ticket 75 closing, ticket 76 opening, ticket 77
+opened and ruled out of scope in the same session -- and **none of the six is on
+the route, because the route is finished**. What remains is four standing
+decisions ([golden-master tests](tickets/09-snapshot-regression-tests.md),
+[local CI parity](tickets/34-local-ci-parity-guard.md),
+[Polars 2.0](tickets/35-polars-2-deprecation-warnings.md), [the 2026 template's
+new fields](tickets/41-decide-2026-new-patient-list-columns.md)) and two
+data-quality tickets. **Take [ticket
+76](tickets/76-columns-dropped-by-the-fixed-output-shape.md) next**: this session
+found that the two screening columns were two of **73 column names carrying
+63,790 values** discarded by the same mechanism with nothing reported, and it is
+the direct residue of what was fixed here. [Ticket
+40](tickets/40-source-defect-findings-report.md) is the other, and the older.
+
 ## Decisions so far
 
 - [The pipeline reports 217 headerless-column defects where the triage found
@@ -4567,6 +4622,17 @@ thing on the map that is currently worse than it was this morning. [Ticket
   ignored; together they recovered 3,002 lost findings (119,588 → 122,590).
 - [A sheet whose name the matcher does not recognise is skipped in total silence](tickets/72-sheets-the-pipeline-never-opens.md) — report, don't widen: every unopened sheet is listed on the operational log (510 lines/255 trackers), and three new `fix_workbook` codes assert the sheets a tracker's year should hold, firing 6 times in 255. Corrected the ticket's own finding: the lost screening data is `Annual_2025` inside the *2026* VNC workbook, not the near-empty `Annual_2026`.
 
+- [Which screenings a patient had, and what they found, is read from every
+  workbook and never published](tickets/75-screening-selections-under-merged-header.md)
+  -- the field is published for the first time: two columns join the output shape
+  and the monthly table, 395 selections and 3,349 outcomes where there were zero,
+  and 133 patient-months that recorded several screenings now carry all of them
+  rather than none. The ticket's premise was false -- nothing was being kept.
+- [The 2023 template records which month each screening was
+  done](tickets/77-per-test-screening-completion-months.md) -- ruled out of scope
+  the same session it was written: the columns exist in 2023 only, which the
+  user's "current template is the golden rule" decision already settles.
+
 ## Assumptions in force
 
 - **Content buried under the right-hand half of a merged header is never worth
@@ -4855,6 +4921,18 @@ ninth clause, it is the only frontier ticket on the route.
   stating a different introduction date — either way the check would report
   absences that are not defects.
 
+- **Complication screening is the only merged header block that covers one
+  column per recorded value.** Every other merged title covers one field, and the
+  columns past its leftmost are residue Excel does not display -- the basis on
+  which the multi-select list holds exactly one entry, and on which the insulin
+  block keeps dropping its shadow column. Resting on the corpus measurement
+  behind [ticket 75](tickets/75-screening-selections-under-merged-header.md)
+  (screening: 227 values, zero duplicating the anchor; insulin: 3,659 values,
+  2,910 byte-identical to it) plus judgement that no third block exists.
+  **Overturned by** any merged block whose covered columns hold distinct real
+  values, which would show up as a run of dropped values under one title.
+
+
 ## Not yet specified
 
 - Whether **`value_not_in_allowed_list` is categorised correctly**. It is
@@ -4988,6 +5066,13 @@ ninth clause, it is the only frontier ticket on the route.
 
 
 ## Out of scope
+
+- **The 2023 template's per-test screening completion months.** Seven columns
+  ("Complication Screening Completed Kidney/Eye/Foot/Lipids/B.P./TSH/tTG-IgA"),
+  3,638 cells across 25 trackers, each holding the month one test was completed.
+  Measured to appear in **2023 only** -- zero instances in 2024, 2025 or 2026 --
+  so the rule immediately below covers them: reported, not published. Closed with
+  [ticket 77](tickets/77-per-test-screening-completion-months.md).
 
 - **Columns that appear in one tracker year and are gone the next.** 703 of
   ticket 30's residual divergence rows, across 68 columns last seen in 2024 or
@@ -5244,6 +5329,11 @@ flowchart TB
     U72["<b>72</b><br/>A sheet whose name the<br/>matcher does not<br/>recognise is skipped in<br/>total silence"]
     U74["<b>74</b><br/>A second local run<br/>doubles the rebuilt<br/>findings table, because<br/>last run's worker logs<br/>are still there"]
   end
+  subgraph S2026_08_27b["Session 2026-08-27b"]
+    direction LR
+    U75["<b>75</b><br/>Which screenings a<br/>patient had, and what<br/>they found, is read from<br/>every workbook and never<br/>published"]
+    U77["<b>77</b><br/>The 2023 template<br/>records which month each<br/>screening was done, and<br/>the pipeline has nowhere<br/>to put it"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -5255,7 +5345,7 @@ flowchart TB
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
-    U75["<b>75</b><br/>A screening block<br/>records several results<br/>per patient and the<br/>pipeline keeps only the<br/>first"]
+    U76["<b>76</b><br/>Everything the pipeline<br/>reads out of a workbook<br/>and then discards to fit<br/>the fixed output shape"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5314,7 +5404,8 @@ flowchart TB
   S2026_08_25d ~~~ S2026_08_26
   S2026_08_26 ~~~ S2026_08_26b
   S2026_08_26b ~~~ S2026_08_27
-  S2026_08_27 ~~~ Sunworked
+  S2026_08_27 ~~~ S2026_08_27b
+  S2026_08_27b ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -5409,12 +5500,15 @@ flowchart TB
   U70 -.->|spawned| U73
   U73 -.->|spawned| U74
   U68 -.->|spawned| U75
+  U75 -.->|spawned| U76
+  U75 -.->|spawned| U77
+  U75 ==>|closed| U77
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41,U75 tfrontier
+  class U9,U34,U35,U40,U41,U76 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
-  class U1,U65 tdropped
+  class U1,U65,U77 tdropped
 ```
 <!-- route:end -->
