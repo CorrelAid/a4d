@@ -74,3 +74,20 @@ Things the decision turns on, worth having ready when it is taken:
    backlog. The destination is "close out the R-to-Python migration"; adding
    fields R never had is arguably new development, not migration. Deciding that
    is part of this ticket.
+
+
+---
+
+**Update from [ticket 76](76-columns-dropped-by-the-fixed-output-shape.md),
+2026-08-28.** All five columns now appear in the findings report. They did not
+before, and the reason was a bug rather than a design choice: the `Patient
+List` and `Annual` sheets were put through the unrecognised-heading check
+without being told which sheet they came from, and the check switches itself
+off when it is not told. Both call sites now pass the sheet name, so the five
+columns produce one finding each (`unrecognised_column`, scope `sheet_column`)
+against the 2026 Preah Kossamak tracker.
+
+Ticket 76 also settled that these five are the **only** current-template
+columns the pipeline reads and drops -- every other dropped column it found
+was last recorded in 2023 or earlier. So this ticket is the whole of the
+remaining publish-or-not question, not a sample of it.

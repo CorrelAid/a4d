@@ -995,6 +995,15 @@ def harmonize_patient_data_columns(
     return renamed_df
 
 
+#: Suffixes ``join_static_sheet`` gives a static sheet's column when the month
+#: sheets already carry one of the same name. The suffixed copy is the one the
+#: join discards, so a name ending in one of these is a discarded duplicate --
+#: see ``UNPUBLISHED_COLUMNS`` in ``clean/schema.py`` for the ones observed.
+PATIENT_LIST_SUFFIX = ".static"
+ANNUAL_SUFFIX = ".annual"
+STATIC_SHEET_SUFFIXES = (PATIENT_LIST_SUFFIX, ANNUAL_SUFFIX)
+
+
 def join_static_sheet(
     df_monthly: pl.DataFrame,
     static_sheet: pl.DataFrame,
@@ -1310,7 +1319,7 @@ def read_all_patient_sheets(
             )
             if not patient_list.is_empty():
                 patient_list = harmonize_patient_data_columns(
-                    patient_list, mapper=mapper, strict=False
+                    patient_list, mapper=mapper, strict=False, sheet_name="Patient List"
                 )
 
                 if "patient_id" in patient_list.columns:
@@ -1343,7 +1352,7 @@ def read_all_patient_sheets(
                     )
 
                     df_combined = join_static_sheet(
-                        df_monthly, patient_list_join, ".static", "Patient List"
+                        df_monthly, patient_list_join, PATIENT_LIST_SUFFIX, "Patient List"
                     )
                     logger.info(f"Joined {len(patient_list)} Patient List records")
                 else:
@@ -1380,7 +1389,7 @@ def read_all_patient_sheets(
             )
             if not annual_data.is_empty():
                 annual_data = harmonize_patient_data_columns(
-                    annual_data, mapper=mapper, strict=False
+                    annual_data, mapper=mapper, strict=False, sheet_name="Annual"
                 )
 
                 if "patient_id" in annual_data.columns:
@@ -1405,7 +1414,7 @@ def read_all_patient_sheets(
                     )
 
                     df_combined = join_static_sheet(
-                        df_combined, annual_data_join, ".annual", "Annual"
+                        df_combined, annual_data_join, ANNUAL_SUFFIX, "Annual"
                     )
                     logger.info(f"Joined {len(annual_data)} Annual records")
                 else:
