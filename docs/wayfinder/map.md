@@ -42,9 +42,9 @@ flowchart TD
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
-    T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
+    T78["<b>78</b> · grilling<br/>A blank row ends the<br/>patient block, so anything<br/>written below it is never<br/>read"]
   end
-  subgraph DECIDED["Decided · 69"]
+  subgraph DECIDED["Decided · 70"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -81,6 +81,7 @@ flowchart TD
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
     T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
+    T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
     T44["<b>44</b> · task<br/>Classify the cleaned-stage<br/>FBG cells where R has<br/>nothing and Python has a<br/>corrected reading"]
@@ -152,9 +153,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T41 frontier
+  class T9,T34,T35,T40,T78 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65,T77 dropped
 ```
@@ -3387,6 +3388,54 @@ two or three paragraphs that get rewritten; the detail already lives in
 *Decisions so far* and in the tickets themselves. Cutting it back was not done
 here because deleting that much recorded history is the user's call.
 
+
+**[The 2026 template's five new roster fields](tickets/41-decide-2026-new-patient-list-columns.md)
+is closed, and there was no 2026 template change to decide about.** The ticket
+had stood on the frontier for two weeks waiting for the user to look at the new
+trackers. Measuring first turned it from a judgement call into a fact: the 2026
+`Patient List` sheet is **identical in all 48 workbooks** -- the same thirteen
+headers, no exceptions -- and the five extra columns are appended to **one**
+Cambodian clinic's own copy. **0 of 47** 2025 trackers have them. Two of the
+five (`Phone Number`, `Insurance Card Status`) have never been filled in at all;
+`Current Insulin Regimen` carries three notes-to-self among its 47 values. The
+user's answer was immediate on that evidence: ignore them until the schema is
+officially changed. They stay reported as unrecognised headings and unpublished
+-- **no code change**, and the behaviour was confirmed by running the extraction
+against the real workbook rather than by reading the code, which upgrades ticket
+76's `read` claim about them to `executed`.
+
+**Verifying it by execution is what found the next defect, and that is the
+argument for doing it that way.** The roster lists 114 patient IDs; extraction
+returns 100. `read_patient_rows` stops at the first fully blank row, and this
+clinic left three blank rows, a `PENDING TRANSFER KBH` banner, and then a second
+numbered block of 14 transfers from Kantha Bopha. They reach no table and **no
+finding is raised** -- exactly the silence tickets 72 and 76 closed against.
+Swept across all **2,573** patient sheets in the corpus: **4 sheets, 48 rows**,
+all 2026. Three are this same workbook (its May26 and Jun26 sheets too, so those
+14 patients are absent from the pipeline entirely, not merely from the roster);
+the fourth is 2 rows at Mukdahan. Now [ticket
+78](tickets/78-blank-row-ends-the-patient-block.md).
+
+**A first attempt to size that defect was wrong by three orders of magnitude and
+was thrown away.** It reported 2,248 month sheets and 106,957 rows, because it
+took the first row with anything in column B as the start of the data -- which
+on a month sheet is the header, so the "gap" was the blank line above the first
+record and the "loss" was the whole sheet. Re-measured using the pipeline's own
+`find_data_start_row`, it is 4 sheets. The wrong number is written into ticket
+78 so it is not resurrected.
+
+**The frontier is five** -- ticket 41 closing, ticket 78 opening -- **and the
+route is still finished**; all nine clauses of the destination are met. What
+remains is three standing decisions ([golden-master
+tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md)) and two data-quality tickets.
+**Take [ticket 78](tickets/78-blank-row-ends-the-patient-block.md) next**: it is
+fully measured, the population is four sheets, and it is the only thing on the
+map where patients are currently missing from the tables with nobody told.
+[Ticket 40](tickets/40-source-defect-findings-report.md) is the other, and the
+larger.
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -4677,6 +4726,19 @@ here because deleting that much recorded history is the user's call.
   the same session it was written: the columns exist in 2023 only, which the
   user's "current template is the golden rule" decision already settles.
 
+- [Do the 2026 template's five new Patient List fields enter the
+  pipeline?](tickets/41-decide-2026-new-patient-list-columns.md) -- **no, and the
+  ticket's premise was false: they are not template fields.** The 2026 `Patient
+  List` sheet is identical in all 48 workbooks -- thirteen headers, no
+  exceptions -- and the five appear in **1 of 48** 2026 trackers and **0 of 47**
+  2025 ones, appended to one Cambodian clinic's own copy. Two of the five have
+  never been filled in; a third carries free-text notes among its 47 values. A
+  narrower case than [ticket 77](tickets/77-per-test-screening-completion-months.md),
+  so the golden-rule decision settles it the same way: reported every run as
+  unrecognised headings, never published. No code change -- verified by running
+  the extraction against the real workbook, which is also how the dropped
+  patients found in the same session came to light.
+
 ## Assumptions in force
 
 - **A column no tracker has carried since 2023 is a field A4D stopped
@@ -5396,6 +5458,7 @@ flowchart TB
   end
   subgraph S2026_08_28b["Session 2026-08-28b"]
     direction LR
+    U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U76["<b>76</b><br/>Everything the pipeline<br/>reads out of a workbook<br/>and then discards to fit<br/>the fixed output shape"]
   end
   subgraph Sunworked["Closed without being worked"]
@@ -5408,7 +5471,7 @@ flowchart TB
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
-    U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
+    U78["<b>78</b><br/>A blank row ends the<br/>patient block, so<br/>anything written below<br/>it is never read"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5567,11 +5630,12 @@ flowchart TB
   U75 -.->|spawned| U76
   U75 -.->|spawned| U77
   U75 ==>|closed| U77
+  U41 -.->|spawned| U78
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U41 tfrontier
+  class U9,U34,U35,U40,U78 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65,U77 tdropped
 ```
