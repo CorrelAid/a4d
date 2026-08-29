@@ -2,12 +2,12 @@
 id: 78
 title: A blank row ends the patient block, so anything written below it is never read
 labels: [wayfinder:grilling]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-29
+claimed_at: 2026-08-29
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 41
 ---
@@ -107,3 +107,81 @@ Things the decision turns on:
   something else -- 2 rows could be a stray note rather than patients.
 - Whether the banner row itself (`PENDING TRANSFER KBH`, no ID) would survive
   the per-row guards as a phantom patient.
+
+
+## Resolution
+
+**Decision.** Option 1, unchanged from ticket 72's precedent: **report the gap
+and read no further.** A new finding code `data_below_blank_row`
+(`fix_workbook`, scope `sheet`) fires from `read_patient_rows` whenever the
+blank row that ends the block has, below it, at least one row the reader would
+have accepted. The message names the row reading stopped at and how many rows
+were left. No data-reading behaviour changed; no published table moved.
+
+**Because.** The ticket's own headline -- "14 real patients are read out of the
+workbook by nobody" -- is false, and measuring it is what settled the decision.
+All fourteen `KH_KB*_PK` IDs exist as `KH_KB*` in
+`2026_Kantha Bopha II Hospital A4D Tracker_Jun_26.xlsx`: on its `Patient List`,
+its `Annual`, and every one of its six month sheets. Preah Kossamak has
+pre-registered patients it expects to receive, under IDs it will use once the
+transfer completes. Reading them in would **duplicate** fourteen patients
+across two clinics.
+
+Reading on is worse than merely redundant on the month sheets. `May26`'s block
+holds `#REF!` in both identifier columns -- 16 rows keyed to a broken
+spreadsheet reference. `Jun26`'s block has real IDs but its only payload is
+column E, `Last Clinic Visit`, holding the date of the patient's last visit **at
+Kantha Bopha**; reading it would create Preah Kossamak monthly records for
+patients Preah Kossamak did not treat.
+
+**Rejected.**
+- *Keep reading to the end of the sheet* (ticket option 2): creates the
+  duplicates and the `#REF!` rows above. The ticket noted its per-row guards
+  were tuned by a sweep that assumed the blank row bounded the block; that
+  concern is now moot -- even if the guards held, the rows should not be read.
+- *Read on and also report* (option 3): same defects plus a finding.
+- *Report any non-blank content below the break*: measured and rejected.
+  **237 of 2,860 patient sheets** have some non-blank cell below the break
+  (footers, notes, stray totals); **3** have a row that would be read as data.
+  The counted rows use the reader's own acceptance test, shared as
+  `_would_be_read_as_data` so the two cannot drift.
+
+What this gives up: if a clinic ever *does* split a genuine, non-duplicated
+block below a gap, the pipeline reports it rather than recovering it, and
+someone has to act on the finding. That is the trade ticket 72 already made.
+
+**Two of the ticket's own facts were wrong and are corrected here.**
+- **Mukdahan is not affected.** The ticket lists `Feb26`, Mukdahan as losing 2
+  rows. Running the real extraction on that sheet returns all 7 rows it holds;
+  the first fully blank row is 61 and nothing follows it. The affected
+  population is **one workbook, three sheets, 46 rows** -- Preah Kossamak's
+  `Patient List` (15), `May26` (16), `Jun26` (15).
+- **The corpus is 2,860 patient sheets, not 2,573.** The re-sweep walks every
+  month sheet found by `find_month_sheets` plus `Patient List` and `Annual`,
+  using `find_data_start_row` and the real header width for the column bound.
+  This is the third count this ticket has carried and the first taken with the
+  pipeline's own reading rules; the earlier two (106,957 rows, then 48 rows
+  over 4 sheets) are both superseded.
+
+The 15/16/15 counts include the clinic's `PENDING TRANSFER KBH` banner row,
+which carries a second inline header (`Remark from contacting`) in column S and
+so genuinely would be read. The message says "rows of data", not "patients",
+for that reason.
+
+**Evidence: executed.**
+- Corpus sweep over all 255 workbooks / 2,860 patient sheets
+  (`find_data_start_row` + `read_header_rows` + the reader's acceptance test):
+  3 sheets, 46 rows, all 2026 Preah Kossamak. Loose variant (any non-blank
+  cell): 237 sheets.
+- The 14 transfer IDs searched for in the Kantha Bopha 2026 workbook: found on
+  all 8 of its sheets that carry patients.
+- Controlled before/after both-arm run on the full 255-tracker corpus:
+  **104,834 -> 104,837 findings**, exactly the three new ones; distinct codes
+  firing **40 -> 41**; every other published table byte-identical in row count
+  (patient static/monthly/annual, product, clinic, logs, metadata).
+- Full suite green: 1342 passed, 1 skipped. `ruff check`, `ruff format
+  --check`, `ty check src/` clean.
+
+**Tense.** Every claim above describes behaviour after this change, except the
+two corrected facts and the Kantha Bopha cross-check, which describe the source
+workbooks as they stand.

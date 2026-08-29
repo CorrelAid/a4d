@@ -36,15 +36,14 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 5"]
+  subgraph FRONTIER["Frontier · 4"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
     T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
-    T78["<b>78</b> · grilling<br/>A blank row ends the<br/>patient block, so anything<br/>written below it is never<br/>read"]
   end
-  subgraph DECIDED["Decided · 70"]
+  subgraph DECIDED["Decided · 71"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -116,6 +115,7 @@ flowchart TD
     T74["<b>74</b> · task<br/>A second local run doubles<br/>the rebuilt findings<br/>table, because last run's<br/>worker logs are still<br/>there"]
     T75["<b>75</b> · grilling<br/>Which screenings a patient<br/>had, and what they found,<br/>is read from every<br/>workbook and never<br/>published"]
     T76["<b>76</b> · task<br/>Everything the pipeline<br/>reads out of a workbook<br/>and then discards to fit<br/>the fixed output shape"]
+    T78["<b>78</b> · grilling<br/>A blank row ends the<br/>patient block, so anything<br/>written below it is never<br/>read"]
   end
   subgraph DROPPED["Out of scope · 3"]
     direction TB
@@ -153,9 +153,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40,T78 frontier
+  class T9,T34,T35,T40 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65,T77 dropped
 ```
@@ -3436,6 +3436,42 @@ map where patients are currently missing from the tables with nobody told.
 [Ticket 40](tickets/40-source-defect-findings-report.md) is the other, and the
 larger.
 
+
+**[A blank row ends the patient block](tickets/78-blank-row-ends-the-patient-block.md)
+is closed, and the 14 patients it was written to rescue were never missing.**
+They are transfers pending from Kantha Bopha, and all fourteen are in Kantha
+Bopha's own 2026 tracker -- on its roster, its annual sheet, and every one of
+its six month sheets. Preah Kossamak has written them down below a
+`PENDING TRANSFER KBH` banner under the IDs it will use once the transfer
+completes. Reading them in would have duplicated fourteen patients across two
+clinics; on one of the two month sheets it would also have invented 16 records
+keyed to a broken spreadsheet reference, and on the other, monthly records at a
+clinic that did not treat those patients that month. The user's decision was
+option 1 -- report the gap, read no further -- on the condition that nobody is
+missing, which the Kantha Bopha cross-check satisfies.
+
+**Two of the ticket's own numbers were wrong and both are corrected in it.**
+Mukdahan does not lose 2 rows: running the real extraction on that sheet returns
+every row it holds. The affected population is **one workbook, three sheets, 46
+rows**, and the corpus is **2,860** patient sheets, not 2,573. This was the
+ticket's third count and the first taken with the pipeline's own reading rules.
+
+**The report is precise rather than loud.** 237 of the 2,860 sheets have some
+non-blank cell below the break -- footers, notes, stray totals -- and 3 have a
+row that would have been read as data. The finding counts only the latter,
+using the reader's own acceptance test, now shared between the two so they
+cannot drift. Controlled before/after run on the full corpus: **104,834 ->
+104,837 findings**, codes firing **40 -> 41**, every other published table
+unchanged.
+
+**The frontier is four, and the route is still finished.** What remains is three
+standing decisions ([golden-master tests](tickets/09-snapshot-regression-tests.md),
+[local CI parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md)) and one data-quality ticket,
+[the four kinds of source defect that reach no report](tickets/40-source-defect-findings-report.md)
+-- **take that one next**: it is the only remaining ticket about the data, and
+nothing else competes with it.
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -4739,6 +4775,15 @@ larger.
   the extraction against the real workbook, which is also how the dropped
   patients found in the same session came to light.
 
+- [A blank row ends the patient block, so anything written below it is never
+  read](tickets/78-blank-row-ends-the-patient-block.md) -- report the gap, read
+  no further. A new `data_below_blank_row` finding names the sheet and the row
+  reading stopped at, whenever a row that would have been read follows. The 14
+  "lost" patients turned out to be pending transfers already held under the
+  other clinic's tracker, so reading on would duplicate them; one of the three
+  affected sheets holds only broken spreadsheet references where the IDs should
+  be. Three findings on the whole 255-tracker corpus, no published table moved.
+
 ## Assumptions in force
 
 - **A column no tracker has carried since 2023 is a field A4D stopped
@@ -5204,6 +5249,15 @@ ninth clause, it is the only frontier ticket on the route.
   survive, and the trackers are kept if the data is ever wanted. Closed with
   [ticket 30](tickets/30-triage-patient-raw-column-divergence.md).
 
+- **Giving pending inter-clinic transfers a proper place in the tracker
+  template.** Preah Kossamak keeps its incoming transfers as a second block
+  below a banner because the template has nowhere else to put them; the
+  pipeline now reports that block rather than reading it. Whether the template
+  should gain a transfer section is A4D's decision about their own workbook,
+  not this pipeline's -- the map's standing rule that a human error in the
+  source is fixed at source applies. Surfaced by [ticket
+  78](tickets/78-blank-row-ends-the-patient-block.md).
+
 ### The route actually walked
 
 Sessions top to bottom, oldest first. `spawned` and `closed` are causal — what a
@@ -5461,6 +5515,10 @@ flowchart TB
     U41["<b>41</b><br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields<br/>enter the pipeline"]
     U76["<b>76</b><br/>Everything the pipeline<br/>reads out of a workbook<br/>and then discards to fit<br/>the fixed output shape"]
   end
+  subgraph S2026_08_29["Session 2026-08-29"]
+    direction LR
+    U78["<b>78</b><br/>A blank row ends the<br/>patient block, so<br/>anything written below<br/>it is never read"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -5471,7 +5529,6 @@ flowchart TB
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
-    U78["<b>78</b><br/>A blank row ends the<br/>patient block, so<br/>anything written below<br/>it is never read"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5532,7 +5589,8 @@ flowchart TB
   S2026_08_26b ~~~ S2026_08_27
   S2026_08_27 ~~~ S2026_08_27b
   S2026_08_27b ~~~ S2026_08_28b
-  S2026_08_28b ~~~ Sunworked
+  S2026_08_28b ~~~ S2026_08_29
+  S2026_08_29 ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -5633,9 +5691,9 @@ flowchart TB
   U41 -.->|spawned| U78
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40,U78 tfrontier
+  class U9,U34,U35,U40 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65,U77 tdropped
 ```
