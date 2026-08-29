@@ -19,6 +19,7 @@ from a4d.extract.patient import (
     read_patient_rows,
     recover_blank_headers,
 )
+from a4d.findings import findings_collected
 
 
 def create_mock_mapper(known_columns: set[str], standard_names: dict[str, str] | None = None):
@@ -266,6 +267,52 @@ class TestReadPatientRows:
         )
 
         assert len(read_patient_rows(ws, 1, 3)) == 1
+
+        wb.close()
+
+    def test_reports_data_left_below_the_blank_row(self, collector):
+        """2026 Preah Kossamak, Patient List/May26/Jun26: the clinic left a gap,
+        wrote a 'PENDING TRANSFER KBH' banner, and started a second numbered
+        block below it. Reading stops at the gap, which is correct -- those 14
+        patients are still Kantha Bopha's and are in that tracker under their
+        own IDs -- but it used to happen in total silence."""
+        wb, ws = self._sheet(
+            [
+                [1, "KH_QD001_PK", "KH_QD001_PK"],
+                [None, None, None],
+                [None, "PENDING TRANSFER KBH", None],
+                [1, "KH_QD114_PK", "KH_QD114_PK"],
+            ]
+        )
+        ws.title = "Jun26"
+
+        assert len(read_patient_rows(ws, 1, 3)) == 1
+
+        reported = collector.to_dataframe()
+        row = reported.filter(pl.col("error_code") == "data_below_blank_row")
+        assert len(row) == 1
+        assert row["sheet_name"][0] == "Jun26"
+        assert "1 row(s) of data" in row["message"][0]
+        assert "row 2" in row["message"][0]
+
+        wb.close()
+
+    def test_stays_silent_when_nothing_readable_follows_the_blank_row(self):
+        """A stray note below the block is not a patient record: without a row
+        number or an identifier it would be skipped even if reading continued,
+        so the blank row costs nothing and there is nothing to report."""
+        wb, ws = self._sheet(
+            [
+                [1, "VN_QC001", "VN_QC001"],
+                [None, None, None],
+                [None, None, "checked by Dr. L"],
+            ]
+        )
+
+        with findings_collected(file_name="t") as c:
+            read_patient_rows(ws, 1, 3)
+
+        assert c.to_dataframe().is_empty()
 
         wb.close()
 

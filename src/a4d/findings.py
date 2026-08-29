@@ -62,6 +62,7 @@ ErrorCode = Literal[
     "duplicate_source_columns",
     "unrecognised_column",
     "sheet_skipped",
+    "data_below_blank_row",
     "month_sheet_missing",
     "month_sheets_end_early",
     "static_sheet_missing",
@@ -143,6 +144,7 @@ FINDING_SCOPE: dict[ErrorCode, FindingScope] = {
     "month_sheets_end_early": "tracker",
     # One sheet.
     "sheet_skipped": "sheet",
+    "data_below_blank_row": "sheet",
     "static_sheet_missing": "sheet",
     "static_sheet_duplicate_id": "sheet",
     "product_section_not_found": "sheet",
@@ -220,6 +222,7 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
     "duplicate_source_columns": "fix_workbook",
     "unrecognised_column": "fix_workbook",
     "sheet_skipped": "fix_workbook",
+    "data_below_blank_row": "fix_workbook",
     "month_sheet_missing": "fix_workbook",
     "month_sheets_end_early": "fix_workbook",
     "static_sheet_missing": "fix_workbook",
@@ -296,6 +299,14 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "rest of the workbook still processed. Usually a sheet with no header "
         "row, no data, no patient ID column, or a name no month can be read "
         "from. The named sheet is where to look."
+    ),
+    "data_below_blank_row": (
+        "Patient rows are written below a completely blank row, and reading "
+        "stops at that blank row, so those rows reached no table. Delete the "
+        "blank row to bring them into one block, or move them to their own "
+        "sheet if they are not patients of this clinic this month. Seen where a "
+        "clinic starts a second numbered block under a banner such as 'PENDING "
+        "TRANSFER'."
     ),
     "month_sheet_missing": (
         "A month sheet is missing from the middle of this tracker's own range, "

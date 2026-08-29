@@ -459,24 +459,71 @@ def read_patient_rows(ws, data_start_row: int, num_columns: int) -> list[tuple]:
         4
     """
     data = []
-    for row in ws.iter_rows(
+    rows = ws.iter_rows(
         min_row=data_start_row,
         max_row=ws.max_row,
         min_col=1,
         max_col=num_columns,
         values_only=True,
-    ):
+    )
+    stopped_at = None
+    for offset, row in enumerate(rows):
         if all(cell is None for cell in row):
+            stopped_at = data_start_row + offset
             break
-        # Skip rows where both row number (col A) AND patient_id (col B) are missing
-        # This handles cases where Excel has missing row numbers but valid patient data
-        if row[0] is None and (len(row) < 2 or row[1] is None):
-            continue
-        if row[0] is None and not _carries_data_beyond_identifier(row):
+        # An unnumbered row must carry a patient_id (col B) and something
+        # beyond it; the same test decides what a blank row below the block
+        # costs, so both callers share it.
+        if not _would_be_read_as_data(row):
             continue
         data.append(tuple(_recover_number_typed_as_date(cell) for cell in row))
 
+    if stopped_at is not None:
+        _report_rows_left_below(rows, ws.title, stopped_at)
+
     return data
+
+
+def _would_be_read_as_data(row: tuple) -> bool:
+    """Whether ``read_patient_rows`` would keep this row if it reached it."""
+    if row[0] is not None:
+        return True
+    if len(row) < 2 or row[1] is None:
+        return False
+    return _carries_data_beyond_identifier(row)
+
+
+def _report_rows_left_below(rows, sheet_name: str, stopped_at: int) -> None:
+    """Say so when the blank row that ended the block had patients under it.
+
+    The block is deliberately still bounded by the blank row: 2026 Preah
+    Kossamak writes a second numbered block under a ``PENDING TRANSFER KBH``
+    banner, and those 14 patients are Kantha Bopha's -- they appear in that
+    clinic's own tracker, on its roster and all six of its month sheets, so
+    reading them here would duplicate them under a second ID. The same
+    workbook's May26 sheet holds only ``#REF!`` where the IDs should be.
+    Reading on would invent records; the loss to report is the silence.
+
+    Only rows the reader would have accepted are counted, using the same test
+    the loop above applies. A stray note carries neither a row number nor an
+    identifier, so it would be skipped whether or not the blank row is there,
+    and the blank row costs it nothing -- that distinction is the whole of the
+    finding's precision: 237 of the corpus's 2,860 patient sheets have some
+    non-blank cell below the break, and 3 have a patient under it.
+    """
+    left = sum(1 for row in rows if _would_be_read_as_data(row))
+    if not left:
+        return
+    report_finding(
+        error_code="data_below_blank_row",
+        message=(
+            f"{left} row(s) of data are written below the blank row at row "
+            f"{stopped_at}; reading stopped there and they reached no table"
+        ),
+        sheet_name=sheet_name,
+        stage="extract",
+        function_name="read_patient_rows",
+    )
 
 
 def merge_duplicate_columns_data(

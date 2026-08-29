@@ -32,6 +32,7 @@ EXPECTED_EMITTERS: dict[ErrorCode, set[str]] = {
     "tracker_layout_changed": {"read_all_patient_sheets"},
     "duplicate_source_columns": {"rename_columns"},
     "unrecognised_column": {"report_unrecognised_columns"},
+    "data_below_blank_row": {"read_patient_rows"},
     "sheet_skipped": {
         "extract_patient_data",
         "read_all_patient_sheets",
