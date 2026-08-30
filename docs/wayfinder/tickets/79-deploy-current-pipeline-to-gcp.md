@@ -227,3 +227,103 @@ new screening columns will simply appear in `patient_data`'s output.
    is no longer snapshotted, and no view reads it. Also unresolved, and
    separate: `product_data_for_looker` is a *table*, not a view, and nothing in
    this pipeline writes it -- so something outside the repo does.
+
+## Progress — session 2026-08-30, part 3
+
+The pipeline now runs on GCP from `dev`. Three production executions, each
+finding a defect the one before it could not have shown.
+
+| Execution | Image | Findings table | Console |
+|---|---|---|---|
+| `pb4j8` 11:11 UTC | `f27ffe16` | failed silently | 3,765 lines |
+| `4qk8w` 11:33 UTC | `8e185afe` | **landed** | 3,765 lines |
+| `7fl4k` 11:50 UTC | `7e10470c` | landed | 688 lines |
+
+**The findings table had never once loaded, and the run said it had.** The
+first execution exited 0 with the table simply absent. Two independent
+defects behind that:
+
+- `TABLE_CONFIGS["findings"]` declared **five** clustering fields; BigQuery
+  caps them at four and rejects at *load* time, not config time, so every
+  load of that table since it was introduced had failed with a 400. Every
+  unit test around the loader mocks the BigQuery client, so only a real load
+  could surface it. Dropped `column`, the fifth and most granular -- clustering
+  prunes on a prefix, so it was doing the least work anyway. A test now holds
+  every entry to the limit.
+- `load_pipeline_tables` logged each failure and returned the partial result
+  set, so the CLI printed its success line and the job exited 0. Failures are
+  now collected, every remaining table is still attempted, and the run raises
+  at the end naming what failed. The CLI already turned an exception into a
+  non-zero exit, so no change was needed there.
+
+Verified after the second execution: `findings` in BigQuery holds 104,861
+rows across all 255 trackers and all three categories -- the first time it has
+existed in the dataset.
+
+**The console was publishing one line per finding.** 3,765 log lines, 2,987
+WARNING, and **2,972 of those were the same sentence** ("Invalid patient ID
+format..."), because findings log at WARNING and the bare `a4d run` set its
+console to that level -- while `run patient` and `run product`, the two debug
+commands, were already quiet at ERROR. The console format binds none of the
+finding's fields, so the lines named no file, sheet or patient either. All
+2,993 are published as `patient_id_unrepairable` to the findings table, the
+per-tracker logs and the workbook, so nothing is lost by silencing them.
+
+That left 256 DEBUG lines, one per tracker downloaded. Cause: `setup_logging`
+is called from inside each arm, and Steps 0 and 1 run before either, so
+loguru's default DEBUG handler was still installed. Added
+`configure_quiet_console()`, called before the first download; no file sink,
+since the output directory is not even cleared at that point.
+
+Measured on a real 255-tracker run: **3,765 console lines -> 124**, zero of
+them log lines.
+
+**The run summary was counting the pipeline's own successes as errors.** "Top
+Files by Error Count" ranked on every finding, recoveries included. That put
+the 2025 Kantha Bopha II tracker seventh with 1,424 "errors", **1,022 of them
+`age_derived_from_dob`** -- the pipeline correctly computing a missing age from
+date of birth -- leaving 402 real problems, ranked above 2022 trackers carrying
+1,952 and 1,936 real problems with no recoveries at all. It now reads the
+findings table (the only thing carrying a category), counts what needs action,
+and is titled accordingly. Falls back to the old per-arm counts under the old
+title when there is no findings table, so `--skip-tables` degrades rather than
+losing it.
+
+Added **Findings by Tracker Year**, on the user's request, because nothing in
+the summary answered "was this year processed, and is the newest template
+actually clean?":
+
+| Year | Trackers | Findings | Recovered | Needs action | Per tracker |
+|---|---|---|---|---|---|
+| 2026 | 48 | 9,959 | 3,567 | 6,392 | **133.2** |
+| 2025 | 47 | 16,400 | 5,506 | 10,894 | 231.8 |
+| 2024 | 38 | 16,478 | 4,130 | 12,348 | 324.9 |
+| 2023 | 33 | 16,995 | 1,266 | 15,729 | 476.6 |
+| 2022 | 27 | 15,621 | 178 | 15,443 | **572.0** |
+| 2019 | 11 | 6,502 | 356 | 6,146 | 558.7 |
+| 2017 | 4 | 2,170 | 186 | 1,984 | 496.0 |
+
+`per_tracker` divides *actionable* findings by trackers, so a workbook full of
+successful recoveries does not score as badly as a broken one. Read that way
+the trend inverts: the newest template is four times cleaner per tracker than
+2022, which the per-file ranking had hidden.
+
+**The eight views survived, as predicted.** The schema diff done before the
+deploy held: nothing dropped or renamed, `patient_data_monthly` gained the two
+screening columns, `logs` lost `error_code`.
+
+**Still open on this ticket:**
+
+1. Deploy the summary changes -- the image on GCP (`7e10470c`) predates them.
+2. The orphaned `errors` table. Still in BigQuery with its 2026-08-09
+   contents, no producer since [ticket 66](66-unify-finding-channels.md),
+   no longer snapshotted, and read by none of the eight views.
+
+**Found and deliberately not fixed:**
+
+- `console_main_thread_only` in `src/a4d/logging.py` defaults to `False` and
+  nothing in the codebase ever sets it `True`, so the filter meant to keep
+  worker logs off the console has always been dead. Moot at ERROR level, so
+  widening this session's change to cover it was not justified.
+- `product_data_for_looker` is a **table**, not a view, and nothing in this
+  repo writes it -- so something outside the repo does, and nobody knows what.

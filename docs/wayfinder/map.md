@@ -3589,6 +3589,31 @@ ticket 66's 118,175 at 67,190 / 48,995 / 1,990, the taxonomy work since has
 moved tens of thousands out of "lost". That shift is the intended direction but
 has not been verified line by line.
 
+**The pipeline now runs on GCP from `dev`, and getting there took three
+production executions, each exposing a defect the one before it could not
+have shown.** The first exited 0 with the findings table simply absent: it had
+been declared with five clustering fields against BigQuery's limit of four, so
+every load of it since it was introduced had failed -- and the loader logged
+each failure and returned the tables that did load, letting the run report
+success. Both are fixed, and the findings table now holds 104,861 rows across
+all 255 trackers in BigQuery for the first time. The second run showed the
+console publishing one line per finding: 3,765 lines, 2,972 of them the same
+sentence, because findings log at WARNING and only the production entry point
+ran its console at that level. The third showed 256 more, one per tracker
+downloaded, because nothing configured logging until an arm started. A real
+255-tracker run is now **124 console lines, none of them log lines**.
+
+**The run summary was counting the pipeline's own successes as errors**, which
+is what made the newest trackers look like the worst. Ranked on every finding
+including recoveries, the 2025 Kantha Bopha II tracker placed seventh with
+1,424 "errors" -- 1,022 of them the pipeline correctly deriving a missing age
+from date of birth -- above 2022 trackers carrying nearly 2,000 real problems
+each. The triage list now counts what needs action, and a new per-year table
+shows the trend the per-file ranking hid: 133 actionable findings per tracker
+in 2026 against 572 in 2022, so the newest template is four times the cleanest.
+The eight views survived the deploy exactly as the pre-deploy schema diff
+predicted.
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -5231,6 +5256,39 @@ ninth clause, it is the only frontier ticket on the route.
 
 
 ## Not yet specified
+
+- Whether **a missing age recovered from date of birth deserves to be a
+  finding at all**. `age_derived_from_dob` is **13,518** findings, 12,029 of
+  them in 2024-26, and it fires every time the age column is blank and the
+  pipeline computes the age from the date of birth. It is correctly a
+  `recovered` finding, so since [ticket
+  79](tickets/79-deploy-current-pipeline-to-gcp.md) it no longer distorts the
+  run summary's triage ranking. But if the newer templates deliberately leave
+  age blank because date of birth is authoritative, then 12,000 rows saying so
+  is noise in the workbook A4D staff read, not a recovery worth recording.
+  Not sharp enough to ticket until someone has looked at whether the template
+  actually intends age to be blank -- that is A4D's answer about their own
+  workbook, not the pipeline's.
+
+- What writes **`product_data_for_looker`**. Found while checking the eight
+  BigQuery views against the deploy ([ticket
+  79](tickets/79-deploy-current-pipeline-to-gcp.md)): it is a *table*, not a
+  view, it sits in the `tracker` dataset alongside the pipeline's own, and
+  nothing in this repo writes it -- so something outside the repo does, on a
+  schedule nobody here can see. `product_data_for_looker_v2` next to it *is* a
+  view and does read the pipeline's tables. Not sharp enough to ticket until
+  someone has looked in the project's scheduled queries; it may belong to the
+  organisational thread below rather than to this repo at all.
+
+- Whether the **worker-thread console filter** should exist. `logging.py`
+  carries `console_main_thread_only`, meant to keep worker logs off the
+  console during a parallel run; it defaults to `False` and **nothing in the
+  codebase has ever set it `True`**, so it has always been dead. Moot now that
+  the production console runs at ERROR ([ticket
+  79](tickets/79-deploy-current-pipeline-to-gcp.md)), which is why it was left
+  alone rather than removed in the same session that depended on the level
+  change. Either it earns a caller or it goes.
+
 
 - Whether **`value_not_in_allowed_list` is categorised correctly**. It is
   `data_lost`, but ticket 69's own tie-break says `fix_workbook` wins wherever
