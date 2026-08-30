@@ -1,5 +1,6 @@
 """Tests for type conversion with error tracking."""
 
+import warnings
 from datetime import date
 
 import polars as pl
@@ -955,3 +956,43 @@ def test_parse_date_column_says_nothing_when_no_note_is_involved(collector):
     parse_date_column(df, "entry_date")
 
     assert collector.findings == []
+
+
+def _polars_2_warnings(callable_):
+    """Run ``callable_`` and return the Polars 2.0 deprecation warnings it emits.
+
+    Polars raises these from its Rust core, which escapes ``-W error`` -- the
+    warning is printed rather than raised, so a filter cannot fail the suite on
+    it. It is still recordable, so recording is the only guard available.
+    """
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        callable_()
+    return [str(w.message) for w in recorded if "Polars 2.0" in str(w.message)]
+
+
+def test_date_sentinel_assignment_does_not_rely_on_a_removed_cast(collector):
+    """The failed-date sentinel is built with a parser, not a String->Date cast.
+
+    Casting a string to Date is removed in Polars 2.0, and this expression runs
+    on every conversion of a date column -- including the ones with no failures,
+    since the sentinel branch is evaluated regardless.
+    """
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Jan24",
+            "patient_id": ["XX_QA001", "XX_QA002"],
+            "product_entry_date": ["2024-01-15", "not a date"],
+        }
+    )
+
+    def convert():
+        return safe_convert_column(df=df, column="product_entry_date", target_type=pl.Date)
+
+    assert _polars_2_warnings(convert) == []
+    result = convert()
+    assert result["product_entry_date"].to_list() == [
+        date(2024, 1, 15),
+        date(9999, 9, 9),
+    ]

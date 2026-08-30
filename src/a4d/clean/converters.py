@@ -90,6 +90,21 @@ def normalize_excel_formula_errors(
     )
 
 
+def _sentinel_literal(
+    error_value: float | str | bool, target_type: type[pl.DataType] | pl.DataType
+) -> pl.Expr:
+    """The error sentinel as a literal of ``target_type``.
+
+    The date sentinel is the string "9999-09-09", and Polars removes
+    String->Date casting in 2.0, so it is parsed rather than cast. The two
+    routes give the same date; this is the one that survives the upgrade.
+    """
+    literal = pl.lit(error_value)
+    if target_type == pl.Date:
+        return literal.str.to_date()
+    return literal.cast(target_type)
+
+
 def safe_convert_column(
     df: pl.DataFrame,
     column: str,
@@ -142,6 +157,19 @@ def safe_convert_column(
     if column not in df.columns:
         return df
 
+    # Text reaching a date column is handed to the flexible parser rather than
+    # cast here. A plain cast only accepts ISO text -- it nulls "21.2.17" and
+    # Excel serials, which the parser reads -- and Polars removes String->Date
+    # casting in 2.0 anyway. This keeps one date policy for the whole pipeline
+    # instead of a second, weaker one on the generic conversion path.
+    if target_type == pl.Date and df[column].dtype in (pl.Utf8, pl.String):
+        return parse_date_column(
+            df,
+            column,
+            file_name_col=file_name_col,
+            patient_id_col=patient_id_col,
+        )
+
     # Normalize empty/whitespace/missing-value strings to null BEFORE conversion
     # This ensures missing data stays null rather than becoming error values
     # A cell reading 'Nil' or '-' recorded an absence, not an unusable value,
@@ -192,7 +220,7 @@ def safe_convert_column(
     # Replace failures with error value (cast to target type)
     df = df.with_columns(
         pl.when(failed_mask)
-        .then(pl.lit(error_value).cast(target_type))
+        .then(_sentinel_literal(error_value, target_type))
         .otherwise(pl.col(f"_conv_{column}"))
         .alias(column)
     )

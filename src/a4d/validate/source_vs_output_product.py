@@ -35,7 +35,10 @@ def _explode_multi_product_cells(df: pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
         pl.col("product").cast(pl.Utf8).str.replace_all(" and ", "; ").alias("product")
     )
-    return df.with_columns(pl.col("product").str.split("; ")).explode("product")
+    # empty_as_null must match the cleaning step it mirrors (clean/product.py);
+    # a silent divergence here would make this validator report differences it
+    # invented itself.
+    return df.with_columns(pl.col("product").str.split("; ")).explode("product", empty_as_null=True)
 
 
 def _load_raw(run_dir: Path) -> pl.DataFrame | None:

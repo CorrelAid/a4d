@@ -212,7 +212,11 @@ def _split_multi_product_cells(df: pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
         pl.col("product").cast(pl.Utf8).str.replace_all(" and ", "; ").alias("product")
     )
-    df = df.with_columns(pl.col("product").str.split("; ")).explode("product")
+    # empty_as_null is explicit because Polars 2.0 flips its default. A stock
+    # row whose product cell is empty still carries its dates and quantities,
+    # so it stays in the output with a null product rather than being dropped;
+    # 154,827 of the 168,316 raw product cells across the corpus are null.
+    df = df.with_columns(pl.col("product").str.split("; ")).explode("product", empty_as_null=True)
 
     if "product_units_notes" not in df.columns:
         df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias("product_units_notes"))
