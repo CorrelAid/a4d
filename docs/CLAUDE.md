@@ -24,6 +24,10 @@ Patient pipeline is complete and deployed to production (Cloud Run).
 | `tables/logs.py` | Aggregate operational logs → logs table |
 | `tables/findings.py` | Aggregate data-quality findings → findings table |
 | `tables/metadata.py` | Tracker metadata table (MD5 + per-tracker output presence flags) |
+| `validate/source_vs_output_patient.py` | Cell-by-cell check of published patient output against the source workbook |
+| `validate/source_vs_output_product.py` | The same for the product arm |
+| `validate/snapshot.py` | Golden-master digest of a run's output, and the diff that classifies what moved |
+| `validate/snapshot_store.py` | Where the digest baseline lives (on the tracker drive, never committed) |
 | `pipeline/patient.py` | Orchestrate extract+clean per tracker, parallel workers |
 | `pipeline/product.py` | Product pipeline orchestration (mirrors patient, single product_data table) |
 | `pipeline/tracker.py` | Per-tracker pipeline execution (patient + product) |
@@ -61,6 +65,9 @@ uv run a4d download trackers      # Download tracker files from GCS
 uv run a4d download clinic-data   # Download clinic_data.xlsx from Google Drive into reference_data/
 
 uv run a4d report findings        # Excel of every data-quality finding (--tracker NAME to drill into one, --from-bigquery for a deployed run)
+
+uv run a4d snapshot check     # Digest this run's output and diff it against the accepted baseline
+uv run a4d snapshot update    # Accept the last check's digest as the new baseline (runs nothing itself)
 ```
 
 Key options: `--file` (single tracker), `--workers N`, `--skip-tables`, `--skip-download`, `--skip-upload`, `--skip-drive-download`, `--skip-product`, `--incremental` (skip trackers matching previous run's manifest, and keep their outputs). Every run otherwise starts from a clean output directory -- `output/logs/` included, so no table sums two runs.
@@ -77,6 +84,12 @@ output/
 └── logs/                   # Per-tracker log files (JSON)
 ```
 
+`snapshot/` sits beside `output/` under the data root, not inside it. It holds the
+golden-master baseline (`baseline.parquet`), the last check's digest
+(`current.parquet`) and dated copies under `history/`. It is never committed --
+this repository is public, and the digest would otherwise publish how many
+patients each named clinic has. See the Golden-Master section of the README.
+
 ## Key Facts
 
 - `clinic_id` = parent folder name of the tracker file
@@ -87,6 +100,12 @@ output/
   stream. It raises outside a context rather than dropping the finding
 - Two published artifacts, two jobs: `findings` (what is wrong with a workbook, for A4D
   staff) and `logs` (what the pipeline did, for a developer). `errors` is superseded
+- Output stability is checked by `just snapshot-check`, which needs the tracker
+  drive and so can never run in CI. Columns are hashed as multisets (BigQuery
+  tables are unordered, and parallel workers reorder rows every run); each frame
+  also carries a row-alignment fingerprint so one column cannot drift against the
+  others unseen; run-time columns keep shape but no fingerprint; `table_logs` is
+  excluded outright, since it records the run rather than the workbooks
 - `reference_data/` holds the pipeline's shared configuration (synonyms, validation rules, provinces); changing it changes cleaning behaviour for every tracker
 
 ## Pipeline Status
