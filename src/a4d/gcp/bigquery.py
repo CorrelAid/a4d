@@ -14,6 +14,12 @@ from loguru import logger
 from a4d.config import settings
 from a4d.findings import FINDINGS_SCHEMA
 
+# BigQuery rejects a CREATE with more than this many clustering fields, and it
+# rejects it at load time, not at config time -- `findings` shipped with five
+# and so had never once landed in the dataset. A unit test holds every entry
+# below to this limit.
+BIGQUERY_MAX_CLUSTERING_FIELDS = 4
+
 # Clustering fields per table. These are the columns consumers filter on
 # most, and clustering on them is what keeps a full-corpus query cheap.
 TABLE_CONFIGS: dict[str, list[str]] = {
@@ -28,7 +34,11 @@ TABLE_CONFIGS: dict[str, list[str]] = {
     ],
     "clinic_data_static": ["clinic_id"],
     "logs": ["level", "file_name", "function", "module"],
-    "findings": ["file_name", "category", "error_code", "patient_id", "column"],
+    # `column` was the fifth field and is dropped: clustering prunes on a
+    # prefix, so the last field of five was doing the least work anyway, and it
+    # is the most granular of them -- consumers filter by tracker, by what to
+    # do about it, and by problem code long before they filter by column name.
+    "findings": ["file_name", "category", "error_code", "patient_id"],
     "tracker_metadata": ["file_name", "clinic_code"],
 }
 
@@ -207,6 +217,7 @@ def load_pipeline_tables(
     logger.info(f"Loading pipeline tables from: {tables_dir}")
 
     results: dict[str, bigquery.LoadJob] = {}
+    failures: dict[str, Exception] = {}
 
     for parquet_name, table_name in PARQUET_TO_TABLE.items():
         if only_tables is not None and table_name not in only_tables:
@@ -223,8 +234,12 @@ def load_pipeline_tables(
                     replace=replace,
                 )
                 results[table_name] = job
-            except Exception:
+            except Exception as e:
+                # Collected rather than raised here, so one unloadable table
+                # does not strand the ones after it -- but the run must not
+                # then report success, which is exactly what it used to do.
                 logger.exception(f"Failed to load table: {table_name}")
+                failures[table_name] = e
         else:
             logger.warning(f"Table file not found, skipping: {parquet_name}")
 
@@ -234,6 +249,11 @@ def load_pipeline_tables(
         else sum(1 for t in PARQUET_TO_TABLE.values() if t in only_tables)
     )
     logger.info(f"Successfully loaded {len(results)}/{considered} tables")
+
+    if failures:
+        detail = "; ".join(f"{table}: {error}" for table, error in sorted(failures.items()))
+        raise RuntimeError(f"Failed to load {len(failures)} BigQuery table(s) -- {detail}")
+
     return results
 
 
