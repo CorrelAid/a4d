@@ -5340,14 +5340,15 @@ ninth clause, it is the only frontier ticket on the route.
   map or to the separate organisational/scheduling effort below — and the
   Google-side setup is the user's, not the agent's.
 
-- Whether the repository's **security features should be switched on**.
-  Checked via the API 2026-08-30: secret scanning, push protection, and
-  Dependabot security updates are all `disabled` on what is a *public*
-  repository holding the pipeline that touches patient data and GCP
-  configuration. All three are free at this visibility and are repository
-  settings, not code, so only the user can enable them. Not ticketed because
-  there is nothing for an agent to build — it is one decision and three
-  toggles.
+- **Repository security features are on since 2026-08-30.** Checked via the API
+  during [ticket 34](tickets/34-local-ci-parity-guard.md) and found all
+  disabled on what is a *public* repository holding the pipeline that touches
+  patient data and GCP configuration; the user enabled secret scanning, push
+  protection and Dependabot security updates the same session. Zero secret
+  alerts on the history at the time of enabling. Left off, and worth a later
+  decision: **non-provider patterns** (generic keys and connection strings, not
+  only recognised vendor tokens) and **validity checks** (whether a leaked
+  token is still live).
 
 - Whether **a missing age recovered from date of birth deserves to be a
   finding at all**. `age_derived_from_dob` is **13,518** findings, 12,029 of

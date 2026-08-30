@@ -183,7 +183,7 @@ just lint          # ruff check .
 just format-check  # ruff format --check .
 just check         # ty check src/
 just test          # pytest, CI's selection, with coverage
-just cov-floor     # product pipeline code must stay 85% covered
+just cov-floor     # pipeline source, and product code specifically, stay 85% covered
 
 just format        # rewrite files to match the formatter
 just fix           # auto-fix lint findings

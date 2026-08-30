@@ -61,7 +61,7 @@ jobs:
     - name: Run tests
       run: just test
 
-    - name: Enforce coverage floor for product pipeline code
+    - name: Enforce coverage floors
       run: just cov-floor
 
     # Coverage lands on the run's own summary page. Deliberately not sent to a
