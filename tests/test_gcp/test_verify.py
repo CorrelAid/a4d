@@ -1,5 +1,6 @@
 """Tests for post-production-run verification against a backup snapshot."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from a4d.gcp.verify import TableStats, diff_table_stats, fetch_table_stats
@@ -120,3 +121,65 @@ class TestFetchTableStats:
         )
         query = mock_client.query.call_args.args[0]
         assert "clinic_id" not in query
+
+
+class TestVerifiedTables:
+    """VERIFIED_TABLES must be derived from what the pipeline publishes.
+
+    A hand-typed list drifted once already: it named `errors` (retired) and
+    omitted `findings` (its replacement), so the two tables that changed most
+    were the two nothing checked.
+    """
+
+    def test_covers_every_published_table(self):
+        from a4d.gcp.bigquery import published_table_names
+        from a4d.gcp.verify import VERIFIED_TABLES
+
+        assert set(VERIFIED_TABLES) == set(published_table_names())
+
+    def test_includes_findings_and_logs(self):
+        from a4d.gcp.verify import VERIFIED_TABLES
+
+        assert "findings" in VERIFIED_TABLES
+        assert "logs" in VERIFIED_TABLES
+
+    def test_excludes_the_retired_errors_table(self):
+        from a4d.gcp.verify import VERIFIED_TABLES
+
+        assert "errors" not in VERIFIED_TABLES
+
+
+class TestFetchTableStatsIfPresent:
+    """A table with no snapshot is new, not a failure.
+
+    `findings` did not exist at the last backup, so demanding a snapshot for
+    every verified table would make the first run after this deploy crash
+    instead of reporting.
+    """
+
+    def test_returns_none_when_the_table_is_absent(self):
+        from google.api_core.exceptions import NotFound
+
+        from a4d.gcp.verify import fetch_table_stats_if_present
+
+        client = MagicMock()
+        client.get_table.side_effect = NotFound("no such table")
+
+        assert fetch_table_stats_if_present(client, "findings_20260809") is None
+
+    def test_returns_stats_when_the_table_exists(self):
+        from a4d.gcp.verify import fetch_table_stats_if_present
+
+        client = MagicMock()
+        client.get_table.return_value = SimpleNamespace(
+            schema=[SimpleNamespace(name="clinic_id"), SimpleNamespace(name="patient_id")]
+        )
+        client.query.return_value.result.return_value = iter(
+            [MagicMock(row_count=42, distinct_clinics=7)]
+        )
+
+        stats = fetch_table_stats_if_present(client, "patient_data_static")
+
+        assert stats is not None
+        assert stats.row_count == 42
+        assert stats.distinct_clinics == 7

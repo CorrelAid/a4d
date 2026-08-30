@@ -171,3 +171,21 @@ class TestLoadPipelineTables:
 
         # Should have one success despite the failure
         assert len(results) == 1
+
+
+class TestPublishedTableNames:
+    """The names the pipeline publishes, derived once and read everywhere.
+
+    `just backup-bq` and the post-run verification both used to keep their own
+    hand-typed copy of this list, and both drifted off it.
+    """
+
+    def test_matches_the_parquet_to_table_mapping(self):
+        from a4d.gcp.bigquery import PARQUET_TO_TABLE, published_table_names
+
+        assert set(published_table_names()) == set(PARQUET_TO_TABLE.values())
+
+    def test_is_sorted_so_callers_get_a_stable_order(self):
+        from a4d.gcp.bigquery import published_table_names
+
+        assert published_table_names() == sorted(published_table_names())

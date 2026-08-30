@@ -7,16 +7,16 @@ or changing shape) right after a real production run.
 
 from dataclasses import dataclass
 
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from a4d.config import settings
+from a4d.gcp.bigquery import published_table_names
 
-VERIFIED_TABLES = [
-    "patient_data_static",
-    "patient_data_monthly",
-    "patient_data_annual",
-    "product_data",
-]
+# Every table the run overwrites, so nothing it publishes goes unchecked.
+# Derived, not typed: the previous hand-written list still named the retired
+# `errors` table and had never heard of `findings`, which replaced it.
+VERIFIED_TABLES = published_table_names()
 
 ROW_COUNT_DROP_THRESHOLD = 0.10
 
@@ -106,3 +106,22 @@ def fetch_table_stats(
         distinct_clinics=row.distinct_clinics if has_clinic_id else None,
         columns=columns,
     )
+
+
+def fetch_table_stats_if_present(
+    client: bigquery.Client,
+    table_name: str,
+    dataset: str | None = None,
+    project_id: str | None = None,
+) -> TableStats | None:
+    """Stats for a table, or None when it does not exist.
+
+    A table published for the first time has no snapshot to compare against,
+    and a snapshot skipped because its table did not yet exist is the normal
+    case right after a deploy that adds one -- neither is a verification
+    failure, so the caller reports them rather than crashing on NotFound.
+    """
+    try:
+        return fetch_table_stats(client, table_name, dataset=dataset, project_id=project_id)
+    except NotFound:
+        return None

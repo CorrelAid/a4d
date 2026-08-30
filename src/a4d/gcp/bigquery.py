@@ -56,6 +56,20 @@ PARQUET_TO_TABLE: dict[str, str] = {
 }
 
 
+def published_table_names() -> list[str]:
+    """The BigQuery tables a full pipeline run deletes and recreates.
+
+    Derived from ``PARQUET_TO_TABLE`` so that the pre-run backup snapshot and
+    the post-run verification cannot drift off what is actually published --
+    both kept their own hand-typed copy until one of them was still
+    snapshotting the retired ``errors`` table and neither covered ``findings``.
+
+    Returns:
+        Table names, sorted, so callers render them in a stable order.
+    """
+    return sorted(PARQUET_TO_TABLE.values())
+
+
 def get_bigquery_client(project_id: str | None = None) -> bigquery.Client:
     """Create a BigQuery client.
 
