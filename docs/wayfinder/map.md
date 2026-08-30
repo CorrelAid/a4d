@@ -36,13 +36,12 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 3"]
+  subgraph FRONTIER["Frontier · 2"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
-    T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
   end
-  subgraph DECIDED["Decided · 73"]
+  subgraph DECIDED["Decided · 74"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -75,6 +74,7 @@ flowchart TD
     T31["<b>31</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 2)"]
     T32["<b>32</b> · task<br/>Re-audit every existing<br/>cause classifier — is<br/>Python actually right, or<br/>was the diff merely<br/>labelled?"]
     T33["<b>33</b> · task<br/>Fix red CI — ruff format<br/>--check fails on Python<br/>snippets inside markdown<br/>docs"]
+    T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T36["<b>36</b> · task<br/>Triage the product<br/>cleaned-stage mismatches<br/>no ticket owns<br/>(product_balance,<br/>sheet_name, entry_date,<br/>units_received, file_name)"]
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
@@ -154,9 +154,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35 frontier
+  class T9,T35 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T40,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78,T79 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T34,T36,T37,T38,T39,T40,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78,T79 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65,T77 dropped
 ```
@@ -3624,6 +3624,36 @@ three remaining frontier tickets (snapshot regression tests, making the local
 checks match CI, the Polars deprecations) are all pre-existing hygiene, none
 of them blocking anything.
 
+
+**[The local checks and CI are one definition now](tickets/34-local-ci-parity-guard.md),
+and reviewing the whole workflow found eight more defects than the ticket
+asked about.** CI's steps invoke the same `just` recipes rather than repeating
+the commands, so the drift mechanism ticket 33 diagnosed is gone rather than
+patched. The check set is two explicit test commands -- CI's exact selection,
+and the drive-dependent one, which is now never part of an automatic run.
+
+**The costliest find was a step that had never once worked.** The coverage
+upload to Codecov had no token, was rate-limited on every run, and exited 0
+regardless -- green in the UI, publishing nothing. It is removed; coverage
+prints to the run's own summary. Next to it: CI ignored the lock file, the
+workflow token was read/write, actions were up to eight majors behind with
+nothing watching them, and **nothing built the production image** -- the
+container Cloud Run executes was only ever built by hand, which is how ticket
+79's startup defects survived to a live deploy. CI now builds and starts it on
+every push, and a Dependabot PR bumping five packages opened and passed both
+jobs within a minute of the config landing.
+
+**Enforcement was declined, deliberately and on the record.** A client-side
+hook is a reminder, not a guard; the only real guard is a branch rule forcing
+a pull-request flow, and the user declined it while they are the only
+developer. That is now an assumption in force with what would overturn it.
+
+**The frontier is two, and the route is still finished.** What remains is
+[golden-master tests](tickets/09-snapshot-regression-tests.md) and [the Polars
+2.0 deprecations](tickets/35-polars-2-deprecation-warnings.md). Take the Polars
+one next: it is the smaller, and the Dependabot bump to Polars 1.44 will move
+its warning set, so it is cheapest to settle before that PR lands.
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -4955,7 +4985,32 @@ of them blocking anything.
   swallowed so the job exited 0, the console printed one line per finding, the
   summary counted recoveries as errors), the retired `errors` table dropped.
 
+- [Make the local pre-push check set actually match CI, and make running it
+  automatic](tickets/34-local-ci-parity-guard.md) — CI now invokes the same
+  `just` recipes it used to spell out, so the two check sets have one
+  definition; `just test` is CI's exact selection and `just test-integration`
+  the drive-dependent one; `just ci` gained the 85% product-code gate. A
+  pre-push hook (`just hooks`) runs the set, recorded honestly as a reminder
+  rather than a guard — the user declined server-side enforcement while they
+  are the only developer. Reviewing the whole workflow, at the user's request,
+  found eight further defects, all fixed: the coverage upload had never
+  worked (no token, rate-limited, exited 0 anyway — removed, GitHub-native
+  summary instead), CI ignored the lock file, actions were majors behind with
+  no Dependabot, **nothing built the production image**, the workflow token was
+  read/write, no concurrency cap or timeout, triggers named the retired
+  `migration` branch, and five R workflow backups were still on disk.
+
 ## Assumptions in force
+
+- **A pre-push hook is enough to keep `dev` green, because there is one
+  developer and they have installed it.** The hook fires by default on this
+  machine, but it is not enforcement: `git push --no-verify` skips it, and a
+  fresh clone has no hooks at all, since git will not run hooks that arrive
+  with a repository. The only real guard is a branch ruleset requiring the
+  check to pass, which forces a pull-request flow; the user declined that cost
+  knowingly. Resting on [ticket 34](tickets/34-local-ci-parity-guard.md);
+  overturned by a second developer joining, a fresh clone, or any red commit
+  reaching `dev`.
 
 - **A column no tracker has carried since 2023 is a field A4D stopped
   collecting, not a field the pipeline loses.** That reading is what puts the
@@ -5272,6 +5327,27 @@ ninth clause, it is the only frontier ticket on the route.
 
 
 ## Not yet specified
+
+- Whether **deploying to production should leave the laptop**. Today the
+  image is built by hand (`just docker-push`) and the Cloud Run job updated
+  with `just deploy`, using whichever developer's own `gcloud` credentials are
+  loaded; nothing records what was deployed or from which commit. Since [ticket
+  34](tickets/34-local-ci-parity-guard.md) CI at least *builds and starts* the
+  image on every push, so a broken container is caught, but the deploy itself
+  is still manual. Doing it properly means GitHub authenticating to Google
+  directly (Workload Identity Federation) plus a manually-triggered deploy job.
+  Not sharp enough to ticket until someone says whether that belongs to this
+  map or to the separate organisational/scheduling effort below — and the
+  Google-side setup is the user's, not the agent's.
+
+- Whether the repository's **security features should be switched on**.
+  Checked via the API 2026-08-30: secret scanning, push protection, and
+  Dependabot security updates are all `disabled` on what is a *public*
+  repository holding the pipeline that touches patient data and GCP
+  configuration. All three are free at this visibility and are repository
+  settings, not code, so only the user can enable them. Not ticketed because
+  there is nothing for an agent to build — it is one decision and three
+  toggles.
 
 - Whether **a missing age recovered from date of birth deserves to be a
   finding at all**. `age_derived_from_dob` is **13,518** findings, 12,029 of
@@ -5734,6 +5810,7 @@ flowchart TB
   end
   subgraph S2026_08_30["Session 2026-08-30"]
     direction LR
+    U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
   end
   subgraph Sunworked["Closed without being worked"]
@@ -5744,7 +5821,6 @@ flowchart TB
   subgraph Sopen["Not yet worked"]
     direction LR
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
-    U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
   end
 
@@ -5910,9 +5986,9 @@ flowchart TB
   U66 -.->|spawned| U79
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35 tfrontier
+  class U9,U35 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U40,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78,U79 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U34,U36,U37,U38,U39,U40,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78,U79 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65,U77 tdropped
 ```
