@@ -550,3 +550,170 @@ def test_the_findings_sheet_does_not_repeat_the_scope_on_every_row(tmp_path):
     headers = next(workbook["Findings"].iter_rows(min_row=1, max_row=1, values_only=True))
     assert "scope" not in headers
     assert "Counted" in next(workbook["Glossary"].iter_rows(min_row=1, max_row=1, values_only=True))
+
+
+class TestFindingsByYear:
+    """Per-year stability, which the top-files table cannot show.
+
+    "Top Files by Error Count" ranks on raw finding count, so the years with
+    the most trackers and the fullest workbooks dominate it -- the 2026-08-30
+    run put 2024 and 2025 trackers at the top of a list of 255. Per tracker the
+    opposite is true: 543 findings each in 2017 against 207 in 2026. It also
+    counted recoveries as errors: the 2025 Kantha Bopha II tracker showed 1,424
+    "errors" of which 1,022 were the pipeline correctly deriving a missing age
+    from date of birth, ranking it above 2022 trackers with 1,952 real problems
+    and no recoveries at all.
+    """
+
+    def _findings(self, rows):
+        return pl.DataFrame(rows, schema={"file_name": pl.Utf8, "category": pl.Utf8}, orient="row")
+
+    def test_counts_trackers_findings_and_actionable_per_year(self):
+        from a4d.report import summarise_findings_by_year
+
+        findings = self._findings(
+            [
+                ("2026_A Hospital A4D Tracker", "fix_workbook"),
+                ("2026_A Hospital A4D Tracker", "recovered"),
+                ("2026_B Hospital A4D Tracker", "data_lost"),
+                ("2022_C Hospital A4D Tracker", "fix_workbook"),
+            ]
+        )
+
+        summary = summarise_findings_by_year(findings)
+
+        assert summary.to_dicts() == [
+            {
+                "tracker_year": 2026,
+                "trackers": 2,
+                "findings": 3,
+                "recovered": 1,
+                "needs_action": 2,
+                "per_tracker": 1.0,
+            },
+            {
+                "tracker_year": 2022,
+                "trackers": 1,
+                "findings": 1,
+                "recovered": 0,
+                "needs_action": 1,
+                "per_tracker": 1.0,
+            },
+        ]
+
+    def test_newest_year_first(self):
+        from a4d.report import summarise_findings_by_year
+
+        findings = self._findings(
+            [
+                ("2019_A Hospital A4D Tracker", "data_lost"),
+                ("2026_B Hospital A4D Tracker", "data_lost"),
+                ("2023_C Hospital A4D Tracker", "data_lost"),
+            ]
+        )
+
+        years = summarise_findings_by_year(findings).get_column("tracker_year").to_list()
+        assert years == [2026, 2023, 2019]
+
+    def test_per_tracker_divides_actionable_by_trackers_not_findings(self):
+        """A tracker whose findings are all recoveries scores zero, not high."""
+        from a4d.report import summarise_findings_by_year
+
+        findings = self._findings(
+            [("2025_A Hospital A4D Tracker", "recovered") for _ in range(50)]
+            + [("2025_B Hospital A4D Tracker", "fix_workbook")]
+        )
+
+        row = summarise_findings_by_year(findings).to_dicts()[0]
+        assert row["findings"] == 51
+        assert row["needs_action"] == 1
+        assert row["per_tracker"] == 0.5
+
+    def test_a_name_with_no_year_is_not_counted_as_a_year(self):
+        from a4d.report import summarise_findings_by_year
+
+        findings = self._findings(
+            [
+                ("no_year_here", "data_lost"),
+                ("2026_A Hospital A4D Tracker", "data_lost"),
+            ]
+        )
+
+        years = summarise_findings_by_year(findings).get_column("tracker_year").to_list()
+        assert years == [2026]
+
+
+class TestActionableFindingsByFile:
+    """The triage list ranks on problems, not on the pipeline's own successes.
+
+    "Top Files by Error Count" counted every finding, recoveries included. On
+    the 2026-08-30 run that put the 2025 Kantha Bopha II tracker seventh with
+    1,424 "errors" -- 1,022 of them the pipeline correctly deriving a missing
+    age from date of birth, leaving 402 real problems -- above 2022 trackers
+    carrying 1,952 and 1,936 real problems with no recoveries at all.
+    """
+
+    def _findings(self, rows):
+        return pl.DataFrame(
+            rows,
+            schema={"file_name": pl.Utf8, "category": pl.Utf8, "arm": pl.Utf8},
+            orient="row",
+        )
+
+    def test_recoveries_do_not_count(self):
+        from a4d.report import summarise_actionable_by_file
+
+        findings = self._findings(
+            [("2025_Clean Hospital A4D Tracker", "recovered", "patient")] * 50
+            + [("2022_Broken Hospital A4D Tracker", "fix_workbook", "patient")] * 3
+        )
+
+        ranked = summarise_actionable_by_file(findings)
+
+        assert ranked.to_dicts() == [
+            {
+                "file_name": "2022_Broken Hospital A4D Tracker",
+                "patient": 3,
+                "product": 0,
+                "total": 3,
+            }
+        ]
+
+    def test_splits_the_count_by_arm(self):
+        from a4d.report import summarise_actionable_by_file
+
+        findings = self._findings(
+            [
+                ("2024_A Hospital A4D Tracker", "fix_workbook", "patient"),
+                ("2024_A Hospital A4D Tracker", "data_lost", "patient"),
+                ("2024_A Hospital A4D Tracker", "fix_workbook", "product"),
+                ("2024_A Hospital A4D Tracker", "recovered", "product"),
+            ]
+        )
+
+        assert summarise_actionable_by_file(findings).to_dicts() == [
+            {"file_name": "2024_A Hospital A4D Tracker", "patient": 2, "product": 1, "total": 3}
+        ]
+
+    def test_ranks_worst_first_and_honours_the_limit(self):
+        from a4d.report import summarise_actionable_by_file
+
+        findings = self._findings(
+            [("2024_A Hospital A4D Tracker", "data_lost", "patient")] * 3
+            + [("2024_B Hospital A4D Tracker", "data_lost", "patient")] * 2
+            + [("2024_C Hospital A4D Tracker", "data_lost", "patient")] * 1
+        )
+
+        ranked = summarise_actionable_by_file(findings, limit=2)
+
+        assert ranked.get_column("file_name").to_list() == [
+            "2024_A Hospital A4D Tracker",
+            "2024_B Hospital A4D Tracker",
+        ]
+
+    def test_a_file_with_only_recoveries_is_absent_not_zero(self):
+        from a4d.report import summarise_actionable_by_file
+
+        findings = self._findings([("2026_A Hospital A4D Tracker", "recovered", "patient")])
+
+        assert summarise_actionable_by_file(findings).is_empty()

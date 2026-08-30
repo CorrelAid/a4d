@@ -193,6 +193,82 @@ def _recency_keys() -> list[pl.Expr]:
     return [year, clinic]
 
 
+def summarise_actionable_by_file(findings: pl.DataFrame, limit: int | None = None) -> pl.DataFrame:
+    """The trackers with the most findings someone has to act on.
+
+    Recoveries are excluded: a recovery is the pipeline handling something
+    correctly, and counting them ranked a clean workbook above a broken one.
+    On the 2026-08-30 run the 2025 Kantha Bopha II tracker showed 1,424
+    findings of which 1,022 were recoveries, placing it above 2022 trackers
+    with 1,952 and 1,936 real problems and no recoveries at all.
+
+    A tracker whose findings are all recoveries has nothing to act on and so
+    does not appear at all, rather than appearing with a zero.
+
+    Args:
+        findings: The findings table, needing ``file_name``, ``category`` and
+            ``arm``
+        limit: Keep only this many rows; None keeps all
+
+    Returns:
+        One row per tracker, worst first, with the count split by arm
+    """
+    actionable = findings.filter(pl.col("category") != "recovered")
+
+    ranked = (
+        actionable.group_by("file_name")
+        .agg(
+            (pl.col("arm") == "patient").sum().cast(pl.Int64).alias("patient"),
+            (pl.col("arm") == "product").sum().cast(pl.Int64).alias("product"),
+            pl.len().cast(pl.Int64).alias("total"),
+        )
+        .sort(["total", "file_name"], descending=[True, False])
+    )
+    return ranked.head(limit) if limit is not None else ranked
+
+
+def summarise_findings_by_year(findings: pl.DataFrame) -> pl.DataFrame:
+    """Findings per tracker year, separating what needs action from recoveries.
+
+    The run summary's "Top Files by Error Count" ranks on raw finding count, so
+    the years with the most trackers and the fullest workbooks dominate it --
+    the 2026-08-30 run put 2024 and 2025 trackers at the top, which reads as
+    the newest templates being the worst. Per tracker the reverse holds: 543
+    findings each in 2017 against 207 in 2026.
+
+    The raw count also treats a recovery as an error. On that run the 2025
+    Kantha Bopha II tracker showed 1,424 findings, 1,022 of them the pipeline
+    correctly deriving a missing age from date of birth, which ranked it above
+    2022 trackers carrying 1,952 real problems and no recoveries at all. So
+    ``per_tracker`` divides the actionable findings by the trackers, not the
+    total.
+
+    Args:
+        findings: The findings table, needing ``file_name`` and ``category``
+
+    Returns:
+        One row per tracker year, newest first. A file name carrying no year
+        is dropped rather than grouped under a null year -- all 255 real
+        trackers carry one.
+    """
+    year = pl.col("file_name").str.extract(r"^(\d{4})[ _]", 1).cast(pl.Int32, strict=False)
+    recovered = pl.col("category") == "recovered"
+
+    return (
+        findings.with_columns(year.alias("tracker_year"))
+        .drop_nulls("tracker_year")
+        .group_by("tracker_year")
+        .agg(
+            pl.col("file_name").n_unique().alias("trackers"),
+            pl.len().alias("findings"),
+            recovered.sum().cast(pl.Int64).alias("recovered"),
+            (~recovered).sum().cast(pl.Int64).alias("needs_action"),
+        )
+        .with_columns((pl.col("needs_action") / pl.col("trackers")).round(1).alias("per_tracker"))
+        .sort("tracker_year", descending=True)
+    )
+
+
 def order_by_recency(frame: pl.DataFrame) -> pl.DataFrame:
     """Newest tracker year first, clinics alphabetical within a year.
 
