@@ -33,5 +33,10 @@ ENV PYTHONUNBUFFERED=1
 ENV A4D_DATA_ROOT=/workspace/data
 ENV A4D_REFERENCE_DATA=/app/reference_data
 
+# --no-sync runs the venv the image already built. Without it `uv run`
+# re-resolves at container start: the smoke test showed it pulling ruff and ty
+# from PyPI on every cold start -- dev tooling the job never uses -- which
+# makes startup depend on network reachability and means the running set is
+# not necessarily the one `uv sync --frozen` locked at build time.
 # Run the full pipeline: download → process → upload to GCS → ingest into BigQuery
-CMD ["uv", "run", "a4d", "run"]
+CMD ["uv", "run", "--no-sync", "a4d", "run"]

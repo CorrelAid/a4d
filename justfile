@@ -134,9 +134,12 @@ docker-build:
         -t {{REGISTRY}}:${GIT_SHA} \
         -f Dockerfile .
 
-# Smoke test: verify the image starts and the CLI is reachable
+# Smoke test: verify the image starts and the CLI is reachable.
+# --no-sync mirrors the Dockerfile CMD, so this exercises the startup path the
+# Cloud Run Job actually takes. A bare `uv run` re-resolves from PyPI instead,
+# which is what the deployed job must not do.
 docker-smoke:
-    docker run --rm {{IMAGE}} uv run a4d --help
+    docker run --rm {{IMAGE}} uv run --no-sync a4d --help
 
 # Push both :latest and :<git-sha> tags to Artifact Registry
 docker-push: docker-build

@@ -158,3 +158,72 @@ CI's own checks pass at this commit: `ruff format --check`, `ruff check`,
 7. Decide what happens to the orphaned `errors` table in BigQuery: it has no
    producer since ticket 66 and nothing snapshots it any more, so it will sit
    frozen at the 2026-08-09 contents until someone drops it.
+
+## Progress — session 2026-08-30, part 2
+
+Items 3 and 4 are now done, and a hazard nobody had listed was found and
+cleared. Everything up to the snapshot is ready; the trigger is still the
+user's.
+
+**3. Container build and startup — verified, and one defect fixed.** The image
+builds at `dev` (`just docker-build`, tagged `39397b6`) and the CLI is
+reachable. The smoke test then showed the deployed startup path doing
+something it should not: `uv run` re-resolves at container start, downloading
+`ruff`, `ty` and `virtualenv` from PyPI on every cold start -- dev tooling the
+job never uses -- and then reinstalling 18 packages over the venv the image had
+already built with `uv sync --frozen --no-dev`. So the job's startup depended
+on PyPI reachability, and what actually ran was not necessarily what the lock
+file pinned at build time. `CMD` is now `uv run --no-sync a4d run`, and
+`just docker-smoke` was changed to use `--no-sync` too, so the smoke test
+exercises the path the Cloud Run Job takes rather than a different one.
+Re-verified after the change: no downloads, no reinstall, CLI reachable.
+
+**4. Resource envelope — read, and comfortable.** The `a4d-pipeline` job is
+8 CPU / 8Gi memory, `timeoutSeconds: 3600`, `taskCount: 1`, `parallelism`
+unset, `A4D_MAX_WORKERS=8`, service account
+`a4d-pipeline@a4dphase2.iam.gserviceaccount.com`, image
+`.../a4d/pipeline:latest`. The local run did the same 255 trackers in ~3
+minutes at *half* those workers, and the last full production run (download +
+process + upload) took 7 minutes against a 3600s timeout. Nothing here needs
+changing.
+
+**The hazard that was not on the list: the dataset has eight views built on
+these tables, and the loader deletes each table before recreating it.**
+`patient_data`, `active_patients`, `active_patients_delta`,
+`active_patients_per_country_and_year`, `clinic_data_static_per_year`,
+`dez2023_june2024_status`, `patient_data_static_with_clinic` and
+`product_data_for_looker_v2` -- the last feeding Looker. A column dropped or
+renamed by this deploy would break them, and `patient_data` is worse than
+that: it is `SELECT *` across a three-way join, so a column *added* to two of
+the joined tables at once would also break it on duplicate names.
+
+**Checked, and they survive.** Diffing every live BigQuery schema against the
+parquet the local run just produced:
+
+- `patient_data_static`, `clinic_data_static`, `product_data`,
+  `tracker_metadata`: no columns added, none removed.
+- `patient_data_monthly`: two added, `complication_screening` and
+  `complication_screening_results` (from [ticket
+  75](75-screening-selections-under-merged-header.md)); none removed.
+- `logs`: `error_code` removed -- correct and intended, findings moved out of
+  the logs table into `findings` in [ticket
+  66](66-unify-finding-channels.md). No view reads `logs`.
+
+The `patient_data` join was checked for name collisions specifically: after
+its own `EXCEPT` clauses, monthly/static/clinic share no column name beyond
+the join keys, and every column the views name (`country_code`, `clinic_code`,
+`tracker_date`, `tracker_year`, `tracker_month`, `status`, `patient_id`,
+`country`) is still present. So the views compile after this deploy. The two
+new screening columns will simply appear in `patient_data`'s output.
+
+**What is left:**
+
+1. `just backup-bq` -- snapshots all eight tables, `findings` for the first
+   time. Additive, 7-day expiry.
+2. User triggers `just deploy && just run-job`; agent monitors read-only.
+3. `uv run python scripts/verify_production_run.py --backup-suffix <date>`.
+4. Decide what happens to the orphaned `errors` table. It still exists in
+   BigQuery with the 2026-08-09 contents, has had no producer since ticket 66,
+   is no longer snapshotted, and no view reads it. Also unresolved, and
+   separate: `product_data_for_looker` is a *table*, not a view, and nothing in
+   this pipeline writes it -- so something outside the repo does.
