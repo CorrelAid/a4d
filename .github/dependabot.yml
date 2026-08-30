@@ -1,5 +1,11 @@
 # Action versions and Python dependencies went stale unnoticed until someone
 # looked: checkout was three majors behind and the uv setup action eight.
+#
+# Deliberately ungrouped: one PR per package, so each update is tested and
+# committed on its own. A grouped PR that fails tells you the group is bad, not
+# which package broke -- and several of these (polars, fastexcel) sit directly
+# on the data path, where "the suite is green" is not the same as "the published
+# output is unchanged".
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -15,6 +21,3 @@ updates:
       interval: monthly
     commit-message:
       prefix: deps
-    groups:
-      python-dependencies:
-        patterns: ["*"]
