@@ -194,6 +194,14 @@ just snapshot-diff
 just snapshot-update
 ```
 
+Columns are hashed as **multisets**, not sequences: parallel workers reorder
+rows on every run, and the published artifacts are BigQuery tables, which are
+unordered sets anyway. Each frame also carries a row-alignment fingerprint, so
+one column drifting against the others -- a mis-keyed join -- is still caught.
+Wall-clock columns keep their shape and type in the digest but carry no
+fingerprint, and `table_logs` is excluded outright: it records what the run did,
+not what a workbook said.
+
 A failing check splits the movement by what could have caused it:
 
 - **POSSIBLE REGRESSION -- same workbook, different output.** The tracker's own

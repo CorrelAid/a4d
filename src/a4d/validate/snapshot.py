@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
+from loguru import logger
 
 from a4d.tables.metadata import md5_file
 
@@ -76,10 +77,49 @@ _COMPARED_FIELDS = ("dtype", "n_rows", "n_null", "n_distinct", "value_hash")
 
 _NULL_MARKER = "\x00"
 _CELL_SEPARATOR = "\x1f"
+_FIELD_SEPARATOR = "\x1e"
+
+#: Columns the run stamps rather than reads out of a workbook. Their contents
+#: differ on every run by design, so they are digested for shape and type but
+#: never fingerprinted -- otherwise every table moves on every run.
+VOLATILE_COLUMNS = frozenset({"timestamp"})
+
+#: Stands in for a volatile column's fingerprint, so the exclusion is visible
+#: in the digest rather than silent.
+RUNTIME_STAMP = "(run-time)"
+
+#: Pseudo-column carrying the row-alignment fingerprint for a whole frame.
+ROW_ALIGNMENT = "(row alignment)"
+
+#: Published tables left out of the digest entirely.
+#:
+#: ``table_logs`` is the record of what the pipeline *did*, for a developer --
+#: not data read out of a workbook. Three of its fields are per-run by
+#: construction: ``log_file`` embeds the run's wall-clock time and process id,
+#: ``process_name`` is whichever worker happened to take a tracker, and some
+#: messages count the run's own artifacts ("Found 520 log files to process").
+#:
+#: These cannot be handled as volatile *columns*, because ``message`` is also a
+#: column of ``table_findings``, where it is stable and load-bearing -- excluding
+#: the name globally would silently blind the findings check, which is one of the
+#: things this digest most needs to watch.
+EXCLUDED_TABLES = frozenset({"table_logs"})
+
+
+def _hash(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def column_fingerprint(series: pl.Series) -> str:
-    """Hash a column's values, order included, in a form no value survives.
+    """Hash a column's values as a multiset, in a form no value survives.
+
+    Row **order is deliberately not part of the hash**. The published artifacts
+    are BigQuery tables, which are unordered sets of rows, and the aggregated
+    tables are assembled from parallel workers that finish in a different order
+    on every run -- an order-sensitive hash reports a regression on every table
+    after every run, which is how this check first failed in real use. What is
+    still caught is any change to the values themselves: a different multiset
+    hashes differently.
 
     Nulls hash distinctly from the empty string, which matters throughout this
     pipeline: null means nothing was recorded, while a sentinel or an empty
@@ -88,9 +128,34 @@ def column_fingerprint(series: pl.Series) -> str:
     The digest is stored on the tracker drive and never committed, but the
     fingerprint is one-way regardless -- a leaked digest reveals no readings.
     """
-    values = series.cast(pl.Utf8, strict=False).to_list()
-    payload = _CELL_SEPARATOR.join(_NULL_MARKER if v is None else v for v in values)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    values = series.cast(pl.Utf8, strict=False).fill_null(_NULL_MARKER).sort()
+    return _hash(_CELL_SEPARATOR.join(values.to_list()))
+
+
+def row_alignment_fingerprint(df: pl.DataFrame) -> str:
+    """Hash whole rows as a multiset, so columns cannot drift apart unnoticed.
+
+    Per-column hashes are blind to one column shifting against the others --
+    a mis-keyed join keeps every column's values and pairs them wrongly, and
+    every column hash still matches. Hashing each row's fields together, then
+    hashing the sorted row hashes, catches that while staying insensitive to
+    the order the rows arrive in.
+
+    Volatile columns are left out, or the row hash would move on every run for
+    the same reason their own would.
+    """
+    columns = [c for c in df.columns if c not in VOLATILE_COLUMNS]
+    if not columns or df.height == 0:
+        return _hash("")
+
+    joined = df.select(
+        pl.concat_str(
+            [pl.col(c).cast(pl.Utf8, strict=False).fill_null(_NULL_MARKER) for c in columns],
+            separator=_FIELD_SEPARATOR,
+        ).alias("row")
+    )["row"]
+    row_hashes = sorted(_hash(r) for r in joined.to_list())
+    return _hash(_CELL_SEPARATOR.join(row_hashes))
 
 
 def _tracker_index(data_root: Path) -> dict[str, Path]:
@@ -120,6 +185,7 @@ def _digest_frame(df: pl.DataFrame, source: str, stage: str, input_md5: str | No
     rows = []
     for name in df.columns:
         series = df[name]
+        volatile = name in VOLATILE_COLUMNS
         rows.append(
             {
                 "source": source,
@@ -128,11 +194,27 @@ def _digest_frame(df: pl.DataFrame, source: str, stage: str, input_md5: str | No
                 "dtype": str(series.dtype),
                 "n_rows": df.height,
                 "n_null": series.null_count(),
-                "n_distinct": series.drop_nulls().n_unique(),
-                "value_hash": column_fingerprint(series),
+                # A volatile column's distinct count is as run-dependent as its
+                # values; its shape and type are still worth checking.
+                "n_distinct": None if volatile else series.drop_nulls().n_unique(),
+                "value_hash": RUNTIME_STAMP if volatile else column_fingerprint(series),
                 "input_md5": input_md5,
             }
         )
+
+    rows.append(
+        {
+            "source": source,
+            "stage": stage,
+            "column": ROW_ALIGNMENT,
+            "dtype": "-",
+            "n_rows": df.height,
+            "n_null": 0,
+            "n_distinct": None,
+            "value_hash": row_alignment_fingerprint(df),
+            "input_md5": input_md5,
+        }
+    )
     return rows
 
 
@@ -150,6 +232,7 @@ def build_digest(output_root: Path, data_root: Path) -> pl.DataFrame:
     """
     trackers = _tracker_index(data_root) if data_root.exists() else {}
     rows: list[dict] = []
+    skipped: list[str] = []
 
     for stage_dir, stage in STAGE_DIRS.items():
         directory = output_root / stage_dir
@@ -157,9 +240,15 @@ def build_digest(output_root: Path, data_root: Path) -> pl.DataFrame:
             continue
         for parquet in sorted(directory.glob("*.parquet")):
             source = _source_stem(parquet.stem)
+            if stage == "tables" and source in EXCLUDED_TABLES:
+                skipped.append(source)
+                continue
             tracker = trackers.get(source)
             input_md5 = md5_file(tracker) if tracker is not None else None
             rows.extend(_digest_frame(pl.read_parquet(parquet), source, stage, input_md5))
+
+    if skipped:
+        logger.info(f"Snapshot digest excludes {', '.join(sorted(set(skipped)))} (run-time record)")
 
     if not rows:
         return pl.DataFrame(schema=_DIGEST_SCHEMA).select(DIGEST_COLUMNS)

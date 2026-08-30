@@ -14,10 +14,14 @@ import pytest
 
 from a4d.validate.snapshot import (
     DIGEST_COLUMNS,
+    ROW_ALIGNMENT,
+    RUNTIME_STAMP,
+    VOLATILE_COLUMNS,
     build_digest,
     column_fingerprint,
     diff_digests,
     format_diff,
+    row_alignment_fingerprint,
 )
 
 
@@ -84,10 +88,26 @@ class TestColumnFingerprint:
         b = pl.Series("x", ["", "b"], dtype=pl.Utf8)
         assert column_fingerprint(a) != column_fingerprint(b)
 
-    def test_order_matters(self):
+    def test_order_does_not_matter(self):
+        """Published tables are BigQuery tables -- unordered sets of rows.
+
+        Parallel workers finish in a different order on every run, so an
+        order-sensitive fingerprint reports a regression on every table after
+        every run.
+        """
         a = pl.Series("x", [1, 2])
         b = pl.Series("x", [2, 1])
+        assert column_fingerprint(a) == column_fingerprint(b)
+
+    def test_a_different_multiset_still_differs(self):
+        """Order-insensitive is not value-insensitive."""
+        a = pl.Series("x", [1, 2, 2])
+        b = pl.Series("x", [1, 1, 2])
         assert column_fingerprint(a) != column_fingerprint(b)
+
+    def test_nulls_sort_without_raising(self):
+        a = pl.Series("x", [None, "b", "a"], dtype=pl.Utf8)
+        assert column_fingerprint(a) == column_fingerprint(pl.Series("x", ["a", None, "b"]))
 
     def test_fingerprint_carries_no_values(self):
         """A fingerprint may be committed nowhere, but must still not leak."""
@@ -107,7 +127,9 @@ class TestBuildDigest:
         assert keys == {
             ("patient_cleaned", "patient_id"),
             ("patient_cleaned", "age"),
+            ("patient_cleaned", ROW_ALIGNMENT),
             ("product_cleaned", "product"),
+            ("product_cleaned", ROW_ALIGNMENT),
         }
 
     def test_statistics_describe_the_column(self, corpus):
@@ -138,7 +160,9 @@ class TestBuildDigest:
         data_root, output_root = corpus
         write_stage(output_root, "tables", "table_findings", pl.DataFrame({"code": ["a", "b"]}))
         digest = build_digest(output_root=output_root, data_root=data_root)
-        findings = digest.filter(pl.col("stage") == "tables").to_dicts()
+        findings = digest.filter(
+            (pl.col("stage") == "tables") & (pl.col("column") != ROW_ALIGNMENT)
+        ).to_dicts()
 
         assert len(findings) == 1
         assert findings[0]["source"] == "table_findings"
@@ -262,3 +286,99 @@ class TestFormatDiff:
         assert regression_at < edited_at, "regressions come first -- they are the alarm"
         assert "T" in text
         assert "U" in text
+
+
+class TestRowAlignment:
+    """Order-insensitive column hashes cannot see one column shifting alone."""
+
+    def test_reordering_whole_rows_is_not_movement(self):
+        a = pl.DataFrame({"id": ["p1", "p2"], "age": [10, 20]})
+        b = pl.DataFrame({"id": ["p2", "p1"], "age": [20, 10]})
+        assert row_alignment_fingerprint(a) == row_alignment_fingerprint(b)
+
+    def test_shifting_one_column_against_the_others_is_movement(self):
+        """A bad join keeps every column's values and pairs them wrongly."""
+        a = pl.DataFrame({"id": ["p1", "p2"], "age": [10, 20]})
+        b = pl.DataFrame({"id": ["p1", "p2"], "age": [20, 10]})
+
+        assert column_fingerprint(a["age"]) == column_fingerprint(b["age"])
+        assert column_fingerprint(a["id"]) == column_fingerprint(b["id"])
+        assert row_alignment_fingerprint(a) != row_alignment_fingerprint(b)
+
+    def test_volatile_columns_do_not_enter_the_row_hash(self):
+        a = pl.DataFrame({"id": ["p1"], "timestamp": ["10:00"]})
+        b = pl.DataFrame({"id": ["p1"], "timestamp": ["11:00"]})
+        assert row_alignment_fingerprint(a) == row_alignment_fingerprint(b)
+
+    def test_the_digest_carries_one_alignment_row_per_stage(self, corpus):
+        data_root, output_root = corpus
+        digest = build_digest(output_root=output_root, data_root=data_root)
+        alignment = digest.filter(pl.col("column") == ROW_ALIGNMENT)
+
+        assert alignment.height == 2  # one patient stage, one product stage
+        assert set(alignment["stage"]) == {"patient_cleaned", "product_cleaned"}
+
+
+class TestVolatileColumns:
+    """Values the run stamps rather than reads move on every run by design."""
+
+    def test_timestamp_is_volatile(self):
+        assert "timestamp" in VOLATILE_COLUMNS
+
+    def test_a_volatile_column_is_still_digested_but_not_fingerprinted(self, tmp_path):
+        output_root = tmp_path / "data" / "output"
+        write_stage(
+            output_root,
+            "tables",
+            "table_findings",
+            pl.DataFrame({"code": ["a", "b"], "timestamp": ["10:00", "10:01"]}),
+        )
+        digest = build_digest(output_root=output_root, data_root=tmp_path / "data")
+        stamp = digest.filter(pl.col("column") == "timestamp").to_dicts()[0]
+
+        assert stamp["value_hash"] == RUNTIME_STAMP
+        assert stamp["n_distinct"] is None
+        assert stamp["n_rows"] == 2, "shape is still checked"
+        assert stamp["dtype"] == "String", "so is the type"
+
+    def test_two_runs_differing_only_in_timestamps_do_not_move(self, tmp_path):
+        def digest_with(stamps: list[str]) -> pl.DataFrame:
+            output_root = tmp_path / stamps[0] / "output"
+            write_stage(
+                output_root,
+                "tables",
+                "table_findings",
+                pl.DataFrame({"code": ["a", "b"], "timestamp": stamps}),
+            )
+            return build_digest(output_root=output_root, data_root=tmp_path / stamps[0])
+
+        diff = diff_digests(digest_with(["10:00", "10:01"]), digest_with(["11:00", "11:30"]))
+        assert not diff.moved
+
+
+class TestExcludedTables:
+    """The operational log table records the run, not the workbooks."""
+
+    def test_table_logs_is_excluded(self, corpus):
+        data_root, output_root = corpus
+        write_stage(output_root, "tables", "table_logs", pl.DataFrame({"message": ["a"]}))
+        write_stage(output_root, "tables", "table_findings", pl.DataFrame({"message": ["a"]}))
+        digest = build_digest(output_root=output_root, data_root=data_root)
+
+        assert "table_logs" not in set(digest["source"])
+        assert "table_findings" in set(digest["source"])
+
+    def test_the_findings_message_column_is_still_fingerprinted(self, corpus):
+        """`message` is per-run in the log table and load-bearing in findings.
+
+        Excluding the *name* globally would blind the findings check, which is
+        why the log table is excluded as a table instead.
+        """
+        data_root, output_root = corpus
+        write_stage(output_root, "tables", "table_findings", pl.DataFrame({"message": ["a"]}))
+        digest = build_digest(output_root=output_root, data_root=data_root)
+        row = digest.filter(
+            (pl.col("source") == "table_findings") & (pl.col("column") == "message")
+        ).to_dicts()[0]
+
+        assert row["value_hash"] != RUNTIME_STAMP
