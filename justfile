@@ -55,34 +55,43 @@ lint:
 check:
     uv run ty check src/
 
-# Run all CI checks (format, lint, type, test)
-ci: format-check lint check test
+# Run exactly what CI runs, in CI's order. CI invokes these same recipes step
+# by step (see .github/workflows/python-ci.yml), so the two sets cannot drift:
+# a check added here is added to CI, and a check CI needs must be added here.
+ci: lint format-check check test cov-floor
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
-# Run unit tests (skip slow/integration)
+# The check suite: exactly the selection CI runs. Integration tests are excluded
+# deliberately -- they need the tracker USB drive, which CI has no access to, so
+# including them here would make the local result depend on what is plugged in.
 test:
-    uv run pytest -m "not slow"
+    uv run pytest -m "not slow and not integration" --cov --cov-report=xml
 
-# Run tests without coverage (faster, fail fast)
-test-fast:
-    uv run pytest -m "not slow" --no-cov -x
-
-# Run all tests including slow/integration
-test-all:
-    uv run pytest
-
-# Run integration tests only
+# The drive-dependent tests, run deliberately when the tracker USB drive is
+# mounted. Never part of `just ci` -- CI cannot run these at all.
 test-integration:
     uv run pytest -m integration
 
-# Install pre-commit hooks
-hooks:
-    uv run pre-commit install
+# Same selection as `just test`, without coverage and stopping at the first
+# failure. A development-loop convenience, not a check -- `just ci` is the check.
+test-fast:
+    uv run pytest -m "not slow and not integration" --no-cov -x
 
-# Run pre-commit on all files
-hooks-run:
-    uv run pre-commit run --all-files
+# The product pipeline's own modules must stay 85% covered. Reads the coverage
+# data `just test` just wrote, so run it after.
+cov-floor:
+    uv run coverage report \
+        --include="src/a4d/extract/product.py,src/a4d/clean/product.py,src/a4d/clean/schema_product.py,src/a4d/extract/wide_format.py,src/a4d/pipeline/product.py,src/a4d/tables/product.py,src/a4d/validate/source_vs_output_product.py" \
+        --fail-under=85
+
+# Install the pre-push hook that runs `just ci` before every push
+hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cp scripts/hooks/pre-push .git/hooks/pre-push
+    chmod +x .git/hooks/pre-push
+    echo "Installed .git/hooks/pre-push -> runs \`just ci\`"
 
 # ── Local Pipeline ────────────────────────────────────────────────────────────
 

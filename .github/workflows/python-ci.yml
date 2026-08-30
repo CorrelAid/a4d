@@ -2,49 +2,96 @@ name: Python CI
 
 # No `paths:` filter on purpose: ruff (`check .` / `format --check .`) runs
 # repo-wide, so a change under scripts/, docs/ or the justfile can turn CI red
-# while never triggering it. The whole job takes ~30s.
+# while never triggering it. The whole job takes ~1 minute.
+#
+# Every check step below invokes a `just` recipe rather than spelling the
+# command out, so the local check set (`just ci`) and this workflow are one
+# definition. Adding a check here means adding a recipe there.
 on:
   push:
-    branches: [migration, dev]
+    branches: [dev, main]
   pull_request:
-    branches: [main, dev, migration]
+    branches: [main, dev]
+  workflow_dispatch:
+
+# The token needs to read the code and nothing else. Without this block the
+# workflow inherits the repository default, which is read/write.
+permissions:
+  contents: read
+
+# A second push to the same branch cancels the first: the older run's verdict
+# is about code nobody will merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v2
+      uses: astral-sh/setup-uv@v10
       with:
         enable-cache: true
 
-    - name: Set up Python
-      run: uv python install 3.14
+    - name: Install just
+      uses: extractions/setup-just@v4
 
+    - name: Set up Python
+      run: uv python install
+
+    # --locked fails if uv.lock is stale against pyproject.toml, instead of
+    # silently resolving something different from what everyone else installs.
     - name: Install dependencies
-      run: uv sync --all-extras
+      run: uv sync --all-extras --locked
 
     - name: Run ruff linting
-      run: uv run ruff check .
+      run: just lint
 
     - name: Run ruff formatting check
-      run: uv run ruff format --check .
+      run: just format-check
 
     - name: Run type checking with ty
-      run: uv run ty check src/
+      run: just check
 
     - name: Run tests
-      run: uv run pytest -m "not slow and not integration" --cov --cov-report=xml
+      run: just test
 
     - name: Enforce coverage floor for product pipeline code
-      run: |
-        uv run coverage report --include="src/a4d/extract/product.py,src/a4d/clean/product.py,src/a4d/clean/schema_product.py,src/a4d/extract/wide_format.py,src/a4d/pipeline/product.py,src/a4d/tables/product.py,src/a4d/validate/source_vs_output_product.py" --fail-under=85
+      run: just cov-floor
 
-    - name: Upload coverage
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./coverage.xml
-        flags: python
+    # Coverage lands on the run's own summary page. Deliberately not sent to a
+    # third-party service: the previous codecov step had no upload token, was
+    # rate-limited on every run, and exited 0 regardless -- a permanently green
+    # step that never uploaded anything.
+    - name: Coverage summary
+      if: always()
+      run: |
+        {
+          echo '## Coverage'
+          echo '```'
+          uv run coverage report
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  # The production artifact is this image. Nothing built it on CI before, so a
+  # Dockerfile or lockfile change could only break at deploy time, on a laptop.
+  # Build and start it here; no registry push -- deploying stays a human action.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Build image
+      run: docker build --provenance=false -t a4d-pipeline:ci -f Dockerfile .
+
+    # --no-sync mirrors the Dockerfile CMD: it runs the venv the image built
+    # rather than re-resolving from PyPI at container start.
+    - name: Smoke test the image
+      run: docker run --rm a4d-pipeline:ci uv run --no-sync a4d --help

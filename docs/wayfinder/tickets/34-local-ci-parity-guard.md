@@ -4,8 +4,8 @@ title: Make the local pre-push check set actually match CI, and make running it 
 labels: [wayfinder:grilling]
 status: open
 blocked_by: []
-assignee: null
-claimed_at: null
+assignee: session-2026-08-30
+claimed_at: 2026-08-30
 resolution: null
 evidence: null
 closed_by: null
