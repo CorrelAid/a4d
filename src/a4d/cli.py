@@ -1396,7 +1396,14 @@ def run_all_cmd(
                 max_workers=_workers,
                 clean_output=clean_output,
                 show_progress=True,
-                console_log_level="WARNING",
+                # Findings log at WARNING, and there are tens of thousands of
+                # them: the 2026-08-30 production run put 2,972 copies of one
+                # sentence on the console, carrying none of the finding's
+                # fields. They are published to the findings table, the
+                # per-tracker logs and the workbook; the console shows the
+                # summaries and real operational errors. Matches `run patient`
+                # and `run product`, which were already quiet.
+                console_log_level="ERROR",
             )
 
             console.print(
@@ -1456,7 +1463,8 @@ def run_all_cmd(
                 max_workers=_workers,
                 clean_output=clean_output,
                 show_progress=True,
-                console_log_level="WARNING",
+                # Quiet for the same reason as the patient arm above.
+                console_log_level="ERROR",
             )
             console.print(
                 f"  ✓ Processed {product_result.total_trackers} product trackers "
