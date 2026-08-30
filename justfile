@@ -78,9 +78,13 @@ test-integration:
 test-fast:
     uv run pytest -m "not slow and not integration" --no-cov -x
 
-# The product pipeline's own modules must stay 85% covered. Reads the coverage
-# data `just test` just wrote, so run it after.
+# Coverage floors, read from the data `just test` just wrote -- so run it after.
+# Two floors, both 85%: the pipeline source as a whole (89% today), and the
+# product modules specifically, which were the gap ticket 8 found. The floor is
+# measured over src/a4d only; a repo-wide figure is inflated by the test files
+# scoring themselves at ~100% and would gate nothing.
 cov-floor:
+    uv run coverage report --include="src/a4d/*" --fail-under=85
     uv run coverage report \
         --include="src/a4d/extract/product.py,src/a4d/clean/product.py,src/a4d/clean/schema_product.py,src/a4d/extract/wide_format.py,src/a4d/pipeline/product.py,src/a4d/tables/product.py,src/a4d/validate/source_vs_output_product.py" \
         --fail-under=85
