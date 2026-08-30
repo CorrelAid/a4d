@@ -19,6 +19,7 @@ from a4d.pipeline.patient import (
     run_patient_pipeline,
 )
 from a4d.pipeline.product import process_product_tables, run_product_pipeline
+from a4d.report import summarise_actionable_by_file, summarise_findings_by_year
 from a4d.state import filter_unchanged_trackers, load_previous_manifest
 from a4d.tables.findings import create_table_findings, rebuild_findings_from_logs
 from a4d.tables.logs import create_table_logs
@@ -338,6 +339,101 @@ def _render_dataset_overview(tables_dir: Path) -> None:
     console.print(overview_table)
 
 
+TOP_FILES_SHOWN = 20
+
+
+def _render_top_files(tables_dir: Path, error_counts: dict[str, tuple[int, int]]) -> None:
+    """The trackers most in need of attention, counting problems only.
+
+    Read from the findings table rather than the arms' own error counts, since
+    only the findings carry a category -- and a recovery is the pipeline
+    handling something correctly, not a problem to triage. Counting them ranked
+    the 2025 Kantha Bopha II tracker (1,424 findings, 1,022 of them recoveries)
+    above 2022 trackers carrying nearly 2,000 real problems each.
+
+    Falls back to the uncategorised per-arm counts when there is no findings
+    table to read -- `--skip-tables` leaves none -- so the table degrades to
+    its old meaning rather than disappearing.
+    """
+    findings_path = tables_dir / "table_findings.parquet"
+    ranked = None
+    if findings_path.exists():
+        try:
+            ranked = summarise_actionable_by_file(
+                pl.read_parquet(findings_path), limit=TOP_FILES_SHOWN
+            )
+        except Exception:
+            ranked = None
+
+    if ranked is not None:
+        if ranked.is_empty():
+            return
+        rows = [
+            (r["file_name"], r["patient"], r["product"], r["total"])
+            for r in ranked.iter_rows(named=True)
+        ]
+        heading = "Top Files by Findings Needing Action:"
+    else:
+        if not error_counts:
+            return
+        by_total = sorted(error_counts.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
+        rows = [(name, p, q, p + q) for name, (p, q) in by_total[:TOP_FILES_SHOWN]]
+        heading = "Top Files by Error Count:"
+
+    console.print(f"\n[bold yellow]{heading}[/bold yellow]")
+    top_table = Table()
+    top_table.add_column("File", style="cyan")
+    top_table.add_column("Patient", justify="right", style="green")
+    top_table.add_column("Product", justify="right", style="yellow")
+    top_table.add_column("Total", justify="right", style="magenta")
+    for name, patient, product, total in rows:
+        top_table.add_row(name, f"{patient:,}", f"{product:,}", f"{total:,}")
+    console.print(top_table)
+
+
+def _render_findings_by_year(tables_dir: Path) -> None:
+    """Per-year stability, which the per-file table cannot show.
+
+    Answers two questions the rest of the summary leaves open: was a given
+    tracker year processed at all, and is the newest template actually the
+    cleanest? Ranked per tracker and on actionable findings only, so a year
+    does not look worse merely for having more trackers, fuller workbooks, or
+    more values the pipeline successfully recovered.
+    """
+    findings_path = tables_dir / "table_findings.parquet"
+    if not findings_path.exists():
+        return
+
+    try:
+        by_year = summarise_findings_by_year(pl.read_parquet(findings_path))
+    except Exception:
+        # The summary is the last thing a run prints; a malformed findings
+        # table should not cost the operator the rest of it.
+        return
+
+    if by_year.is_empty():
+        return
+
+    console.print("\n[bold blue]Findings by Tracker Year:[/bold blue]")
+    year_table = Table()
+    year_table.add_column("Year", style="cyan")
+    year_table.add_column("Trackers", justify="right")
+    year_table.add_column("Findings", justify="right")
+    year_table.add_column("Recovered", justify="right", style="dim")
+    year_table.add_column("Needs action", justify="right", style="yellow")
+    year_table.add_column("Per tracker", justify="right", style="magenta")
+    for row in by_year.iter_rows(named=True):
+        year_table.add_row(
+            str(row["tracker_year"]),
+            f"{row['trackers']:,}",
+            f"{row['findings']:,}",
+            f"{row['recovered']:,}",
+            f"{row['needs_action']:,}",
+            f"{row['per_tracker']:,.1f}",
+        )
+    console.print(year_table)
+
+
 def _render_combined_run_summary(patient_result, product_result, tables_dir: Path) -> None:
     """Render a combined patient+product view of a full `run` execution.
 
@@ -351,6 +447,7 @@ def _render_combined_run_summary(patient_result, product_result, tables_dir: Pat
     """
     if patient_result is None or product_result is None:
         _render_dataset_overview(tables_dir)
+        _render_findings_by_year(tables_dir)
         return
 
     patient_by_name = {tr.tracker_name: tr for tr in patient_result.tracker_results}
@@ -405,24 +502,10 @@ def _render_combined_run_summary(patient_result, product_result, tables_dir: Pat
             detail_table.add_row(name, p_err, q_err)
         console.print(detail_table)
 
-    if error_counts:
-        console.print("\n[bold yellow]Top Files by Error Count:[/bold yellow]")
-        top_table = Table()
-        top_table.add_column("File", style="cyan")
-        top_table.add_column("Patient", justify="right", style="green")
-        top_table.add_column("Product", justify="right", style="yellow")
-        top_table.add_column("Total", justify="right", style="magenta")
-        ranked = sorted(error_counts.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
-        for name, (patient_errors, product_errors) in ranked[:20]:
-            top_table.add_row(
-                name,
-                str(patient_errors),
-                str(product_errors),
-                str(patient_errors + product_errors),
-            )
-        console.print(top_table)
+    _render_top_files(tables_dir, error_counts)
 
     _render_dataset_overview(tables_dir)
+    _render_findings_by_year(tables_dir)
 
 
 def _render_failed_trackers(

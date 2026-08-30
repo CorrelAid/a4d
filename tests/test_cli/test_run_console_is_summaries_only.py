@@ -75,3 +75,23 @@ def test_the_summaries_are_still_rendered(local_run):
     assert "Combined Run Summary" in result.output
     assert "Dataset Overview" in result.output
     assert "Full pipeline completed successfully" in result.output
+
+
+class TestPerYearTableInTheRunSummary:
+    """The per-year view is the one that answers "is the newest template ok?".
+
+    Nothing in the run summary said whether a year had been processed at all,
+    nor how a year compared per tracker -- the only per-file view ranked on raw
+    count, which put the newest, biggest, cleanest-per-tracker years at the top
+    of a list titled by error count.
+    """
+
+    def test_the_run_renders_findings_by_tracker_year(self, local_run):
+        result = runner.invoke(
+            app,
+            ["run", "--skip-download", "--skip-upload", "--skip-drive-download", "--force"],
+        )
+        assert result.exit_code == 0, f"run failed:\n{result.output}"
+        assert "Findings by Tracker Year" in result.output
+        assert "Needs action" in result.output
+        assert "Recovered" in result.output
