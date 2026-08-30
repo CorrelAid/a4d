@@ -132,14 +132,8 @@ a4d/
 # Show all available commands
 just
 
-# Run all CI checks (format, lint, type, test)
+# Run exactly what CI runs (lint, format, types, tests, coverage floor)
 just ci
-
-# Run tests with coverage
-just test
-
-# Run tests without coverage (faster)
-just test-fast
 
 # Format code
 just format
@@ -159,44 +153,53 @@ just clean
 
 ### Running Tests
 
+There are two test commands, and the split is deliberate:
+
 ```bash
-# All tests with coverage
+# The check suite -- exactly the selection CI runs, with coverage
 just test
-# or: uv run pytest --cov
 
-# Fast tests (no coverage)
+# The drive-dependent tests -- run these when the tracker USB drive is mounted.
+# CI cannot run them at all, so they are never part of `just ci`.
+just test-integration
+
+# Development loop: same selection as `just test`, no coverage, stop at first failure
 just test-fast
-# or: uv run pytest -x
 
-# Specific test file
+# A single file
 uv run pytest tests/test_extract/test_patient.py
 ```
 
 ### Code Quality
 
-```bash
-# Run all checks (what CI runs)
-just ci
+`just ci` runs the checks in CI's own order, and the CI workflow
+(`.github/workflows/python-ci.yml`) invokes these same recipes step by step --
+so the local set and CI are one definition and cannot drift apart:
 
-# Individual checks
-just lint          # Linting
-just format        # Format code
-just format-check  # Check formatting without changes
-just check         # Type checking with ty
-just fix           # Auto-fix linting issues
+```bash
+just ci            # everything below, in order
+
+just lint          # ruff check .
+just format-check  # ruff format --check .
+just check         # ty check src/
+just test          # pytest, CI's selection, with coverage
+just cov-floor     # product pipeline code must stay 85% covered
+
+just format        # rewrite files to match the formatter
+just fix           # auto-fix lint findings
 ```
 
-### Pre-commit Hooks
+### Pre-push Hook
+
+Nothing forces `just ci` to be run, and forgetting it is how CI once stayed red
+for four days. Install the hook so a push runs the checks first:
 
 ```bash
-# Install hooks
 just hooks
-# or: uv run pre-commit install
-
-# Run manually on all files
-just hooks-run
-# or: uv run pre-commit run --all-files
 ```
+
+It copies `scripts/hooks/pre-push` into `.git/hooks/`, adding roughly 40
+seconds to a push. Bypass it for a single push with `git push --no-verify`.
 
 ### Docker
 
