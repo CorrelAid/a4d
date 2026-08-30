@@ -2,12 +2,12 @@
 id: 40
 title: Four kinds of source defect the triage confirmed have no error code, so they reach no report
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
-assignee: null
-claimed_at: null
-resolution: null
-evidence: null
+assignee: session-2026-08-30
+claimed_at: 2026-08-30
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 30
 ---
@@ -458,3 +458,120 @@ decision on whether it earns a code:
 Everything catalogued above this section stands as evidence and needs no
 re-deriving; what it does **not** establish is that each entry survives as a
 row in `table_findings`, and the four above are where it demonstrably does not.
+
+
+## Resolution (session-2026-08-30)
+
+### Decision
+
+**One of the four earns an error code; the other three do not.** All four were
+re-measured on the real 255-tracker corpus first, against a controlled baseline
+run that reproduced the recorded 104,837 findings / 41 codes exactly.
+
+1. **The same patient listed twice on one month sheet -> new code
+   `duplicate_patient_row_in_sheet`.** Emitted by
+   `report_duplicate_patients_in_sheet` (`src/a4d/extract/patient.py`), scope
+   `sheet_value`, category `fix_workbook`. **24 findings across 4 sheets in 4
+   workbooks**, where nothing reported them before.
+
+2. **Rich-text cells whose space sits in its own formatting run -> no code.**
+
+3. **Unaccented province spellings -> no code; already reported.**
+
+4. **A cleared row number that kept a space -> no code.**
+
+### Because
+
+**(1)** is not cosmetic: both copies reach `patient_data_monthly`, so those
+patient-months are counted twice by anything downstream that aggregates.
+Measured on the published table, 30 patient-months are duplicated inside a
+single workbook -- 23 from these sheets, 6 from the three 7-character Myanmar
+IDs that all sentinel to `Undefined` (already reported as
+`patient_id_unrepairable`), and 1 from Surat Thani writing `TH-ST029` and
+`TH_ST029` on `May26`. Ticket 70's rule applies squarely: the structural space
+-- where the pipeline declines to look at data or replaces a value -- should be
+complete, and this is a structural defect with a finite, enumerable population.
+
+The check groups on the **normalized** identity (`normalize_patient_id_expr`)
+rather than the literal cell, which is what makes it catch the Surat Thani
+hyphen/underscore pair; grouping on the raw spelling finds 23 and misses it.
+It runs per sheet, before the sheets are concatenated, so the finding names the
+one sheet the fix belongs on.
+
+**(2)** was killed by measurement. Opening `2017_Yangon Children's Hospital`
+with `rich_text=True` finds **211** cells with more than one formatting run,
+and almost all of them are the template's own two-line headers ("Product\n /
+(select from drop down list)") and clinicians' free-text notes. An emitter here
+would report the template itself as a workbook defect several hundred times
+over, to flag something the pipeline already reads correctly.
+
+**(3)** the ticket's own claim -- "the comparison is silent on it, which is
+exactly why it needs a finding to be visible at all" -- was written before the
+finding channels were unified ([ticket 66](66-unify-finding-channels.md)). It
+is now false: `value_not_in_allowed_list` carries **13 findings across 7 VNCH
+trackers** naming `Thai Nguyen` and `Thai nguyen`. Confirmed with the user.
+
+**(4)** swept all **3,377** patient sheets in the corpus using the pipeline's
+own `find_data_start_row`: there is exactly **one** whitespace-only
+row-number cell, and it is the one this ticket names (`2022_Children's
+Hospital 2`, `Oct22`, `A70`). It costs nothing today -- `find_data_start_row`
+reads through it -- and its only historical cost was to R, which was retired
+2026-08-24.
+
+### Rejected
+
+- **Emitting the duplicate check on every ID, not just IDs that could name a
+  patient.** Tried and measured: the first implementation produced **59**
+  findings, of which 26 said "patient 0 has N rows" (the template's leftover
+  `0` in the ID cell) and 9 said "patient #REF!" (rows already reported as
+  `excel_error_patient_id` and then dropped). Those are not one patient
+  repeated, they are several rows nobody can identify, and the code would have
+  said the opposite of what is wrong with them. The emitter now skips a blank
+  ID, an Excel error, and any ID with no letter in it. **59 -> 24.**
+- **Detecting the duplicate on the cleaned/published table instead of at
+  extract.** It would find 30, but 6 of those are the `Undefined` sentinel
+  colliding with itself rather than a workbook defect, and the finding could
+  not name the spelling the workbook actually holds. Extract-stage detection
+  gives exactly the 24 real cases and names the cell.
+- **Giving (2) and (4) codes anyway for completeness.** Ticket 70 already
+  rejected chasing exhaustiveness in the value space; (2) would be ~95% noise
+  and (4) has a population of one with no cost.
+- **Widening (3) into an `aliases` entry that recovers the unaccented
+  spellings.** Out of this ticket's scope -- it asks whether the loss is
+  *reported*, and it is. See the note below on the larger population.
+
+### What this does not settle
+
+Measuring (3) surfaced that the unaccented-province question is a small corner
+of a much larger one: there are **1,170 `value_not_in_allowed_list` findings on
+the province column**, and most are Myanmar and Cambodian place names simply
+absent from `allowed_provinces.yaml` -- `Takeo` (18 workbooks), `Nay Pyi Taw`
+(14), `Mandalay` (11), `Kalay`, `Tbong Khmum`, `Sihanoukville` (12 each), and
+dozens more at 9-10 workbooks apiece. Whether the allowed list grows or the
+workbooks change is a real decision nobody has taken. Recorded on the map's
+**Not yet specified**, sharpening the existing unaccented-province patch.
+
+### Evidence
+
+**Executed.** Every number above comes from a run or a query, not from reading:
+
+- Controlled baseline, full corpus, both arms: **104,837 findings, 41 codes**,
+  reproducing the figure ticket 78 recorded.
+- After the change: **104,861 findings, 42 codes**. Diffing the two runs by
+  code, **exactly one code moved** -- `duplicate_patient_row_in_sheet`, 0 -> 24
+  -- and every other code is unchanged to the row. `patient_data_static`
+  (1,828), `patient_data_monthly` (86,360), `patient_data_annual` (4,520) and
+  `product_data` (75,169) are identical before and after.
+- The 24 findings reach the published report: `a4d report findings` renders the
+  glossary entry with its category, its counting unit and 24/4 trackers.
+- The duplicate populations (23 raw, 30 published-in-one-workbook, 59 untightened,
+  24 tightened) are all `duckdb` queries over the run's own parquets.
+- The 211 rich-text cells are `openpyxl` with `rich_text=True` on the two named
+  workbooks; the 1 whitespace row-number cell is a sweep of all 3,377 patient
+  sheets using the pipeline's own `find_data_start_row`.
+- `uv run pytest -m "not slow"`: **1,303 passed, 1 skipped**. `ruff check`,
+  `ruff format --check`, `ty check src/`: all clean.
+
+**Tense.** Every count describes **current behaviour** after this session's
+change, except the 104,837/41 baseline and the 59-finding first attempt, which
+describe states that no longer exist.

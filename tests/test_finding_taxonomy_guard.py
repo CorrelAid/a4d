@@ -43,6 +43,7 @@ EXPECTED_EMITTERS: dict[ErrorCode, set[str]] = {
     "month_sheets_end_early": {"audit_workbook_sheets"},
     "static_sheet_missing": {"audit_workbook_sheets"},
     "static_sheet_duplicate_id": {"join_static_sheet"},
+    "duplicate_patient_row_in_sheet": {"report_duplicate_patients_in_sheet"},
     "empty_product_data": {"read_all_product_sheets"},
     "product_section_not_found": {"read_all_product_sheets"},
     "excel_error_patient_id": {"read_all_patient_sheets"},

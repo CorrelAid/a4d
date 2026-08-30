@@ -36,14 +36,13 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 4"]
+  subgraph FRONTIER["Frontier · 3"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
-    T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
   end
-  subgraph DECIDED["Decided · 71"]
+  subgraph DECIDED["Decided · 72"]
     direction TB
     T2["<b>2</b> · grilling<br/>Retire the PDF/notebook<br/>analysis docs for an<br/>automated, script-based<br/>report"]
     T3["<b>3</b> · task<br/>Merge product-pipeline (PR<br/>#6) into migration"]
@@ -80,6 +79,7 @@ flowchart TD
     T37["<b>37</b> · task<br/>Triage the residual<br/>patient cleaned-stage<br/>mismatches (round 2)"]
     T38["<b>38</b> · task<br/>Triage the patient<br/>cleaned-stage date-column<br/>family (round 3)"]
     T39["<b>39</b> · grilling<br/>Decide whether a date<br/>buried inside a clinical<br/>note should be recovered<br/>or discarded"]
+    T40["<b>40</b> · task<br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
     T41["<b>41</b> · grilling<br/>Decide whether the 2026<br/>template's five new<br/>Patient List fields enter<br/>the pipeline"]
     T42["<b>42</b> · grilling<br/>Decide how FBG unit<br/>headers are resolved, and<br/>what to do about<br/>physiologically<br/>implausible mmol values"]
     T43["<b>43</b> · task<br/>Triage the residual<br/>patient raw-stage column<br/>mismatches (round 3)"]
@@ -153,9 +153,9 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35,T40 frontier
+  class T9,T34,T35 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78 decided
+  class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T40,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class T1,T65,T77 dropped
 ```
@@ -3472,6 +3472,69 @@ standing decisions ([golden-master tests](tickets/09-snapshot-regression-tests.m
 -- **take that one next**: it is the only remaining ticket about the data, and
 nothing else competes with it.
 
+
+**[The four source defects with no error code](tickets/40-source-defect-findings-report.md)
+is closed, and only one of the four earned a code.** Each was re-measured on the
+real 255-tracker corpus against a controlled baseline that reproduced the
+recorded 104,837 findings and 41 codes exactly, and measuring is what decided
+three of them rather than judgement.
+
+**The one that earned a code costs real data.** When a month sheet lists the
+same patient twice -- Vietnam National Children's `Jul24` splices two lists into
+one sheet, its row numbers running 1..78 while 21 IDs repeat with different
+readings in each copy -- both copies reach the monthly table, so that clinic's
+July is counted twice for those patients. Nothing reported it. New code
+`duplicate_patient_row_in_sheet`, emitted per sheet at extract:
+**24 findings, 4 sheets, 4 workbooks.** It groups on the normalised identity
+rather than the literal cell, which is what catches Surat Thani writing
+`TH-ST029` and `TH_ST029` on one sheet; the raw spelling finds 23 and misses it.
+
+**The first implementation of it over-claimed by 2.5x and the number is written
+down so it is not repeated.** Grouping every ID produced **59** findings, 26 of
+them "patient 0 has N rows" (the template's leftover zero in the ID cell) and 9
+"patient #REF!" -- rows already reported as `excel_error_patient_id` and then
+dropped. Those are not one patient repeated; the code would have said the
+opposite of what is wrong with them. The check now skips a blank ID, an Excel
+error, and any ID with no letter in it. **59 -> 24.**
+
+**The three declined were declined on evidence.** Rich-text formatting runs:
+**211** multi-run cells in one workbook alone, almost all of them the template's
+own two-line headers and clinicians' notes, so an emitter would report the
+template as a defect several hundred times to flag something the pipeline
+already reads correctly. Unaccented province spellings: already reported --
+`value_not_in_allowed_list` carries **13 findings across 7 trackers** naming
+them, so the ticket's "invisible" premise stopped being true when the finding
+channels were unified. The whitespace-only row number: a sweep of all **3,377**
+patient sheets found **exactly one**, the cell the ticket names, and it costs
+nothing now that R is retired.
+
+**Controlled before/after on the full corpus: 104,837 -> 104,861 findings,
+41 -> 42 codes.** Diffing the two runs by code, exactly one code moved, and all
+four published tables are unchanged to the row.
+
+**Measuring the province question surfaced a bigger one.** There are **1,170**
+province findings in total, most of them Myanmar and Cambodian place names
+simply absent from the allowed list -- `Takeo` in 18 workbooks, `Nay Pyi Taw` in
+14, `Mandalay` in 11, and dozens more at 9-10 apiece. Every patient in them is
+published with no province. That is now written into the fog patch and is sharp
+enough to ticket; it needs someone to say whether the reference list grows or
+the workbooks change, since the list is A4D's own.
+
+**The frontier is three, and the route is still finished.** What remains is
+three standing engineering decisions -- [golden-master
+tests](tickets/09-snapshot-regression-tests.md), [local CI
+parity](tickets/34-local-ci-parity-guard.md), [Polars
+2.0](tickets/35-polars-2-deprecation-warnings.md). **Nothing about the data is
+left on the map.** The choice between the three is genuinely open; local CI
+parity is the smallest and the one that makes the other two cheaper to verify.
+
+**The housekeeping note below still stands and is now more urgent:** this
+section is ~3,150 lines of one-block-per-session history. Wayfinder intends two
+or three paragraphs that get rewritten, and the detail already lives in
+*Decisions so far* and in the tickets. Cutting it back is the user's call
+because it deletes recorded history.
+
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -4784,6 +4847,19 @@ nothing else competes with it.
   affected sheets holds only broken spreadsheet references where the IDs should
   be. Three findings on the whole 255-tracker corpus, no published table moved.
 
+- [Four kinds of source defect the triage confirmed have no error
+  code](tickets/40-source-defect-findings-report.md) -- one of the four earns a
+  code, three do not. New `duplicate_patient_row_in_sheet`: the same patient
+  written down twice on one month sheet, 24 findings across 4 sheets, where both
+  copies were reaching the monthly table and counting that patient-month twice.
+  The other three were killed by measurement rather than by judgement: rich-text
+  formatting runs are ~95% the template's own two-line headers (211 in one
+  workbook), unaccented province spellings are already reported under
+  `value_not_in_allowed_list` (13 findings, 7 trackers), and the whitespace-only
+  row number has a corpus population of exactly one and costs nothing now R is
+  retired. Controlled full-corpus before/after: 104,837 -> 104,861 findings,
+  exactly one code moving, all four published tables unchanged.
+
 ## Assumptions in force
 
 - **A column no tracker has carried since 2023 is a field A4D stopped
@@ -5152,10 +5228,19 @@ ninth clause, it is the only frontier ticket on the route.
   where R stamps "Undefined". What is left is the spelling with no accents at
   all: the same VNCH trackers also write `Thai Nguyen` and `Thai nguyen`, which
   sanitize to `thainguyen` on **both** sides and so are lost in both pipelines.
-  The comparison is silent on it — a shared limitation, not a divergence — so
-  nobody has measured how many provinces across how many trackers are written
-  this way, or whether an `aliases` entry is the right fix. Not sharp enough to
-  ticket until that is measured.
+  **Measured by [ticket 40](tickets/40-source-defect-findings-report.md)
+  (2026-08-30)**: the unaccented spellings are 13 findings across 7 VNCH
+  trackers, and they are *reported* -- `value_not_in_allowed_list` names them,
+  so nothing is silent any more. What measuring also showed is that they are a
+  small corner of a much larger question: **1,170 province findings in total**,
+  most of them Myanmar and Cambodian place names simply absent from
+  `allowed_provinces.yaml` -- `Takeo` in 18 workbooks, `Nay Pyi Taw` in 14,
+  `Mandalay` in 11, `Kalay`/`Tbong Khmum`/`Sihanoukville` in 12 each, and dozens
+  more at 9-10 apiece. Every one of those patients is published with an
+  `Undefined` province. The remaining question is whether the allowed list grows
+  or the workbooks change, and it is now sharp enough to ticket -- it just needs
+  someone to say which way, since growing the list is A4D's call about their own
+  reference data.
 
 - Whether an insulin row that **ticks nothing** should publish `Undefined`.
   Both pipelines do today, on 17,418 rows, so the comparison is silent on it --
@@ -5519,6 +5604,10 @@ flowchart TB
     direction LR
     U78["<b>78</b><br/>A blank row ends the<br/>patient block, so<br/>anything written below<br/>it is never read"]
   end
+  subgraph S2026_08_30["Session 2026-08-30"]
+    direction LR
+    U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
+  end
   subgraph Sunworked["Closed without being worked"]
     direction LR
     U44["<b>44</b><br/>Classify the cleaned-<br/>stage FBG cells where R<br/>has nothing and Python<br/>has a corrected reading"]
@@ -5528,7 +5617,6 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
-    U40["<b>40</b><br/>Four kinds of source<br/>defect the triage<br/>confirmed have no error<br/>code, so they reach no<br/>report"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5590,7 +5678,8 @@ flowchart TB
   S2026_08_27 ~~~ S2026_08_27b
   S2026_08_27b ~~~ S2026_08_28b
   S2026_08_28b ~~~ S2026_08_29
-  S2026_08_29 ~~~ Sunworked
+  S2026_08_29 ~~~ S2026_08_30
+  S2026_08_30 ~~~ Sunworked
   Sunworked ~~~ Sopen
 
   U3 --->|blocked| U2
@@ -5691,9 +5780,9 @@ flowchart TB
   U41 -.->|spawned| U78
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35,U40 tfrontier
+  class U9,U34,U35 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
-  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78 tdecided
+  class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U40,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
   class U1,U65,U77 tdropped
 ```

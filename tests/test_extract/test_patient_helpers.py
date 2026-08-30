@@ -18,6 +18,7 @@ from a4d.extract.patient import (
     read_header_rows,
     read_patient_rows,
     recover_blank_headers,
+    report_duplicate_patients_in_sheet,
 )
 from a4d.findings import findings_collected
 
@@ -1178,3 +1179,92 @@ class TestJoinStaticSheet:
         annual = pl.DataFrame({"patient_id": ["KH_CD016"], "edu_occ": ["Student"]})
         result = join_static_sheet(self._monthly(["KH-CD016"]), annual, ".annual", "Annual")
         assert result["edu_occ"].to_list() == ["Student"]
+
+
+class TestReportDuplicatePatientsInSheet:
+    """One patient written down twice on one month sheet.
+
+    Vietnam National Children's ``Jul24`` splices two lists into one sheet: the
+    row-number column runs 1..78 while 21 patient IDs repeat, each copy holding
+    different readings. Both copies reach the monthly table, so that clinic's
+    July is counted twice for those patients.
+    """
+
+    def test_reports_a_patient_listed_twice(self, collector):
+        df = pl.DataFrame({"patient_id": ["VN_VC002", "VN_VC003", "VN_VC002"]})
+
+        report_duplicate_patients_in_sheet(df, "Jul24")
+
+        reported = collector.to_dataframe()
+        assert reported.height == 1
+        row = reported.row(0, named=True)
+        assert row["error_code"] == "duplicate_patient_row_in_sheet"
+        assert row["patient_id"] == "VN_VC002"
+        assert row["sheet_name"] == "Jul24"
+        assert "2 rows" in row["message"]
+
+    def test_reports_each_duplicated_patient_once(self, collector):
+        df = pl.DataFrame({"patient_id": ["A_B001", "A_B002", "A_B001", "A_B002", "A_B003"]})
+
+        report_duplicate_patients_in_sheet(df, "Jul24")
+
+        assert sorted(collector.to_dataframe()["patient_id"].to_list()) == ["A_B001", "A_B002"]
+
+    def test_counts_every_copy(self, collector):
+        df = pl.DataFrame({"patient_id": ["A_B001"] * 3})
+
+        report_duplicate_patients_in_sheet(df, "Jul24")
+
+        assert "3 rows" in collector.to_dataframe().row(0, named=True)["message"]
+
+    def test_two_spellings_of_one_id_are_one_patient(self, collector):
+        """Surat Thani writes ``TH-ST029`` and ``TH_ST029`` on the same sheet.
+
+        The two fold to one identity downstream, so the patient ends up with
+        two rows for one month; the message names both spellings, since the
+        workbook fix is to make them agree.
+        """
+        df = pl.DataFrame({"patient_id": ["TH-ST029", "TH_ST029"]})
+
+        report_duplicate_patients_in_sheet(df, "May26")
+
+        row = collector.to_dataframe().row(0, named=True)
+        assert row["patient_id"] == "TH_ST029"
+        assert "TH-ST029" in row["original_value"]
+        assert "TH_ST029" in row["original_value"]
+
+    def test_silent_when_every_patient_appears_once(self, collector):
+        df = pl.DataFrame({"patient_id": ["A_B001", "A_B002", "A_B003"]})
+
+        report_duplicate_patients_in_sheet(df, "Jul24")
+
+        assert len(collector) == 0
+
+    def test_rows_with_no_id_are_not_duplicates(self, collector):
+        """An unidentifiable row is a different defect, already reported."""
+        df = pl.DataFrame({"patient_id": [None, None, "A_B001"]})
+
+        report_duplicate_patients_in_sheet(df, "Jul24")
+
+        assert len(collector) == 0
+
+    def test_broken_formulas_are_not_one_duplicated_patient(self, collector):
+        """``#REF!`` on nine rows is nine unidentifiable patients, not one.
+
+        Those rows are dropped and reported as ``excel_error_patient_id``
+        further down; calling them a duplicate would say the opposite of what
+        is wrong with them.
+        """
+        df = pl.DataFrame({"patient_id": ["#REF!", "#REF!", "#REF!"]})
+
+        report_duplicate_patients_in_sheet(df, "May26")
+
+        assert len(collector) == 0
+
+    def test_numeric_filler_ids_are_not_a_patient(self, collector):
+        """Template rows left with ``0`` in the ID cell name no patient."""
+        df = pl.DataFrame({"patient_id": ["0", "0", "0.0", "0.0"]})
+
+        report_duplicate_patients_in_sheet(df, "Jun26")
+
+        assert len(collector) == 0
