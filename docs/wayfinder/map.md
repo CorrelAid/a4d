@@ -3559,6 +3559,27 @@ does the image still build, does the job still fit its resources -- are blocked
 on the local machine (Docker daemon down, `gcloud` credentials expired), not on
 the code.
 
+**All four are now cleared, and a fifth hazard nobody had listed was found and
+checked.** The image builds and starts at `dev`; the job's 8 CPU / 8Gi / 3600s
+envelope is comfortable against a 3-minute local run at half the workers. The
+smoke test caught the container re-resolving its dependencies from PyPI at
+every cold start -- pulling dev tooling the job never uses, over the venv the
+image had already built from the lock file -- so startup depended on network
+reachability and what ran was not necessarily what was pinned; the startup
+command now uses the built venv, and the smoke test exercises that same path.
+
+The unlisted hazard: the dataset holds **eight views** built on these tables,
+one of them feeding Looker, and the loader deletes each table before recreating
+it. Diffing every live BigQuery schema against the parquet the local run
+produced shows they survive -- nothing is dropped or renamed, `patient_data_
+monthly` gains the two screening columns from [ticket
+75](tickets/75-screening-selections-under-merged-header.md), and `logs` loses
+`error_code` exactly as [ticket 66](tickets/66-unify-finding-channels.md)
+intended, with no view reading `logs`. The `patient_data` view was checked
+specifically for duplicate-name collisions, since it is a `SELECT *` three-way
+join: after its `EXCEPT` clauses the three tables share no name beyond the join
+keys.
+
 **Today's code is green against the real corpus.** A full local run with the
 GCS/Drive/BigQuery steps switched off completed all 255 trackers on both arms,
 zero failures, in about three minutes at four workers, writing all eight
