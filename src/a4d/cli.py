@@ -88,14 +88,14 @@ def _display_tables_summary(tables: dict[str, Path]) -> None:
     tables_table.add_column("Path", style="green")
     tables_table.add_column("Records", justify="right", style="magenta")
 
-    # Add patient tables first, then product, then logs/errors/clinic/metadata
+    # Add patient tables first, then product, then logs/findings/clinic/metadata
     for name in [
         "static",
         "monthly",
         "annual",
         "product_data",
         "logs",
-        "errors",
+        "findings",
         "clinic_data_static",
         "tracker_metadata",
     ]:
