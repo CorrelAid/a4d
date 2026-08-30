@@ -36,11 +36,12 @@ validated production run + promotion to `dev`.
 <!-- graph:start -->
 ```mermaid
 flowchart TD
-  subgraph FRONTIER["Frontier · 3"]
+  subgraph FRONTIER["Frontier · 4"]
     direction TB
     T9["<b>9</b> · task<br/>Add golden-master/snapshot<br/>regression tests for<br/>patient and product"]
     T34["<b>34</b> · grilling<br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     T35["<b>35</b> · task<br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour each<br/>one is asking about"]
+    T79["<b>79</b> · task<br/>Deploy and run today's<br/>pipeline on GCP —<br/>production is 137 commits<br/>behind"]
   end
   subgraph DECIDED["Decided · 72"]
     direction TB
@@ -153,7 +154,7 @@ flowchart TD
   T64 --> T6
 
   classDef frontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class T9,T34,T35 frontier
+  class T9,T34,T35,T79 frontier
   classDef decided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class T2,T3,T4,T5,T6,T7,T8,T10,T11,T12,T13,T14,T15,T16,T17,T18,T19,T20,T21,T22,T23,T24,T25,T26,T27,T28,T29,T30,T31,T32,T33,T36,T37,T38,T39,T40,T41,T42,T43,T44,T45,T46,T47,T48,T49,T50,T51,T52,T53,T54,T55,T56,T57,T58,T59,T60,T61,T62,T63,T64,T66,T67,T68,T69,T70,T71,T72,T73,T74,T75,T76,T78 decided
   classDef dropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a
@@ -3535,6 +3536,38 @@ or three paragraphs that get rewritten, and the detail already lives in
 because it deletes recorded history.
 
 
+**The frontier gained a fourth ticket, and it is the one the user wants
+worked: [Deploy and run today's pipeline on GCP — production is 137 commits
+behind](tickets/79-deploy-current-pipeline-to-gcp.md).** Nothing on the map
+covered it. [Ticket 5](tickets/05-production-verification-run.md) ran the
+combined pipeline on GCP once, on 2026-08-09 from `migration` at `7713fea`;
+`dev` HEAD is 137 commits past that, and what the pipeline publishes has
+changed shape since -- the `errors` table retired, `findings` replaced it, the
+logs table's contents changed and gained the product arm, and several rounds
+added published columns. Production is running an image built from a branch
+that is no longer the trunk.
+
+**Two of that ticket's four blockers are cleared.** The pre-run BigQuery
+snapshot and the post-run verification each carried their own hand-typed list
+of tables, and both had drifted off what is published: the snapshot still named
+the retired `errors` table and neither covered `findings`, so the newest
+published table would have been truncated with no rollback point and no check.
+Both now read one derived list (`published_table_names()`, from
+`PARQUET_TO_TABLE`), and the verification tolerates a table published for the
+first time rather than crashing on its missing snapshot. The remaining two --
+does the image still build, does the job still fit its resources -- are blocked
+on the local machine (Docker daemon down, `gcloud` credentials expired), not on
+the code.
+
+**Today's code is green against the real corpus.** A full local run with the
+GCS/Drive/BigQuery steps switched off completed all 255 trackers on both arms,
+zero failures, in about three minutes at four workers, writing all eight
+published tables. Findings total 104,861 across all 255 files, categorised
+`fix_workbook` 62,583 / `data_lost` 24,165 / `recovered` 18,113 -- against
+ticket 66's 118,175 at 67,190 / 48,995 / 1,990, the taxonomy work since has
+moved tens of thousands out of "lost". That shift is the intended direction but
+has not been verified line by line.
+
 ## Decisions so far
 
 - [Everything the pipeline reads out of a workbook and then discards to fit the
@@ -5617,6 +5650,7 @@ flowchart TB
     U9["<b>9</b><br/>Add golden-<br/>master/snapshot<br/>regression tests for<br/>patient and product"]
     U34["<b>34</b><br/>Make the local pre-push<br/>check set actually match<br/>CI, and make running it<br/>automatic"]
     U35["<b>35</b><br/>Resolve the Polars 2.0<br/>deprecation warnings —<br/>decide the behaviour<br/>each one is asking about"]
+    U79["<b>79</b><br/>Deploy and run today's<br/>pipeline on GCP —<br/>production is 137<br/>commits behind"]
   end
 
   S2026_08_08 ~~~ S2026_08_08b
@@ -5778,9 +5812,10 @@ flowchart TB
   U75 -.->|spawned| U77
   U75 ==>|closed| U77
   U41 -.->|spawned| U78
+  U66 -.->|spawned| U79
 
   classDef tfrontier fill:#1f6feb,stroke:#0b3d91,stroke-width:3px,color:#ffffff
-  class U9,U34,U35 tfrontier
+  class U9,U34,U35,U79 tfrontier
   classDef tdecided fill:#1a7f37,stroke:#116329,stroke-width:1px,color:#ffffff
   class U2,U3,U4,U5,U6,U7,U8,U10,U11,U12,U13,U14,U15,U16,U17,U18,U19,U20,U21,U22,U23,U24,U25,U26,U27,U28,U29,U30,U31,U32,U33,U36,U37,U38,U39,U40,U41,U42,U43,U44,U45,U46,U47,U48,U49,U50,U51,U52,U53,U54,U55,U56,U57,U58,U59,U60,U61,U62,U63,U64,U66,U67,U68,U69,U70,U71,U72,U73,U74,U75,U76,U78 tdecided
   classDef tdropped fill:#eaeef2,stroke:#afb8c1,stroke-width:1px,color:#57606a

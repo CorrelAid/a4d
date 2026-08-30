@@ -181,9 +181,13 @@ backup-bq:
     set -euo pipefail
     DATE=$(date +%Y%m%d)
     EXPIRY="TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
-    # Every table load_pipeline_tables deletes and recreates on each run.
-    # Keep in sync with PARQUET_TO_TABLE in src/a4d/gcp/bigquery.py when adding new pipelines.
-    TABLES="patient_data_static patient_data_monthly patient_data_annual product_data clinic_data_static logs errors tracker_metadata"
+    # Derived from the pipeline itself, so a table added or renamed in the code
+    # is snapshotted without anyone remembering to edit this recipe. The
+    # hand-typed list this replaced had gone stale in both directions at once:
+    # it still snapshotted the retired `errors` table and never covered
+    # `findings`, which replaced it -- so the newest published table would have
+    # been overwritten with no rollback point.
+    TABLES=$(uv run python -c "from a4d.gcp.bigquery import published_table_names; print(' '.join(published_table_names()))")
     for TABLE in $TABLES; do
         if bq show --quiet {{PROJECT}}:{{DATASET}}.${TABLE} 2>/dev/null; then
             SNAP="${TABLE}_${DATE}"

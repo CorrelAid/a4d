@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from a4d.gcp.bigquery import get_bigquery_client
-from a4d.gcp.verify import VERIFIED_TABLES, diff_table_stats, fetch_table_stats
+from a4d.gcp.verify import VERIFIED_TABLES, diff_table_stats, fetch_table_stats_if_present
 
 console = Console()
 app = typer.Typer()
@@ -28,11 +28,22 @@ def verify(
 ) -> None:
     client = get_bigquery_client()
 
-    before = {
-        name: fetch_table_stats(client, f"{name}_{backup_suffix}") for name in VERIFIED_TABLES
-    }
-    after = {name: fetch_table_stats(client, name) for name in VERIFIED_TABLES}
+    # A table with no snapshot is one published for the first time, not a
+    # failure -- it is reported as new and excluded from the before/after diff,
+    # which has nothing to compare it against.
+    before = {}
+    for name in VERIFIED_TABLES:
+        stats = fetch_table_stats_if_present(client, f"{name}_{backup_suffix}")
+        if stats is not None:
+            before[name] = stats
+    after = {}
+    for name in VERIFIED_TABLES:
+        stats = fetch_table_stats_if_present(client, name)
+        if stats is not None:
+            after[name] = stats
     anomalies = diff_table_stats(before, after)
+    new_tables = sorted(set(after) - set(before))
+    vanished = sorted(set(VERIFIED_TABLES) - set(after))
 
     report = Table(title="Production run verification")
     report.add_column("Table")
@@ -41,19 +52,34 @@ def verify(
     report.add_column("Clinics before", justify="right")
     report.add_column("Clinics after", justify="right")
     for name in VERIFIED_TABLES:
+        before_stats = before.get(name)
+        after_stats = after.get(name)
         report.add_row(
             name,
-            str(before[name].row_count),
-            str(after[name].row_count),
-            str(before[name].distinct_clinics),
-            str(after[name].distinct_clinics),
+            "-" if before_stats is None else str(before_stats.row_count),
+            "-" if after_stats is None else str(after_stats.row_count),
+            "-" if before_stats is None else str(before_stats.distinct_clinics),
+            "-" if after_stats is None else str(after_stats.distinct_clinics),
         )
     console.print(report)
+
+    if new_tables:
+        console.print(
+            f"[cyan]Published for the first time (no snapshot to compare): "
+            f"{', '.join(new_tables)}[/cyan]"
+        )
+
+    if vanished:
+        console.print("[bold red]Expected but absent after the run:[/bold red]")
+        for name in vanished:
+            console.print(f"  - {name}")
 
     if anomalies:
         console.print("[bold red]Anomalies found:[/bold red]")
         for anomaly in anomalies:
             console.print(f"  - {anomaly.table}: {anomaly.reason}")
+
+    if anomalies or vanished:
         raise typer.Exit(code=1)
 
     console.print("[bold green]No anomalies detected.[/bold green]")
