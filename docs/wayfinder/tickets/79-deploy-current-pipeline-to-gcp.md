@@ -2,12 +2,12 @@
 id: 79
 title: Deploy and run today's pipeline on GCP — production is 137 commits behind
 labels: [wayfinder:task]
-status: open
+status: closed
 blocked_by: []
 assignee: null
 claimed_at: null
-resolution: null
-evidence: null
+resolution: decided
+evidence: executed
 closed_by: null
 spawned_by: 66
 ---
@@ -327,3 +327,79 @@ screening columns, `logs` lost `error_code`.
   widening this session's change to cover it was not justified.
 - `product_data_for_looker` is a **table**, not a view, and nothing in this
   repo writes it -- so something outside the repo does, and nobody knows what.
+
+## Resolution
+
+**Decision:** The current pipeline runs on GCP from `dev`. Four executions on
+2026-08-30 got it there, each exposing a defect the one before could not have
+shown; the fifth (`bgv8x`, 12:54 UTC) is the clean one. The retired `errors`
+table was dropped by the user, leaving the dataset as exactly the eight tables
+`PARQUET_TO_TABLE` publishes plus `product_data_for_looker`, which nothing in
+this repo writes.
+
+The work split into three kinds:
+
+*Pre-deploy, from reading the deploy path:* the pre-run BigQuery snapshot and
+the post-run verification each carried a hand-typed table list, and both had
+drifted -- still naming the retired `errors`, never covering `findings`, so the
+newest published table would have been truncated with no rollback point and no
+check. Both now read `published_table_names()`, derived from
+`PARQUET_TO_TABLE`. The container was re-resolving its dependencies from PyPI
+at every cold start, pulling dev tooling over the venv the image had already
+built from the lock file; `CMD` now uses `--no-sync`, and `just docker-smoke`
+was changed to exercise that same path rather than a different one.
+
+*The hazard that was not on the ticket:* the dataset holds eight views, one
+feeding Looker, and the loader deletes each table before recreating it. Diffing
+every live schema against the parquet a local run produced showed they survive
+-- nothing dropped or renamed, `patient_data_monthly` gaining the two screening
+columns, `logs` losing `error_code` as [ticket
+66](66-unify-finding-channels.md) intended. Confirmed after the deploy.
+
+*What only a real run could find:* three defects, detailed in part 3 above --
+the findings table's five clustering fields against BigQuery's limit of four
+(so it had never once loaded), the loader swallowing every load failure so the
+job exited 0 with a table missing, and the console publishing one line per
+finding (3,765 lines, 2,972 of them identical). Then, on the user's reading of
+the output, the run summary counting recoveries as errors, which is what made
+the newest trackers look like the worst.
+
+**Because:** the destination's gate is a real run against the production
+bucket with output in BigQuery, and the last one predated 137 commits that
+changed what the pipeline publishes. Every defect above was invisible to the
+test suite -- the loader's tests mock the BigQuery client, and no test could
+see a console the CliRunner never captures. The only instrument that finds
+them is a real execution, which is the argument for having done this now
+rather than at the end.
+
+**Rejected:**
+- *Widening `VERIFIED_TABLES` without tolerating a missing snapshot* --
+  rejected on contact: `findings` had no snapshot because it had never
+  existed, so the verification would have crashed on `NotFound` instead of
+  reporting. `fetch_table_stats_if_present` reports it as new.
+- *Raising on the first table that fails to load* -- rejected: one unloadable
+  table would strand every table after it. Failures are collected, all are
+  attempted, and the run raises at the end naming them.
+- *Reordering the `findings` clustering fields while fixing the count* --
+  rejected: the order was a previous decision and no evidence said it was
+  wrong. Only the fifth field was dropped.
+- *Excluding recoveries from the findings table itself* -- rejected: a
+  recovery is worth publishing, it is just not a triage item. Only the run
+  summary's ranking changed.
+- *Removing the dead `console_main_thread_only` filter* -- rejected for this
+  session: it is moot at ERROR level, and widening the change into the same
+  session that depended on the level was not justified. Left as fog.
+
+**Evidence:** executed throughout. Five real Cloud Run executions, their logs
+read from Cloud Logging; BigQuery schemas and row counts queried live;
+`bq show` confirming `errors` is gone and `findings` holds 104,861 rows across
+255 trackers; the image built and smoke-tested locally each time; the pipeline
+run end to end against all 255 real trackers on four occasions, before and
+after each change, with row counts compared. The console reduction
+(3,765 -> 124 lines) and the per-year figures were measured on real runs, not
+inferred.
+
+**Tense:** current, verified behaviour. One claim is a *prediction* rather
+than an observation and is marked as such above: nothing has yet exercised the
+new "a table failed to load, so the job fails" path against a real BigQuery
+error, because no table has failed since the clustering fix.
