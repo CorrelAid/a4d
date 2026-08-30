@@ -89,6 +89,32 @@ cov-floor:
         --include="src/a4d/extract/product.py,src/a4d/clean/product.py,src/a4d/clean/schema_product.py,src/a4d/extract/wide_format.py,src/a4d/pipeline/product.py,src/a4d/tables/product.py,src/a4d/validate/source_vs_output_product.py" \
         --fail-under=85
 
+# ── Golden-master snapshot ───────────────────────────────────────
+
+# Run both arms over the local tracker corpus and diff the output against the
+# accepted baseline. Needs the tracker drive; never part of `just ci`, which
+# has no corpus and must publish nothing about it. Cloud steps are all off --
+# this reads and writes only the local drive.
+#
+# Run it before pushing anything that touches extraction, cleaning or tables.
+# It fails whenever output moved, and says whether the code moved it (same
+# workbook, different output) or the workbooks did (edited since the baseline).
+snapshot-check:
+    uv run a4d run --skip-download --skip-drive-download --skip-upload
+    uv run a4d snapshot check
+
+# Diff against the baseline without re-running the pipeline, reusing whatever
+# output is already on the drive. The fast loop when you already know the run
+# is current.
+snapshot-diff:
+    uv run a4d snapshot check
+
+# Accept the last check's result as the new baseline. Runs nothing: there is
+# nothing to accept until a check has shown you what moved. Record the
+# acceptance in the commit message -- the digest itself stays on the drive.
+snapshot-update:
+    uv run a4d snapshot update
+
 # Install the pre-push hook that runs `just ci` before every push
 hooks:
     #!/usr/bin/env bash

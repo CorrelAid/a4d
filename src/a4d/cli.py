@@ -62,12 +62,17 @@ run_app = typer.Typer(
 report_app = typer.Typer(
     help="Turn a run's output into a report someone can act on.", cls=_SortedTyperGroup
 )
+snapshot_app = typer.Typer(
+    help="Golden-master check: did a run's output move, and what moved it?",
+    cls=_SortedTyperGroup,
+)
 upload_app = typer.Typer(help="Upload pipeline output (tables, files).", cls=_SortedTyperGroup)
 
 app.add_typer(create_app, name="create")
 app.add_typer(download_app, name="download")
 app.add_typer(report_app, name="report")
 app.add_typer(run_app, name="run")
+app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(upload_app, name="upload")
 
 console = Console()
@@ -1812,6 +1817,104 @@ def report_findings_cmd(
         raise typer.Exit(1) from e
 
     console.print(f"\n[bold green]✓ Report written: {output_path}[/bold green]\n")
+
+
+@snapshot_app.command("check")
+def snapshot_check_cmd(
+    data_root: Annotated[
+        Path | None,
+        typer.Option("--data-root", "-d", help="Tracker corpus root (default: from config)"),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Run output directory (default: <data-root>/output)"),
+    ] = None,
+):
+    """Diff the current run's output against the accepted baseline.
+
+    \b
+    Reads output that is already on disk -- it runs no pipeline. Run the
+    pipeline first, then this. Exits non-zero whenever anything moved, and
+    splits the movement into what the code did (same workbook, different
+    output -- the alarm) and what the workbooks did (edited since the
+    baseline -- expected after `a4d download trackers`).
+    """
+    from a4d.config import settings as _settings
+    from a4d.validate.snapshot import build_digest, diff_digests, format_diff
+    from a4d.validate.snapshot_store import SnapshotStore
+
+    root = data_root or _settings.data_root
+    output_root = output or (root / _settings.output_dir)
+    store = SnapshotStore.for_data_root(root)
+
+    console.print("\n[bold blue]A4D Snapshot Check[/bold blue]\n")
+    console.print(f"Output:   {output_root}")
+    console.print(f"Baseline: {store.baseline_path}\n")
+
+    digest = build_digest(output_root=output_root, data_root=root)
+    if digest.height == 0:
+        console.print(
+            f"[bold red]Error: no pipeline output found under {output_root}. "
+            "Run the pipeline before checking.[/bold red]\n"
+        )
+        raise typer.Exit(1)
+
+    store.write_current(digest)
+    console.print(f"Digested {digest['source'].n_unique()} sources, {digest.height} columns.\n")
+
+    baseline = store.baseline()
+    if baseline is None:
+        console.print(
+            "[bold yellow]No baseline yet.[/bold yellow] Review the run, then accept it "
+            "with [bold]a4d snapshot update[/bold].\n"
+            "Take the first baseline from a [bold]complete[/bold] run (`just snapshot-check`). "
+            "Output left over from a single-arm or partial run digests without complaint, "
+            "and every later check then reads the missing stages as movement.\n"
+        )
+        raise typer.Exit(1)
+
+    diff = diff_digests(baseline, digest)
+    console.print(format_diff(diff))
+    console.print()
+
+    if diff.moved:
+        console.print(
+            "[bold yellow]Output moved.[/bold yellow] If this is intended, accept it with "
+            "[bold]a4d snapshot update[/bold].\n"
+        )
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("update")
+def snapshot_update_cmd(
+    data_root: Annotated[
+        Path | None,
+        typer.Option("--data-root", "-d", help="Tracker corpus root (default: from config)"),
+    ] = None,
+):
+    """Accept the last check's digest as the new baseline.
+
+    \b
+    Runs nothing and reads no pipeline output -- it copies forward what the
+    last check already computed, and files a dated copy under `history/`.
+    So there is nothing to accept until a check has shown you what moved.
+    """
+    from datetime import date
+
+    from a4d.config import settings as _settings
+    from a4d.validate.snapshot_store import NoCurrentDigestError, SnapshotStore
+
+    store = SnapshotStore.for_data_root(data_root or _settings.data_root)
+
+    console.print("\n[bold blue]A4D Snapshot Update[/bold blue]\n")
+    try:
+        archived = store.promote(stamp=date.today().isoformat())
+    except NoCurrentDigestError as e:
+        console.print(f"[bold red]Error: {e}[/bold red]\n")
+        raise typer.Exit(1) from e
+
+    console.print(f"[bold green]✓ Baseline accepted: {store.baseline_path}[/bold green]")
+    console.print(f"  History copy: {archived}\n")
 
 
 def main():

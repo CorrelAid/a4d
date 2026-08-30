@@ -170,6 +170,51 @@ just test-fast
 uv run pytest tests/test_extract/test_patient.py
 ```
 
+### Golden-Master Snapshot Check
+
+`just test` proves the code does what its tests say. It cannot tell you that a
+change quietly altered the published output of the 255 real trackers -- and the
+automated checks never will, because they have no corpus and must publish
+nothing about it.
+
+The snapshot check fills that gap. It reduces a whole run to a **digest** -- per
+column: row count, nulls, distinct values, dtype, and a one-way fingerprint,
+never a value -- and diffs it against the accepted baseline. The baseline lives
+on the tracker drive under `snapshot/`, never in this public repository, so no
+per-clinic shape is published.
+
+```bash
+# Run both arms over the local corpus, then diff against the baseline (~3 min)
+just snapshot-check
+
+# Diff only, reusing output already on the drive (~40 s)
+just snapshot-diff
+
+# Accept what the last check showed as the new baseline
+just snapshot-update
+```
+
+A failing check splits the movement by what could have caused it:
+
+- **POSSIBLE REGRESSION -- same workbook, different output.** The tracker's own
+  MD5 is unchanged, so only the code can have moved it. This is the alarm.
+- **EXPECTED -- workbook edited since the baseline.** The MD5 changed, so the
+  output was supposed to move. Normal after refreshing the corpus.
+
+That second case is the other reason to run it. To see what a workbook fix
+actually did downstream:
+
+```bash
+uv run a4d download trackers --data-root "$A4D_DATA_ROOT"
+just snapshot-check     # shows exactly which findings went away
+just snapshot-update    # only if you agree with what it showed
+```
+
+`snapshot-update` runs nothing and reads no pipeline output -- it copies the
+last check's digest forward and files a dated copy under `snapshot/history/`.
+So there is nothing to accept until a check has shown you what moved. Note the
+acceptance in the commit message; the digest itself stays on the drive.
+
 ### Code Quality
 
 `just ci` runs the checks in CI's own order, and the CI workflow
