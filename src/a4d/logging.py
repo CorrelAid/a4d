@@ -66,6 +66,32 @@ def clear_run_logs(output_root: Path, *, keep_per_tracker: bool = False) -> None
         stale.unlink()
 
 
+def configure_quiet_console(level: str = "ERROR") -> None:
+    """Install a single console handler, before any pipeline stage runs.
+
+    `setup_logging` is called from inside each arm, so everything the run does
+    before an arm starts -- the Drive and GCS downloads -- still had loguru's
+    default DEBUG-to-stderr handler installed. That put one line per tracker on
+    the production console: 256 of them on the 2026-08-30 run, after the
+    per-finding warnings had already been silenced.
+
+    No file sink: this covers the window before an arm opens its own log file,
+    and the output directory is not even cleared yet at that point.
+
+    Args:
+        level: Minimum level the console shows until an arm reconfigures it
+    """
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        level=level,
+        colorize=True,
+        format=(
+            "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+        ),
+    )
+
+
 def _main_thread_only(record) -> bool:  # noqa: ANN001
     """Filter that passes only log records from the main thread.
 

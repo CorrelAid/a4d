@@ -13,7 +13,7 @@ from rich.table import Table
 
 from a4d.discovery import discover_tracker_files
 from a4d.findings import Finding
-from a4d.logging import clear_run_logs
+from a4d.logging import clear_run_logs, configure_quiet_console
 from a4d.pipeline.patient import (
     process_patient_tables,
     run_patient_pipeline,
@@ -1330,6 +1330,11 @@ def run_all_cmd(
         ("Force", "yes" if force else "no"),
     ]
     _render_pipeline_header(settings.data_root, settings.output_root, _workers, extras=extras)
+
+    # Before Step 0, because the download steps below run before either arm
+    # calls setup_logging -- until then loguru's default DEBUG handler is what
+    # is installed, and it printed one line per tracker downloaded.
+    configure_quiet_console()
 
     # Step 0 – Download reference data from Google Drive
     if not skip_drive_download:
