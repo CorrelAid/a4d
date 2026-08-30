@@ -154,7 +154,13 @@ class TestLoadPipelineTables:
 
     @patch("a4d.gcp.bigquery.load_table")
     @patch("a4d.gcp.bigquery.get_bigquery_client")
-    def test_continues_on_single_table_failure(self, mock_get_client, mock_load, tmp_path):
+    def test_tries_the_remaining_tables_then_raises(self, mock_get_client, mock_load, tmp_path):
+        """One unloadable table must not strand the others -- nor be swallowed.
+
+        The old contract returned the partial result set and let the caller
+        report success, which is how the 2026-08-30 production run exited 0
+        with `findings` never created.
+        """
         tables_dir = tmp_path / "tables"
         tables_dir.mkdir()
 
@@ -167,10 +173,10 @@ class TestLoadPipelineTables:
         # First call succeeds, second fails
         mock_load.side_effect = [MagicMock(), Exception("API error")]
 
-        results = load_pipeline_tables(tables_dir, client=mock_client)
+        with pytest.raises(RuntimeError, match="API error"):
+            load_pipeline_tables(tables_dir, client=mock_client)
 
-        # Should have one success despite the failure
-        assert len(results) == 1
+        assert mock_load.call_count == 2
 
 
 class TestPublishedTableNames:
@@ -189,3 +195,81 @@ class TestPublishedTableNames:
         from a4d.gcp.bigquery import published_table_names
 
         assert published_table_names() == sorted(published_table_names())
+
+
+class TestClusteringFieldLimit:
+    """BigQuery rejects a table clustered on more than four fields.
+
+    `findings` shipped with five and so had never once loaded: the production
+    run of 2026-08-30 failed it with "5 clustering fields specified, exceeding
+    the limit of 4" while still reporting overall success.
+    """
+
+    def test_no_table_exceeds_four_clustering_fields(self):
+        from a4d.gcp.bigquery import BIGQUERY_MAX_CLUSTERING_FIELDS, TABLE_CONFIGS
+
+        too_many = {
+            table: fields
+            for table, fields in TABLE_CONFIGS.items()
+            if len(fields) > BIGQUERY_MAX_CLUSTERING_FIELDS
+        }
+        assert too_many == {}
+
+    def test_the_limit_matches_bigquerys_documented_maximum(self):
+        from a4d.gcp.bigquery import BIGQUERY_MAX_CLUSTERING_FIELDS
+
+        assert BIGQUERY_MAX_CLUSTERING_FIELDS == 4
+
+
+class TestLoadPipelineTablesReportsFailures:
+    """A table that fails to load must fail the run.
+
+    The 2026-08-30 production run exited 0 with `findings` never created,
+    because every load error was logged and swallowed. Nothing downstream --
+    not the CLI summary, not the job's exit status -- said a table was missing.
+    """
+
+    def test_raises_when_a_table_fails_to_load(self, tmp_path, monkeypatch):
+        import polars as pl
+
+        from a4d.gcp import bigquery as bq
+
+        tables_dir = tmp_path / "tables"
+        tables_dir.mkdir()
+        for name in ("patient_data_static.parquet", "table_findings.parquet"):
+            pl.DataFrame({"a": [1]}).write_parquet(tables_dir / name)
+
+        def fake_load_table(*, parquet_path, table_name, **kwargs):
+            if table_name == "findings":
+                raise RuntimeError("5 clustering fields specified, exceeding the limit of 4.")
+            return MagicMock()
+
+        monkeypatch.setattr(bq, "load_table", fake_load_table)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            bq.load_pipeline_tables(tables_dir, client=MagicMock())
+
+        assert "findings" in str(excinfo.value)
+
+    def test_attempts_every_table_before_raising(self, tmp_path, monkeypatch):
+        import polars as pl
+
+        from a4d.gcp import bigquery as bq
+
+        tables_dir = tmp_path / "tables"
+        tables_dir.mkdir()
+        for name in ("patient_data_static.parquet", "table_findings.parquet"):
+            pl.DataFrame({"a": [1]}).write_parquet(tables_dir / name)
+
+        attempted = []
+
+        def fake_load_table(*, parquet_path, table_name, **kwargs):
+            attempted.append(table_name)
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(bq, "load_table", fake_load_table)
+
+        with pytest.raises(RuntimeError):
+            bq.load_pipeline_tables(tables_dir, client=MagicMock())
+
+        assert sorted(attempted) == ["findings", "patient_data_static"]
