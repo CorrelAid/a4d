@@ -67,6 +67,7 @@ ErrorCode = Literal[
     "month_sheets_end_early",
     "static_sheet_missing",
     "static_sheet_duplicate_id",
+    "duplicate_patient_row_in_sheet",
     "empty_product_data",
     "product_section_not_found",
     # --- the patient cannot be identified ---
@@ -172,6 +173,7 @@ FINDING_SCOPE: dict[ErrorCode, FindingScope] = {
     # the latter is a per-sheet edit.
     "value_not_in_allowed_list": "tracker_value",
     "product_not_in_catalogue": "sheet_value",
+    "duplicate_patient_row_in_sheet": "sheet_value",
     # One source row.
     "excel_error_patient_id": "row",
     "missing_required_field": "row",
@@ -227,6 +229,7 @@ FINDING_CATEGORY: dict[ErrorCode, FindingCategory] = {
     "month_sheets_end_early": "fix_workbook",
     "static_sheet_missing": "fix_workbook",
     "static_sheet_duplicate_id": "fix_workbook",
+    "duplicate_patient_row_in_sheet": "fix_workbook",
     "empty_product_data": "fix_workbook",
     "product_section_not_found": "fix_workbook",
     "excel_error_patient_id": "fix_workbook",
@@ -330,6 +333,12 @@ FINDING_GLOSSARY: dict[ErrorCode, str] = {
         "The Patient List or Annual sheet lists the same patient more than once "
         "under IDs that differ only by a hyphen or a transfer-clinic suffix. The "
         "first entry was kept; merge the rows so one patient has one entry."
+    ),
+    "duplicate_patient_row_in_sheet": (
+        "This month sheet lists the same patient more than once, so that patient "
+        "has several rows for one month and is counted more than once. Usually "
+        "two lists pasted into one sheet, or one row entered twice. Merge them "
+        "into a single row."
     ),
     "empty_product_data": (
         "No product/stock section was found in any sheet of this workbook, so the "

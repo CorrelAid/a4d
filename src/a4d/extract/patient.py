@@ -526,6 +526,65 @@ def _report_rows_left_below(rows, sheet_name: str, stopped_at: int) -> None:
     )
 
 
+def report_duplicate_patients_in_sheet(df_sheet: pl.DataFrame, sheet_name: str) -> None:
+    """Say so when one month sheet lists the same patient more than once.
+
+    2024 Vietnam National Children's ``Jul24`` splices two patient lists into
+    one sheet -- its row-number column runs 1..78 while 21 of the IDs repeat,
+    each copy carrying different readings -- and both copies reach the monthly
+    table, so those patients are counted twice for July. Two more sheets do the
+    same for one patient each (2023 VNCH ``Jun23``, 2018 Penang General
+    ``Oct18``).
+
+    Grouped on the *normalized* identity rather than the literal cell, because
+    2026 Surat Thani writes ``TH-QG029`` and ``TH_QG029`` on one sheet and
+    those fold to one patient downstream. Grouping on the raw spelling would
+    miss it; the message names both spellings, since making them agree is the
+    workbook fix.
+
+    Only IDs that could name a patient are grouped. A cell holding no ID, a
+    broken formula, or the template's leftover ``0`` is not one patient
+    repeated -- it is several rows nobody can identify, which the pipeline
+    drops and reports on its own terms further down. Grouping them anyway
+    turned 24 real duplicates into 59 findings, 26 of them "patient 0" and 9
+    "patient #REF!".
+
+    Runs before the sheet is concatenated with its siblings, so the finding
+    names the one sheet the duplicate has to be fixed on.
+    """
+    identity = "__duplicate_check_key"
+    trimmed = pl.col("patient_id").str.strip_chars()
+    names_a_patient = (
+        (trimmed != "") & ~trimmed.str.starts_with("#") & trimmed.str.contains(r"[A-Za-z]")
+    )
+    grouped = (
+        df_sheet.select("patient_id")
+        .drop_nulls()
+        .filter(names_a_patient)
+        .with_columns(normalize_patient_id_expr(pl.col("patient_id")).alias(identity))
+        .group_by(identity)
+        .agg(pl.len().alias("rows"), pl.col("patient_id").unique().sort().alias("spellings"))
+        .filter(pl.col("rows") > 1)
+        .sort(identity)
+    )
+
+    for row in grouped.iter_rows(named=True):
+        spellings = row["spellings"]
+        spelled = f" (spelled {', '.join(spellings)})" if len(spellings) > 1 else ""
+        report_finding(
+            error_code="duplicate_patient_row_in_sheet",
+            message=(
+                f"Patient {row[identity]} has {row['rows']} rows on this sheet{spelled}, "
+                "so this month is counted more than once for them. Merge them into one row."
+            ),
+            patient_id=row[identity],
+            original_value=", ".join(spellings),
+            sheet_name=sheet_name,
+            stage="extract",
+            function_name="report_duplicate_patients_in_sheet",
+        )
+
+
 def merge_duplicate_columns_data(
     headers: list[str], data: list[list]
 ) -> tuple[list[str], list[list]]:
@@ -1231,6 +1290,8 @@ def read_all_patient_sheets(
                 function_name="read_all_patient_sheets",
             )
             continue
+
+        report_duplicate_patients_in_sheet(df_sheet, sheet_name)
 
         try:
             month_num = extract_tracker_month(sheet_name)
