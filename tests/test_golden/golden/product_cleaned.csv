@@ -1,0 +1,11 @@
+product,product_units_notes,product_entry_date,product_units_released,product_released_to,product_units_received,product_received_from,product_balance,product_units_returned,product_returned_by,product_table_month,product_table_year,product_sheet_name,file_name,product_balance_status,product_category,orig_product_released_to,product_unit_capacity,product_remarks,clinic_id
+Accu-Chek Softclix Lancet (200s),,2026-01-01,0.0,,0.0,,12.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,start,LANCETS,,200,,KBH
+Accu-Chek Softclix Lancet (200s),,2026-01-20,0.0,KH_QB003,0.0,,12.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,end,LANCETS,,200,,KBH
+CareSens N Strips (50s),,2026-01-01,0.0,,0.0,,60.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,start,TEST STRIPS,,50,Opening balance,KBH
+CareSens N Strips (50s),,2026-01-08,0.0,,40.0,A4D HQ,100.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,change,TEST STRIPS,,50,,KBH
+CareSens N Strips (50s),,2026-01-15,2.0,KH_QB001,0.0,,98.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,change,TEST STRIPS,,50,,KBH
+CareSens N Strips (50s),,2026-01-22,0.0,KH_QB002,0.0,,98.0,0.0,,1,2026,Jan26,2026_Golden Master A4D Tracker,end,TEST STRIPS,,50,,KBH
+Accu-Chek Softclix Lancet (200s),,2026-02-01,0.0,,0.0,,11.0,0.0,,2,2026,Feb26,2026_Golden Master A4D Tracker,start,LANCETS,,200,,KBH
+Accu-Chek Softclix Lancet (200s),,2026-02-18,0.0,,0.0,A4D HQ,11.0,0.0,,2,2026,Feb26,2026_Golden Master A4D Tracker,end,LANCETS,,200,Quarterly delivery,KBH
+CareSens N Strips (50s),,2026-02-01,0.0,,0.0,,96.0,0.0,,2,2026,Feb26,2026_Golden Master A4D Tracker,start,TEST STRIPS,,50,,KBH
+CareSens N Strips (50s),,2026-02-12,0.0,KH_QB004,0.0,,96.0,0.0,,2,2026,Feb26,2026_Golden Master A4D Tracker,end,TEST STRIPS,,50,,KBH

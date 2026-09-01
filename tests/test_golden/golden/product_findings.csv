@@ -1,0 +1,13 @@
+error_code,column,sheet_name,stage,count
+balance_reconciliation,product_balance,Feb26,clean,2
+balance_reconciliation,product_balance,Jan26,clean,2
+unrecognised_column,_unnamed_0,Feb26,extract,1
+unrecognised_column,_unnamed_0,Jan26,extract,1
+unrecognised_column,_unnamed_11,Feb26,extract,1
+unrecognised_column,_unnamed_11,Jan26,extract,1
+unrecognised_column,_unnamed_2,Feb26,extract,1
+unrecognised_column,_unnamed_2,Jan26,extract,1
+unrecognised_column,_unnamed_3,Feb26,extract,1
+unrecognised_column,_unnamed_3,Jan26,extract,1
+unrecognised_column,_unnamed_8,Feb26,extract,1
+unrecognised_column,_unnamed_8,Jan26,extract,1

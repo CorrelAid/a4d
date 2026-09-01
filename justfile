@@ -78,6 +78,13 @@ test-integration:
 test-fast:
     uv run pytest -m "not slow and not integration" --no-cov -x
 
+# Accept a deliberate change to the golden-master output. Rebuilds the files
+# under tests/test_golden/golden/ from the synthetic tracker; read the diff
+# before committing it. Unlike `snapshot-update` this needs no tracker drive --
+# the workbook is built in code and nothing in it is real.
+golden-update:
+    uv run python scripts/update_golden.py
+
 # Coverage floors, read from the data `just test` just wrote -- so run it after.
 # Two floors, both 85%: the pipeline source as a whole (89% today), and the
 # product modules specifically, which were the gap ticket 8 found. The floor is

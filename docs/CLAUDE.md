@@ -100,7 +100,13 @@ patients each named clinic has. See the Golden-Master section of the README.
   stream. It raises outside a context rather than dropping the finding
 - Two published artifacts, two jobs: `findings` (what is wrong with a workbook, for A4D
   staff) and `logs` (what the pipeline did, for a developer). `errors` is superseded
-- Output stability is checked by `just snapshot-check`, which needs the tracker
+- Output stability is checked at two scales. The golden master runs everywhere,
+  including CI: one synthetic workbook built by
+  `tests/test_golden/golden_tracker.py`, its cleaned output for both arms
+  committed in full under `tests/test_golden/golden/`, diffed by
+  `tests/test_golden/` on every push. Accept a deliberate change with
+  `just golden-update`. The thorough check is `just snapshot-check` over all
+  255 real workbooks, which needs the tracker
   drive and so can never run in CI. Columns are hashed as multisets (BigQuery
   tables are unordered, and parallel workers reorder rows every run); each frame
   also carries a row-alignment fingerprint so one column cannot drift against the

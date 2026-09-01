@@ -1,0 +1,7 @@
+error_code,column,sheet_name,stage,count
+unrecognised_column,BGM A4D,Patient List,extract,1
+unrecognised_column,Current Insulin Regimen,Patient List,extract,1
+unrecognised_column,Insulin A4D,Patient List,extract,1
+unrecognised_column,Insurance Card Status,Patient List,extract,1
+unrecognised_column,Phone Number,Patient List,extract,1
+value_not_in_allowed_list,insulin_subtype,"",clean,1
