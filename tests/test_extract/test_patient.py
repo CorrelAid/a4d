@@ -1,5 +1,6 @@
 """Tests for patient data extraction."""
 
+import re
 from pathlib import Path
 
 import polars as pl
@@ -200,13 +201,14 @@ def test_extract_patient_data_2024_detailed():
     """Detailed test for 2024 tracker with patient ID validation."""
     df = extract_patient_data(TRACKER_SBU_2024, "Jan24", 2024)
 
-    # Verify specific patient IDs
+    # The workbook is real and lives on the tracker drive, so the identifiers
+    # are asserted by shape and sequence rather than by value -- this repository
+    # is public and does not carry patient identifiers (reporting-map ticket 1).
     patient_ids = df["Patient ID*"].to_list()
-    assert patient_ids == ["MY_QI001", "MY_QI002", "MY_QI003", "MY_QI004"], (
-        f"Expected MY_QI001-004, got {patient_ids}"
-    )
-
-    print(f"\n2024 Jan24 - Patient IDs: {patient_ids} ✓")
+    assert len(patient_ids) == 4
+    assert all(re.fullmatch(r"MY_[A-Z]{2}\d{3}", pid) for pid in patient_ids)
+    assert patient_ids == sorted(patient_ids)
+    assert len(set(patient_ids)) == 4
 
 
 def test_harmonize_patient_data_columns_basic():
@@ -311,7 +313,9 @@ def test_harmonize_real_tracker_data():
 
     # Check that data is preserved
     assert len(harmonized) == len(raw_df)  # Same number of rows
-    assert harmonized["patient_id"].to_list() == ["MY_QI001", "MY_QI002", "MY_QI003", "MY_QI004"]
+    # Preservation is the subject here, so compare the two frames rather than
+    # naming the identifiers the real workbook carries.
+    assert harmonized["patient_id"].to_list() == raw_df["Patient ID*"].to_list()
 
 
 def test_extract_tracker_month():
