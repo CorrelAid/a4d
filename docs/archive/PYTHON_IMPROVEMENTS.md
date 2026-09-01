@@ -3,11 +3,12 @@
 > **ARCHIVED — frozen, and known to be incomplete.** See
 > [`docs/archive/README.md`](README.md). This was a hand-maintained list
 > written early in the migration, and the completeness audit
-> ([wayfinder ticket 7](../wayfinder/tickets/07-pipeline-completeness-audit.md))
+> (the migration completeness audit)
 > found it **undercounting the known divergences**. It was superseded by two
 > things that derive rather than list: the cause registry in
 > `src/a4d/migration/compare.py`, where every divergence is tied to a mechanism
-> traced in real source workbooks, and the wayfinder map's Decisions-so-far.
+> traced in real source workbooks, and the migration's own decision record, which is kept outside this
+> repository.
 > Read those for the real inventory; read this for early context only. Frozen
 > at tag `migration-archive-frozen`.
 
@@ -137,7 +138,7 @@ for h1, h2 in zip(header_1, header_2, strict=True):
 
 **Status**: ✅ Improved in Python
 
-Three distinct date-parsing patterns surfaced during product-pipeline diff investigation against R goldens. In each case Python yields a more correct result than R; no R-parity fix is warranted. Investigation: the underlying notebook (`Ali_internship/residual_dig.ipynb`) was never committed to the repo and no longer exists; the surviving record of this analysis is [`Product pipeline parity presentation.pdf`](Product%20pipeline%20parity%20presentation.pdf), kept until the automated comparison script (see [ticket 2](../wayfinder/tickets/02-documentation-strategy.md)) reproduces and supersedes its numbers.
+Three distinct date-parsing patterns surfaced during product-pipeline diff investigation against R goldens. In each case Python yields a more correct result than R; no R-parity fix is warranted. Investigation: the underlying notebook (`Ali_internship/residual_dig.ipynb`) was never committed to the repo and no longer exists; the surviving record of this analysis is [`Product pipeline parity presentation.pdf`](Product%20pipeline%20parity%20presentation.pdf), kept until the automated comparison script reproduces and supersedes its numbers.
 
 ### 5.1 "Sept" → "Sep" month abbreviation
 

@@ -75,3 +75,5 @@ secrets/
 .opencode
 CLAUDE.local.md
 coverage.xml
+docs/wayfinder/
+docs/wayfinder-reporting/

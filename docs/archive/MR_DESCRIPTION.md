@@ -19,7 +19,7 @@ first -- the cell-by-cell triage over 254 trackers, the production verification
 run, the dependency audit, the performance profile, R's retirement, and the
 documentation overhaul. What is listed at the end stayed open and never blocked
 it; it carries on under
-[docs/wayfinder/map.md](../wayfinder/map.md).
+the migration decision record, kept outside this repository.
 
 ---
 
@@ -493,7 +493,8 @@ columns left for that month.
 ## Where verification stands
 
 Current baseline: `output/comparison/2026-08-21T215325Z`, 254 trackers.
-Earlier counts on the wayfinder map were measured against smaller tracker sets
+Earlier counts in the migration decision record were measured against smaller
+tracker sets
 and should be read as historical.
 
 | Stage | Mismatches | Unclassified |
@@ -514,7 +515,7 @@ the pipeline *should* publish, not a difference nobody understands.
 
 # Open at the time of the merge
 
-**None of this blocked the merge.** It is the work the wayfinder map carries
+**None of this blocked the merge.** It is the work the migration record carries
 forward. This list is frozen as of 2026-08-24 and is not updated -- the map is
 the live record.
 
@@ -813,4 +814,4 @@ Cleaned `unclassified` is back to **16**, with the four-stage totals unchanged.
   predating the current `src/` layout — not in git, pending a decision to delete.
 
 Full history, per-ticket evidence and every decision:
-[docs/wayfinder/map.md](../wayfinder/map.md).
+the migration decision record, kept outside this repository.

@@ -16,7 +16,7 @@ happened:
   *supposed* to move.
 
 The digest is written beside the tracker corpus rather than committed, so no
-per-clinic shape is published; see ``docs/wayfinder/tickets/09-snapshot-
+per-clinic shape is published; see the planning record kept outside this
 regression-tests.md`` for that decision.
 """
 

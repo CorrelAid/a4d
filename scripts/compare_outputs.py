@@ -1068,7 +1068,7 @@ is measuring real disagreement or just has nothing to compare.
 [bold]Cell divergence[/bold]    -- rows matched across R and Python (via the arm's \
 row-alignment key), diffed value by value. The most granular value comparison -- but it's only \
 meaningful once Row-key divergence above confirms the key actually paired the rows; 0 here can \
-mean "everything agreed" or "nothing was paired to compare" (ticket 15/17 on the wayfinder map).\
+mean "everything agreed" or "nothing was paired to compare".\
 """
 
 

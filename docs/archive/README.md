@@ -21,7 +21,7 @@ fact stated here should be assumed stale unless the code agrees.
 | What the pipeline does and how to run it | [`README.md`](../../README.md), [`SETUP.md`](../../SETUP.md) |
 | Module-by-module map, CLI, output layout | [`docs/CLAUDE.md`](../CLAUDE.md) |
 | Why a particular cleaning rule exists | the docstring on the rule itself |
-| The migration's decision history | [`docs/wayfinder/`](../wayfinder/map.md) |
+| The migration's decision history | Kept outside this repository |
 | The old R source | `git show r-archive-removed^:r-archive/R/<file>` |
 
 ## What is here
@@ -33,7 +33,7 @@ fact stated here should be assumed stale unless the code agrees.
   plus the R-to-Python step mapping.
 - **`PYTHON_IMPROVEMENTS.md`** — cases where Python was judged more correct
   than R. Superseded as a *catalogue* by the cause registry in
-  `src/a4d/migration/compare.py` and by the wayfinder map's decisions, both of
+  `src/a4d/migration/compare.py` and by the migration decision record, both of
   which are evidence-backed where this document is not.
 - **`PRODUCT_DATA_PIPELINE_FEATURE.md`** — the original proposal for the
   product arm, written before it was built. Already marked obsolete in its own
@@ -44,8 +44,9 @@ fact stated here should be assumed stale unless the code agrees.
 ## Why they were kept rather than deleted
 
 The migration's conclusions rest on cell-by-cell evidence gathered over 56
-wayfinder tickets. Those conclusions are now expressed where they belong — in
-the code's own docstrings, in the wayfinder map, and in the comparison tool's
+migration tickets. Those conclusions are now expressed where they belong — in
+the code's own docstrings, in the migration decision record, and in the
+comparison tool's
 cause registry. These documents are the working papers behind them. They cost
 nothing to keep and they are the only place some of the intermediate reasoning
 survives.
