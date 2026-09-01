@@ -23,7 +23,6 @@ Usage:
 
 import shutil
 import sys
-import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -92,23 +91,12 @@ def configure_quiet_console(level: str = "ERROR") -> None:
     )
 
 
-def _main_thread_only(record) -> bool:  # noqa: ANN001
-    """Filter that passes only log records from the main thread.
-
-    Used on the console handler when running parallel workers so that
-    worker thread logs don't flood the console or break tqdm progress bars.
-    Worker logs still reach their per-tracker JSON file handlers.
-    """
-    return threading.current_thread() is threading.main_thread()
-
-
 def setup_logging(
     output_root: Path,
     log_name: str,
     level: str = "INFO",
     console: bool = True,
     console_level: str | None = None,
-    console_main_thread_only: bool = False,
 ) -> None:
     """Configure loguru for pipeline-wide operational logging.
 
@@ -144,7 +132,6 @@ def setup_logging(
             sys.stdout,
             level=console_log_level,
             colorize=True,
-            filter=_main_thread_only if console_main_thread_only else None,
             format=(
                 "<green>{time:HH:mm:ss}</green> | "
                 "<level>{level: <8}</level> | "

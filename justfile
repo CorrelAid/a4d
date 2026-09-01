@@ -66,7 +66,7 @@ ci: lint format-check check test cov-floor
 # deliberately -- they need the tracker USB drive, which CI has no access to, so
 # including them here would make the local result depend on what is plugged in.
 test:
-    uv run pytest -m "not slow and not integration" --cov --cov-report=xml
+    uv run pytest -m "not slow and not integration" --cov-report=xml
 
 # The drive-dependent tests, run deliberately when the tracker USB drive is
 # mounted. Never part of `just ci` -- CI cannot run these at all.
@@ -86,10 +86,11 @@ golden-update:
     uv run python scripts/update_golden.py
 
 # Coverage floors, read from the data `just test` just wrote -- so run it after.
-# Two floors, both 85%: the pipeline source as a whole (89% today), and the
-# product modules specifically, which were the gap ticket 8 found. The floor is
-# measured over src/a4d only; a repo-wide figure is inflated by the test files
-# scoring themselves at ~100% and would gate nothing.
+# Two floors, both 85%: the pipeline source as a whole (90% today), and the
+# product modules specifically, which were the gap ticket 8 found. Measurement
+# is confined to src/a4d by `--cov=src/a4d` in pyproject's addopts; the
+# `--include` here is belt-and-braces so the floor cannot silently start
+# grading test files if that ever changes.
 cov-floor:
     uv run coverage report --include="src/a4d/*" --fail-under=85
     uv run coverage report \
