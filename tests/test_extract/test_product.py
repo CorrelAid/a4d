@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from a4d.extract.product import (
     ProductSectionNotFoundError,
     _count_orphan_released_units,
+    _drop_empty_unnamed_columns,
     _harmonize,
     add_product_metadata,
     extract_product_data,
@@ -102,6 +103,34 @@ def test_harmonize_renames_known_drops_unknown(collector):
     assert collector.findings[0].column == "Random Junk"
     assert collector.findings[0].error_code == "unrecognised_column"
     assert collector.findings[0].function_name == "report_unrecognised_columns"
+
+
+def test_drop_empty_unnamed_columns_keeps_the_ones_with_data():
+    df = pl.DataFrame(
+        {
+            "Product Name": ["Insulin", "Strips"],
+            "_unnamed_3": [None, None],
+            "_unnamed_4": ["  ", None],
+            "_unnamed_5": [None, "note"],
+        },
+        schema=dict.fromkeys(["Product Name", "_unnamed_3", "_unnamed_4", "_unnamed_5"], pl.String),
+    )
+
+    out = _drop_empty_unnamed_columns(df)
+
+    assert out.columns == ["Product Name", "_unnamed_5"]
+
+
+def test_harmonize_reports_only_unnamed_columns_with_data(collector):
+    df = pl.DataFrame(
+        {"Product Name": ["Insulin"], "_unnamed_3": [None], "_unnamed_5": ["note"]},
+        schema=dict.fromkeys(["Product Name", "_unnamed_3", "_unnamed_5"], pl.String),
+    )
+    mapper = _make_mapper({"Product Name": "product"})
+
+    _harmonize(df, mapper, sheet_name="Jun24", file_name="t.xlsx")
+
+    assert [f.column for f in collector.findings] == ["_unnamed_5"]
 
 
 def test_harmonize_no_unknowns_no_log(collector):

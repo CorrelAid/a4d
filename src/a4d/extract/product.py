@@ -309,6 +309,24 @@ def _count_orphan_released_units(
     )
 
 
+def _drop_empty_unnamed_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """Drop the columns without a header that hold no data at all.
+
+    A blank header gets the name ``_unnamed_<n>`` in ``extract_product_data``.
+    When every cell under it is empty (or only spaces), the column carries
+    nothing: reporting it as ``unrecognised_column`` would only add noise.
+    An unnamed column with at least one filled cell is kept, so it is still
+    reported.
+    """
+    empty = [
+        c
+        for c in df.columns
+        if c.startswith("_unnamed_")
+        and df.select(pl.col(c).str.strip_chars().replace("", None).is_null().all()).item()
+    ]
+    return df.drop(empty)
+
+
 def _harmonize(
     df: pl.DataFrame,
     mapper: ColumnMapper,
@@ -316,6 +334,7 @@ def _harmonize(
     file_name: str,
 ) -> pl.DataFrame:
     """Rename columns via the mapper, then drop any column not in the synonym schema (step 1.5)."""
+    df = _drop_empty_unnamed_columns(df)
     report_unrecognised_columns(df, mapper, sheet_name)
 
     df = mapper.rename_columns(df, sheet_name=sheet_name)
