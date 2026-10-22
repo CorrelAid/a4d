@@ -14,6 +14,7 @@ transformers.py for better type safety and maintainability.
 """
 
 import re
+import unicodedata
 from typing import Any
 
 import polars as pl
@@ -29,8 +30,8 @@ def sanitize_str(text: str) -> str:
     Punctuation, casing and spacing must not decide whether a clinic's typed
     value matches an allowed one:
     1. Convert to lowercase
-    2. Remove spaces
-    3. Remove special characters (keep only alphanumeric)
+    2. Fold accents to the plain letter (é -> e, đ -> d), so they are not dropped
+    3. Remove spaces and special characters (keep only a-z and 0-9)
 
     Args:
         text: String to sanitize
@@ -43,10 +44,14 @@ def sanitize_str(text: str) -> str:
         'activeremote'
         >>> sanitize_str("Lost Follow Up")
         'lostfollowup'
+        >>> sanitize_str("Hà Nội*")
+        'hanoi'
     """
     if not isinstance(text, str):
         return text
-    return re.sub(r"[^a-z0-9]", "", text.lower())
+    text = unicodedata.normalize("NFKD", text.lower().replace("đ", "d"))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", text)
 
 
 def load_validation_rules() -> dict[str, Any]:
@@ -298,7 +303,7 @@ def validate_province(
     sanitizing both sides for comparison and setting an unrecognised province
     to "Undefined". Sanitizing folds accents, which recovers spellings a
     stricter comparison loses (`Thái Nguyễn` -> `Thái Nguyên`); this is safe
-    because the 209-entry province list has no two entries that sanitize
+    because the province list has no two entries that sanitize
     alike, and validate_allowed_values raises if any two ever do.
 
     Args:

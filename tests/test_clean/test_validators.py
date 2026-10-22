@@ -6,9 +6,11 @@ import pytest
 from a4d.clean.validators import (
     fix_patient_id,
     load_validation_rules,
+    sanitize_str,
     validate_all_columns,
     validate_allowed_values,
     validate_column_from_rules,
+    validate_province,
 )
 from a4d.config import settings
 
@@ -750,3 +752,61 @@ def test_validate_allowed_values_rejects_aliases_for_a_non_allowed_canonical():
             allowed_values=["Active"],
             aliases={"Active Remotte": ["Active - Remote"]},
         )
+
+
+def test_sanitize_str_folds_accents_instead_of_dropping_them():
+    """An accented letter becomes its plain letter; it is not deleted ('Takéo' was 'tako')."""
+    assert sanitize_str("Takéo") == sanitize_str("Takeo") == "takeo"
+    assert sanitize_str("Nam Định") == sanitize_str("Namdinh") == "namdinh"
+    assert sanitize_str("Hưng Yên") == "hungyen"
+
+
+def test_validate_allowed_values_accepts_a_value_typed_without_accents(collector):
+    """A value typed without accents matches and is published with the official spelling."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan26",
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
+            "province": ["Takeo", "Ha Noi", "Dong Nai"],
+        }
+    )
+
+    result = validate_allowed_values(
+        df=df,
+        column="province",
+        allowed_values=["Takéo", "Hà Nội*", "Đồng Nai"],
+        replace_invalid=True,
+    )
+
+    assert result["province"].to_list() == ["Takéo", "Hà Nội*", "Đồng Nai"]
+    assert len(collector) == 0
+
+
+def test_validate_province_accepts_names_typed_without_accents(collector):
+    """With the real province list: names without accents are accepted, unknown names are not."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 4,
+            "sheet_name": "Jan26",
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
+            "province": ["Takeo", "Kratie", "Hanoi", "Atlantis"],
+        }
+    )
+
+    result = validate_province(df)
+
+    assert result["province"].to_list() == [
+        "Takéo",
+        "Kratié",
+        "Hà Nội*",
+        settings.error_val_character,
+    ]
+
+
+def test_no_two_provinces_sanitize_alike():
+    """Folding accents must not make two provinces of the list the same."""
+    from a4d.reference.provinces import load_canonical_provinces
+
+    keys = [sanitize_str(p) for p in load_canonical_provinces()]
+    assert len(keys) == len(set(keys))
