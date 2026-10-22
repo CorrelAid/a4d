@@ -246,3 +246,18 @@ class TestIntegrationWithActualData:
         assert is_valid_province(test_province)
         assert is_valid_province(test_province.upper())
         assert is_valid_province(test_province.title())
+
+
+class TestPhilippines:
+    """The Philippines are in the province list, as in the master clinic data (Province_List)."""
+
+    def test_philippines_has_all_master_list_provinces(self):
+        provinces_by_country = load_provinces_by_country()
+
+        assert "PHILIPPINES" in provinces_by_country
+        assert len(provinces_by_country["PHILIPPINES"]) == 83
+
+    def test_philippine_provinces_are_valid(self):
+        for province in ["Laguna", "Metro Manila", "Negros Oriental", "Zamboanga Sibugay"]:
+            assert is_valid_province(province)
+            assert get_country_for_province(province) == "PHILIPPINES"
