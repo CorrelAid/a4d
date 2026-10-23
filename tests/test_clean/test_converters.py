@@ -996,3 +996,32 @@ def test_date_sentinel_assignment_does_not_rely_on_a_removed_cast(collector):
         date(2024, 1, 15),
         date(9999, 9, 9),
     ]
+
+
+def test_safe_convert_column_treats_written_absence_as_missing(collector):
+    """Ticket 6: a word meaning "we don't know" records an absence, so the number
+    cell becomes empty instead of the 999999 'recorded but invalid' value, as the
+    date path already did. "HI" (above the meter limit) and "no" (can mean 0) are
+    not absences: they keep the error value and are reported."""
+    values = ["7.5", "?", "Unknown", "nil", "???", "_", "Miss", "e.g. xxx", "HI", "no"]
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * len(values),
+            "sheet_name": "Jan26",
+            "patient_id": [f"XX_QA{i:03d}" for i in range(1, len(values) + 1)],
+            "hba1c_updated": values,
+        }
+    )
+
+    result = safe_convert_column(df=df, column="hba1c_updated", target_type=pl.Float64)
+
+    error = float(settings.error_val_numeric)
+    assert result["hba1c_updated"].to_list() == [7.5] + [None] * 7 + [error, error]
+    assert sorted(f.original_value for f in collector.findings) == ["HI", "no"]
+
+
+def test_parse_date_flexible_treats_new_absence_words_as_missing():
+    """Ticket 6: the words added to the shared missing markers are empty dates too,
+    including the template's example text left in a cell."""
+    for marker in ("???", "_", "Miss", "missing date", "mmm-yy", "e.g. xxx"):
+        assert parse_date_flexible(marker) is None, marker
