@@ -324,7 +324,7 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 
     - Replaces ranges like "0-2" with mean "1"
     - Preserves null and empty values as null
-    - Logs warning when ranges are detected
+    - Reports one finding per range, with its sheet, patient, value and mean
 
     Args:
         df: Input DataFrame
@@ -341,19 +341,12 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
     if "testing_frequency" not in df.columns:
         return df
 
-    # Track if we logged warnings
-    has_ranges = False
-
     def fix_value(value: str | None) -> str | None:
         """Fix a single testing_frequency value."""
-        nonlocal has_ranges
-
         if value is None or value == "":
             return None
 
         if "-" in value:
-            has_ranges = True
-
             try:
                 mean_value = replace_range_with_mean(value)
                 # Return as string, remove trailing .0 for whole numbers
@@ -366,21 +359,29 @@ def fix_testing_frequency(df: pl.DataFrame) -> pl.DataFrame:
 
         return value
 
+    # One finding per cell written as a range, with its sheet, patient, the value the
+    # clinic wrote and the mean published instead, so the cell can be found (ticket 4).
+    ranges = df.filter(pl.col("testing_frequency").str.contains("-", literal=True))
+    for row in ranges.iter_rows(named=True):
+        value = row["testing_frequency"]
+        report_finding(
+            error_code="testing_frequency_averaged",
+            message=(
+                f"Testing frequency {value!r} is a range; {fix_value(value)!r} was published."
+            ),
+            patient_id=row.get("patient_id") or "unknown",
+            column="testing_frequency",
+            original_value=value,
+            **sheet_context(row),
+            function_name="convert_testing_frequency",
+        )
+
     # Apply transformation
     df = df.with_columns(
         pl.col("testing_frequency")
         .map_elements(fix_value, return_dtype=pl.String)
         .alias("testing_frequency")
     )
-
-    # Log warning if any ranges were found
-    if has_ranges:
-        report_finding(
-            error_code="testing_frequency_averaged",
-            message="Found ranges in testing_frequency column. Replacing with mean values.",
-            column="testing_frequency",
-            function_name="convert_testing_frequency",
-        )
 
     return df
 
