@@ -159,7 +159,6 @@ FINDING_SCOPE: dict[ErrorCode, FindingScope] = {
     # at the whole column before deciding there is anything to say.
     "tracker_layout_changed": "tracker_column",
     "glucose_unit_swapped": "tracker_column",
-    "blood_pressure_unparseable": "tracker_column",
     "testing_frequency_averaged": "tracker_column",
     # One patient, deduplicated across the months they appear in. A diagnosis
     # date before a date of birth is a property of the patient; saying it once
@@ -178,6 +177,8 @@ FINDING_SCOPE: dict[ErrorCode, FindingScope] = {
     "excel_error_patient_id": "row",
     "missing_required_field": "row",
     "patient_id_unrepairable": "row",
+    # Ticket 4: one finding per unparseable cell, so the cell can be found.
+    "blood_pressure_unparseable": "row",
     "patient_id_recovered": "row",
     "source_formula_error": "row",
     "glucose_unit_suspect": "row",
