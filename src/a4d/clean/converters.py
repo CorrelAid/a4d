@@ -25,6 +25,29 @@ from a4d.config import settings
 from a4d.extract.common import EXCEL_ERROR_STRINGS
 from a4d.findings import PLACE_COLUMNS, ErrorCode, report_finding, sheet_context
 
+# The tracker columns computed by a formula, and the inputs that formula reads.
+# When one of these inputs is blank on the row, the formula had nothing to
+# compute from: the gap is the missing measurement, not the formula.
+FORMULA_INPUTS: dict[str, tuple[str, ...]] = {
+    "bmi": ("weight", "height"),
+    "t1d_diagnosis_age": ("dob", "t1d_diagnosis_date"),
+}
+
+
+def _formula_input_missing(row: dict, column: str) -> bool:
+    """True when a formula input of ``column`` is in the frame and blank on this row.
+
+    An input column that is not in the frame says nothing, so the finding stays.
+    Blank means null, empty, or a missing-value marker such as "-" or "NA".
+    """
+    for name in FORMULA_INPUTS.get(column, ()):
+        if name not in row:
+            continue
+        value = row[name]
+        if value is None or str(value).strip().lower() in MISSING_VALUE_MARKERS:
+            return True
+    return False
+
 
 def normalize_excel_formula_errors(
     df: pl.DataFrame,
@@ -51,6 +74,11 @@ def normalize_excel_formula_errors(
     distinction between "source formula could not compute this" and "field
     was simply blank" survives into the error log, even though both end up
     ``null`` in the data.
+
+    Not logged when the computed column's own inputs are blank on that row
+    (FORMULA_INPUTS: bmi from weight and height, t1d_diagnosis_age from dob and
+    t1d_diagnosis_date): the formula had nothing to compute from, so the gap is
+    the missing measurement, not the formula. The cell is still nulled.
     """
     data_cols = [col for col in df.columns if df.schema[col] == pl.String]
     if not data_cols:
@@ -65,6 +93,8 @@ def normalize_excel_formula_errors(
         if offenders.is_empty():
             continue
         for row in offenders.iter_rows(named=True):
+            if _formula_input_missing(row, col):
+                continue
             report_finding(
                 file_name=row.get(file_name_col) or None,
                 patient_id=row.get(patient_id_col) or "unknown",
