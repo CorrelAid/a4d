@@ -10,7 +10,7 @@ type: basic_function.
 import polars as pl
 
 from a4d.config import settings
-from a4d.findings import report_finding
+from a4d.findings import report_finding, sheet_context
 
 
 def strip_string_whitespace(df: pl.DataFrame) -> pl.DataFrame:
@@ -390,7 +390,7 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
 
     - Splits "120/80" format into two columns
     - Invalid formats (without "/") are replaced with error value
-    - Logs warning for invalid values
+    - Reports one finding per invalid value, with its sheet, patient and value
 
     Args:
         df: Input DataFrame with blood_pressure_mmhg column
@@ -406,30 +406,34 @@ def split_bp_in_sys_and_dias(df: pl.DataFrame) -> pl.DataFrame:
     if "blood_pressure_mmhg" not in df.columns:
         return df
 
-    # First, replace invalid values (those without "/") with error format
     error_val_int = int(settings.error_val_numeric)
+
+    # One finding per cell without "/", with its sheet, patient and the value the
+    # clinic wrote, so the data manager can find the cell (ticket 4). Taken before
+    # the value is overwritten with the error value below.
+    invalid = df.filter(~pl.col("blood_pressure_mmhg").str.contains("/", literal=True))
+    for row in invalid.iter_rows(named=True):
+        value = row["blood_pressure_mmhg"]
+        report_finding(
+            error_code="blood_pressure_unparseable",
+            message=(
+                f"Blood pressure {value!r} does not follow the format X/Y; "
+                f"replaced with {error_val_int}."
+            ),
+            patient_id=row.get("patient_id") or "unknown",
+            column="blood_pressure_mmhg",
+            original_value=value,
+            **sheet_context(row),
+            function_name="split_blood_pressure",
+        )
+
+    # Replace invalid values (those without "/") with the error value
     df = df.with_columns(
         pl.when(~pl.col("blood_pressure_mmhg").str.contains("/", literal=True))
         .then(pl.lit(f"{error_val_int}/{error_val_int}"))
         .otherwise(pl.col("blood_pressure_mmhg"))
         .alias("blood_pressure_mmhg")
     )
-
-    # Check if any invalid values were found
-    error_pattern = f"{error_val_int}/{error_val_int}"
-    has_errors = df.filter(pl.col("blood_pressure_mmhg") == error_pattern).height > 0
-
-    if has_errors:
-        report_finding(
-            error_code="blood_pressure_unparseable",
-            message=(
-                "Found invalid values for column blood_pressure_mmhg "
-                "that do not follow the format X/Y. "
-                f"Values were replaced with {error_val_int}."
-            ),
-            column="blood_pressure_mmhg",
-            function_name="split_blood_pressure",
-        )
 
     # Split the column, trimming each fragment. Polars' numeric cast fails on
     # surrounding whitespace, so without the trim every blood pressure written

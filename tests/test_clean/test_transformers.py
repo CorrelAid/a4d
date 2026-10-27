@@ -770,6 +770,7 @@ def test_split_bp_invalid_no_slash():
     """Test that values without slash are replaced with error value."""
     df = pl.DataFrame(
         {
+            "sheet_name": "Jan26",
             "blood_pressure_mmhg": ["96", "1,6", ""],
         }
     )
@@ -785,6 +786,7 @@ def test_split_bp_mixed_valid_invalid():
     """Test mixed valid and invalid values."""
     df = pl.DataFrame(
         {
+            "sheet_name": "Jan26",
             "blood_pressure_mmhg": ["96/55", "invalid", "120/80"],
         }
     )
@@ -855,6 +857,7 @@ def test_split_bp_multiple_invalid():
     """Test multiple invalid values log warning."""
     df = pl.DataFrame(
         {
+            "sheet_name": "Jan26",
             "blood_pressure_mmhg": ["invalid1", "invalid2", "96/55"],
         }
     )
@@ -929,3 +932,25 @@ class TestFixSexReportsUnrecognisedValues:
         fix_sex(df)
 
         assert [f.patient_id for f in collector.findings] == ["unknown"]
+
+
+def test_split_bp_reports_one_finding_per_invalid_cell(collector):
+    """Ticket 4: each cell without "/" gets its own finding, with the sheet, the
+    patient and the value the clinic wrote, so the data manager can find it.
+    A valid value and an empty cell give no finding."""
+    df = pl.DataFrame(
+        {
+            "sheet_name": ["Jan26", "Feb26", "Feb26", "Mar26"],
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
+            "blood_pressure_mmhg": ["120-80", "96/55", "high", None],
+        }
+    )
+
+    split_bp_in_sys_and_dias(df)
+
+    found = [
+        (f.sheet_name, f.patient_id, f.original_value)
+        for f in collector.findings
+        if f.error_code == "blood_pressure_unparseable"
+    ]
+    assert found == [("Jan26", "XX_QA001", "120-80"), ("Feb26", "XX_QA003", "high")]
