@@ -627,6 +627,7 @@ def test_fix_testing_frequency_range_replacement():
     df = pl.DataFrame(
         {
             "patient_id": ["P1", "P2", "P3"],
+            "sheet_name": "Jan26",
             "testing_frequency": ["0-2", "2-3", "1-5"],
         }
     )
@@ -641,6 +642,7 @@ def test_fix_testing_frequency_mixed():
     df = pl.DataFrame(
         {
             "patient_id": ["P1", "P2", "P3", "P4"],
+            "sheet_name": "Jan26",
             "testing_frequency": ["2", "0-2", "1.5", "2-3"],
         }
     )
@@ -671,6 +673,7 @@ def test_fix_testing_frequency_whole_numbers():
     df = pl.DataFrame(
         {
             "patient_id": ["P1", "P2"],
+            "sheet_name": "Jan26",
             "testing_frequency": ["0-2", "1-3"],
         }
     )
@@ -697,6 +700,7 @@ def test_fix_testing_frequency_large_range():
     df = pl.DataFrame(
         {
             "patient_id": ["P1"],
+            "sheet_name": "Jan26",
             "testing_frequency": ["0-10"],
         }
     )
@@ -711,6 +715,7 @@ def test_fix_testing_frequency_preserves_other_columns():
     df = pl.DataFrame(
         {
             "patient_id": ["P1", "P2"],
+            "sheet_name": "Jan26",
             "testing_frequency": ["0-2", "3"],
             "other_col": ["A", "B"],
         }
@@ -954,3 +959,26 @@ def test_split_bp_reports_one_finding_per_invalid_cell(collector):
         if f.error_code == "blood_pressure_unparseable"
     ]
     assert found == [("Jan26", "XX_QA001", "120-80"), ("Feb26", "XX_QA003", "high")]
+
+
+def test_fix_testing_frequency_reports_one_finding_per_range(collector):
+    """Ticket 4: each range gets its own finding, with the sheet, the patient, the
+    value the clinic wrote and the mean published. A single number and an empty
+    cell give no finding."""
+    df = pl.DataFrame(
+        {
+            "sheet_name": ["Jan26", "Feb26", "Feb26", "Mar26"],
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003", "XX_QA004"],
+            "testing_frequency": ["3-4", "2", "0-2", None],
+        }
+    )
+
+    result = fix_testing_frequency(df)
+
+    assert result["testing_frequency"].to_list() == ["3.5", "2", "1", None]
+    found = [
+        (f.sheet_name, f.patient_id, f.original_value)
+        for f in collector.findings
+        if f.error_code == "testing_frequency_averaged"
+    ]
+    assert found == [("Jan26", "XX_QA001", "3-4"), ("Feb26", "XX_QA003", "0-2")]
