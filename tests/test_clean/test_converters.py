@@ -1025,3 +1025,44 @@ def test_parse_date_flexible_treats_new_absence_words_as_missing():
     including the template's example text left in a cell."""
     for marker in ("???", "_", "Miss", "missing date", "mmm-yy", "e.g. xxx"):
         assert parse_date_flexible(marker) is None, marker
+
+
+def test_normalize_excel_formula_errors_skips_when_formula_inputs_are_blank(collector):
+    """A BMI error with weight or height blank is a missing measurement, not a
+    formula problem: the cell is nulled without a finding. With both inputs
+    recorded, the error is still reported."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 3,
+            "sheet_name": "Jan26",
+            "patient_id": ["XX_QA001", "XX_QA002", "XX_QA003"],
+            "weight": [None, "40", "40"],
+            "height": [None, "-", "1.5"],
+            "bmi": ["#DIV/0!", "#DIV/0!", "#DIV/0!"],
+        }
+    )
+
+    result = normalize_excel_formula_errors(df)
+
+    assert result["bmi"].to_list() == [None, None, None]
+    assert [f.patient_id for f in collector.findings] == ["XX_QA003"]
+
+
+def test_normalize_excel_formula_errors_age_at_diagnosis_needs_a_diagnosis_date(collector):
+    """An age-at-diagnosis error without a diagnosis date is not reported; with
+    both dates recorded, it is."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["test.xlsx"] * 2,
+            "sheet_name": "Patient List",
+            "patient_id": ["XX_QA001", "XX_QA002"],
+            "dob": ["2015-03-01", "2015-03-01"],
+            "t1d_diagnosis_date": [None, "2020-06-01"],
+            "t1d_diagnosis_age": ["#NUM!", "#NUM!"],
+        }
+    )
+
+    result = normalize_excel_formula_errors(df)
+
+    assert result["t1d_diagnosis_age"].to_list() == [None, None]
+    assert [f.patient_id for f in collector.findings] == ["XX_QA002"]
