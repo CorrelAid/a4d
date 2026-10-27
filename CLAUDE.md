@@ -3,7 +3,8 @@
 ## Python Pipeline
 
 **Location**: Repo root
-**Branch**: `migration`
+**Branch**: `dev` (default branch and trunk)
+**Review standards**: [CODESTYLE.md](CODESTYLE.md)
 
 Python implementation of the A4D medical tracker data processing pipeline.
 
