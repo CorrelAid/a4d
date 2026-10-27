@@ -108,15 +108,46 @@ BARE_YEAR_MAX = 2100
 # sentinel while the identical numeric cell was correctly nulled (ticket 38).
 # Compared against the stripped, lowercased value.
 MISSING_VALUE_MARKERS: frozenset[str] = frozenset(
-    {"", "na", "n/a", "n.a", "n.a.", "nan", "none", "null", "-", "--", "."}
+    {
+        "",
+        "na",
+        "n/a",
+        "n.a",
+        "n.a.",
+        "nan",
+        "none",
+        "null",
+        "-",
+        "--",
+        ".",
+        # Absence written as a word (ticket 6). The date path already nulled these
+        # (DATE_ABSENCE_MARKERS) while the numeric path published 999999 for them.
+        # "no" stays date-only: in a number cell it can mean 0.
+        "nil",
+        "nill",
+        "unknown",
+        "unknwon",
+        "uncertain",
+        "?",
+        "??",
+        "n\\a",
+        # Seen in the real trackers (ticket 6).
+        "???",
+        "_",
+        "miss",
+        "missing date",
+        # The template's example text, never replaced by a value (ticket 6).
+        "mmm-yy",
+        "e.g. xxx",
+    }
 )
 
 # Absence written as a word rather than as a marker. Date-scoped: these were
 # measured on the real 254-tracker set behind Python's own date sentinel
 # ("Nil" 510 rows, "Unknown" 481, "?" 130, plus two spellings of each), where
 # the sentinel's claim -- "a date was recorded and it is invalid" -- is simply
-# false. The numeric path stamps 999999 on the same words; whether it should
-# is a separate question this ticket deliberately did not reopen.
+# false. Ticket 6 added the same words to MISSING_VALUE_MARKERS, so the numeric
+# path nulls them too; only "no" stays date-only (in a number cell it can mean 0).
 DATE_ABSENCE_MARKERS: frozenset[str] = frozenset(
     {"nil", "nill", "no", "unknown", "unknwon", "uncertain", "?", "??", "n\\a"}
 )
