@@ -376,3 +376,25 @@ def test_static_table_sorting(cleaned_patient_data_files: list[Path], tmp_path: 
                 continue
             elif tracker_months[i] == tracker_months[i + 1]:
                 assert patient_ids[i] <= patient_ids[i + 1]
+
+
+def test_create_table_patient_data_static_adds_province_ascii(tmp_path):
+    """The static table keeps the official province and adds it without accents."""
+    columns = [
+        "clinic_id", "dob", "fbg_baseline_mg", "fbg_baseline_mmol", "file_name",
+        "hba1c_baseline", "hba1c_baseline_exceeds", "lost_date", "name",
+        "patient_consent", "patient_id", "province", "recruitment_date", "sex",
+        "status_out", "t1d_diagnosis_age", "t1d_diagnosis_date",
+        "t1d_diagnosis_with_dka", "tracker_date", "tracker_month", "tracker_year",
+    ]  # fmt: skip
+    df = pl.DataFrame({c: [None, None] for c in columns}).with_columns(
+        pl.Series("patient_id", ["XX_QA001", "XX_QA002"]),
+        pl.Series("province", ["Takéo", "Hà Nội"]),
+        pl.Series("tracker_year", [2026, 2026]),
+        pl.Series("tracker_month", [1, 1]),
+    )
+
+    out = pl.read_parquet(create_table_patient_data_static(df, tmp_path)).sort("patient_id")
+
+    assert out["province"].to_list() == ["Takéo", "Hà Nội"]
+    assert out["province_ascii"].to_list() == ["Takeo", "Ha Noi"]

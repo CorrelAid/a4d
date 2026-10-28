@@ -5,6 +5,8 @@ from pathlib import Path
 import polars as pl
 from loguru import logger
 
+from a4d.tables.accents import add_ascii_columns
+
 
 def read_cleaned_patient_data(cleaned_files: list[Path]) -> pl.DataFrame:
     """Read and combine all cleaned patient data files.
@@ -28,6 +30,9 @@ def create_table_patient_data_static(patient_data: pl.DataFrame, output_dir: Pat
     Selects static columns (data that doesn't change monthly) from the already-loaded
     cleaned patient dataframe. Groups by patient_id and takes the latest available
     data (latest year and month).
+
+    Adds province_ascii, the official province name without accents
+    ("Takéo" -> "Takeo").
 
     Args:
         patient_data: Combined cleaned patient dataframe (from read_cleaned_patient_data)
@@ -67,6 +72,9 @@ def create_table_patient_data_static(patient_data: pl.DataFrame, output_dir: Pat
         .last()
         .sort(["tracker_year", "tracker_month", "patient_id"])
     )
+
+    # Accent-free copy of the official province name ("Takéo" -> "Takeo")
+    static_data = add_ascii_columns(static_data, ["province"])
 
     logger.info(f"Static patient data dimensions: {static_data.shape}")
 
