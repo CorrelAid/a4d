@@ -738,6 +738,65 @@ def test_misplaced_datetime_cell_in_units_received_logs_and_recodes_to_zero(coll
     assert err.patient_id == "Accu-Chek Performa Test Strip"
 
 
+def test_units_received_absence_word_gives_no_finding(collector):
+    """An absence word in units received is nothing received: published as 0,
+    with no type_conversion finding (same list as the patient and date paths)."""
+    df = pl.DataFrame(
+        {
+            "file_name": ["2019_SB.xlsx"],
+            "product_sheet_name": ["Jun19"],
+            "product": ["Accu-Chek Performa Test Strip"],
+            "product_entry_date": [None],
+            "product_units_received": ["na"],  # typo cell
+            "product_units_released": [None],
+            "product_received_from": [None],
+            "product_released_to": [None],
+            "product_units_returned": [None],
+            "product_returned_by": [None],
+            "product_balance": [None],
+            "product_table_month": ["06"],
+            "product_table_year": [2019.0],
+            "product_balance_status": [None],
+            "product_category": [None],
+            "product_unit_capacity": [None],
+            "product_units_notes": [None],
+            "orig_product_released_to": [None],
+            "product_remarks": [None],
+        },
+        schema={
+            "file_name": pl.String,
+            "product_sheet_name": pl.String,
+            "product": pl.String,
+            "product_entry_date": pl.String,
+            "product_units_received": pl.String,
+            "product_units_released": pl.String,
+            "product_received_from": pl.String,
+            "product_released_to": pl.String,
+            "product_units_returned": pl.String,
+            "product_returned_by": pl.String,
+            "product_balance": pl.String,
+            "product_table_month": pl.String,
+            "product_table_year": pl.Float64,
+            "product_balance_status": pl.String,
+            "product_category": pl.String,
+            "product_unit_capacity": pl.String,
+            "product_units_notes": pl.String,
+            "orig_product_released_to": pl.String,
+            "product_remarks": pl.String,
+        },
+    )
+
+    out = clean_product_data(df)
+
+    assert out["product_units_received"].to_list() == [0.0]
+    units_errors = [
+        e
+        for e in collector.findings
+        if e.column == "product_units_received" and e.function_name == "_clean_units_received"
+    ]
+    assert units_errors == []
+
+
 def test_running_balance_eliminates_float_residue():
     """Pin .round(10) on the cumsum result. Without it, Python's vectorized
     cumsum yields 2.220446e-16 instead of 0 on rows where the running delta
