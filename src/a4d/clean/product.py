@@ -25,6 +25,7 @@ from a4d.clean.converters import (
     parse_date_column,
     safe_convert_column,
 )
+from a4d.clean.date_parser import MISSING_VALUE_MARKERS
 from a4d.clean.schema_product import apply_schema, get_product_data_schema, get_string_columns
 from a4d.config import settings
 from a4d.findings import present_place_columns, report_finding, sheet_context
@@ -870,7 +871,8 @@ def _clean_units_received(
     """Step 2.11 — zero out balance markers and cast to numeric.
 
     Rows where ``product_units_received`` contains "START", "END" or
-    "BALANCE" are set to 0. Remaining values are cast to numeric; failures
+    "BALANCE" are set to 0. Absence words (``MISSING_VALUE_MARKERS``) become
+    null without a finding. Remaining values are cast to numeric; failures
     yield null (then 0 via the second pass of step 2.12) and emit one
     ``type_conversion`` finding per row, so a quantity
     that could not be read is recoverable from the log rather than silently
@@ -883,8 +885,22 @@ def _clean_units_received(
         pl.col("product_units_received").cast(pl.Utf8).str.contains("(?i)START|END|BALANCE")
     )
     casted = pl.col("product_units_received").cast(pl.Float64, strict=False)
+    # An absence word ("na", "-", "nil", ...) records that nothing was received,
+    # not a quantity that could not be read: same list as the patient and date paths.
+    absent_mask = (
+        pl.col("product_units_received")
+        .cast(pl.Utf8)
+        .str.strip_chars()
+        .str.to_lowercase()
+        .is_in(list(MISSING_VALUE_MARKERS))
+    )
 
-    failure_mask = pl.col("product_units_received").is_not_null() & ~marker_mask & casted.is_null()
+    failure_mask = (
+        pl.col("product_units_received").is_not_null()
+        & ~marker_mask
+        & ~absent_mask
+        & casted.is_null()
+    )
     failures = df.filter(failure_mask)
     for row in failures.iter_rows(named=True):
         original = row["product_units_received"]
