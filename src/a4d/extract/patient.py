@@ -1249,6 +1249,7 @@ def read_all_patient_sheets(
                     f"{', '.join(change.headers)} -> {', '.join(change.canonical)}. "
                     "A tracker should keep one layout for the whole year; check the workbook."
                 ),
+                column=", ".join(change.canonical),
                 stage="extract",
                 function_name="read_all_patient_sheets",
             )
