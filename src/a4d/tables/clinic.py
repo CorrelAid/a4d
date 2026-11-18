@@ -1,6 +1,7 @@
 """Create clinic static data table from reference data.
 
-Reads clinic_data.xlsx, fills down hierarchical columns, exports as parquet.
+Reads clinic_data.xlsx, fills down hierarchical columns, adds accent-free
+copies of name columns, exports as parquet.
 """
 
 import warnings
@@ -10,6 +11,7 @@ import polars as pl
 from loguru import logger
 
 from a4d.reference.loaders import find_reference_data_dir
+from a4d.tables.accents import add_ascii_columns
 
 # polars' own calamine+pyarrow "eager sheet load" path in read_excel() calls
 # from_arrow() on an ArrowStreamExportable without disambiguating DataFrame
@@ -36,11 +38,16 @@ _FILL_COLUMNS = [
 ]
 
 
+# Columns that also get an accent-free copy, named <column>_ascii.
+_ASCII_COLUMNS = ["clinic_province"]
+
+
 def create_table_clinic_static(output_dir: Path) -> Path:
     """Create clinic static data table from reference data.
 
     Reads clinic_data.xlsx from reference_data/, fills hierarchical columns
-    downward, and writes parquet.
+    downward, adds clinic_province_ascii (the province without accents),
+    and writes parquet.
 
     Args:
         output_dir: Directory to write the parquet file
@@ -67,6 +74,9 @@ def create_table_clinic_static(output_dir: Path) -> Path:
     fill_cols = [c for c in _FILL_COLUMNS if c in df.columns]
     if fill_cols:
         df = df.with_columns([pl.col(c).forward_fill() for c in fill_cols])
+
+    # Accent-free copies, after the fill so every row has its value
+    df = add_ascii_columns(df, _ASCII_COLUMNS)
 
     logger.info(f"Clinic static data: {df.shape[0]} rows, {df.shape[1]} columns")
 
